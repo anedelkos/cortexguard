@@ -1,93 +1,171 @@
 # KitchenWatch
+Real-Time Multimodal Anomaly Detection & Fault-Tolerant AI Architecture for Collaborative Robotics
+
+
+## Short Description
+A distributed, real-time multimodal anomaly detection and recovery framework for collaborative robots operating among humans, combining local reflexive AI and cloud deliberative AI agents.
 
 
 
-## Getting started
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+# 🧭 Overview
+KitchenWatch is a real-time, multimodal anomaly detection and recovery system for collaborative robots operating in human environments.
+It utilizes cutting-edge AI techniques across sensor fusion, anomaly detection, and multi-agent fault tolerance — with separate AWS (training) and GCP (detection) pipelines.
 
-## Add your files
+It achieves situational awareness by fusing multiple sensor data with camera feeds and task intent which makes it able to recover from varying urgency faults, either environmental or self-caused using hierarchical anomaly reasoning.
+A local edge cognitive safety layer handles simple and semi complex anomalous situations while complex, resource intensive problems get handled at cloud level all while respecting on site urgent tasks as needed.
 
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
 
+# 🧩 Key Features
+* 🧠 Multimodal anomaly detection (sensor, camera, logs, intent fusion)
+* ⚡ Two-tier detection architecture (Edge: real-time | Cloud: deliberative)
+* 🤖 AI Agents (CrewAI) for safety, orchestration, recovery, human-in-loop
+* 🪄 Explainable AI layer (FastAPI GET /explain)
+* ☁️ AWS SageMaker for model training and GCP FastAPI for detection
+* 🧱 Model Registry and drift monitoring
+* 🧍 Human-assisted recovery via RAG + LLM
+* 🧮 Testing and evaluation notebooks
+* 📊 Prometheus/Grafana dashboards for observability
+* 🧪 Dataset simulator to replay IoT/robot data and inject anomalies
+
+
+🏗️ Architecture
+
+![Architecture diagram 10k](docs/architecture-high-level.png)
+
+
+Edge performs low-latency sensing + many lightweight detectors → a fusion/score layer computes a unified risk score → control arbiter enforces safety (stop/slow) and dispatches to agents (automated recovery or human), while cloud services do heavier correlation, logging and continuous learning.
+
+# Flow summary:
+    1. Edge collects telemetry + camera + sensor + intent data.
+    2. Local detectors analyze streams and send scores to the fusion engine.
+    3. The fusion engine computes a risk score and tier (1–3).
+    4. Edge agents act immediately on Tier 1 (STOP) and Tier 2 (SLOW).
+    5. Google cloud receives anomaly detected and plans remediation. Edge uses optimistic fallback
+    6. Google Cloud receives fused events for deliberation, planning, and long horizon anomaly detection.
+    7. Edge can receive alterations to behavior trees as a result of GCP deliberative layer.
+    8. AWS training pipeline continuously improves detectors and meta-models.
+
+
+# 🧠 AI Concepts
+
+|Concept                      |Implementation|
+|---                          |---|
+|Online Anomaly Detection     |Isolation Forest, Autoencoder, Streaming Stats|
+|Multimodal Fusion            |Sensor + Vision + Intent + Context|
+|Edge-Cloud Partitioning      |Local reflex vs cloud deliberation|
+|Explainability (XAI)         |SHAP + top contributing sensors|
+|Agentic AI                   |CrewAI Orchestrator, Safety Agent, Recovery Agent|
+|Human-in-the-Loop            |RAG + LLM guidance|
+|Model Lifecycle              |AWS training, registry, drift checks|
+|Observability                |Prometheus/Grafana metrics, OpenTelemetry traces|
+|Testing & Validation         |CI notebooks, anomaly replay, confusion matrices|
+
+
+# ⚙️ Getting Started
+1️⃣ Setup
 ```
-cd existing_repo
-git remote add origin https://gitlab.com/replikaa/kitchenwatch.git
-git branch -M main
-git push -uf origin main
+git clone https://gitlab.com/replikaa/kitchenwatch.git
+cd kitchenwatch
+pip install -r requirements.txt
 ```
 
-## Integrate with your tools
+2️⃣ Run Simulator
+```python edge/simulator/stream_simulator.py```
 
-- [ ] [Set up project integrations](https://gitlab.com/replikaa/kitchenwatch/-/settings/integrations)
+3️⃣ Start Detection Pipelines
+```
+# Start local edge FastAPI service
+uvicorn edge.api.main:app --host 0.0.0.0 --port 8080
 
-## Collaborate with your team
+# (In another terminal) Start cloud detection
+uvicorn cloud.detection.fastapi_service:app --host 0.0.0.0 --port 9090
+```
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+4️⃣ Observe Results
+* Open http://localhost:3000 for Grafana dashboard
+* Check logs/ for anomaly JSON events
+* Use GET /explain?event_id=... to retrieve model explanations
 
-## Test and Deploy
+🧪 Running Tests
+```
+pytest edge/tests
+pytest cloud/tests
+```
 
-Use the built-in continuous integration in GitLab.
+# 📈 Visualization & Evaluation
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+Use notebooks under /notebooks for:
+* Fusion model evaluation (evaluate_fusion.ipynb)
+* Drift detection (drift_analysis.ipynb)
+* Explainability plots (explainability_plots.ipynb)
 
-***
 
-# Editing this README
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+# 🧰 Tech Stack
 
-## Suggestions for a good README
+|Languages:          |Python 3.12, Terraform|
+|---|---|
+|Frameworks:         |FastAPI, CrewAI, PyTorch, scikit-learn, HuggingFace Transformers|
+|Infrastructure:     |AWS SageMaker, GCP Pub/Sub, Docker, Prometheus, Grafana, K8s|
+|Data Fusion:        |NumPy, Pandas, River (for streaming ML), OpenCV, ONNXRuntime|
+|Observability:      |OpenTelemetry|
+|Explainability:     |SHAP, LIME|
+|LLM & RAG:          |LangChain, ChromaDB|
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
 
-## Name
-Choose a self-explaining name for your project.
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+# 🧩 Agents Overview
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+|Agent	                    |Purpose	                            |Location|
+|---|---|---|
+|SafetyAgent	            |Reflexive stop/slow actions	        |Edge|
+|RecoveryAgent	            |Local retry/cleanup	                |Edge|
+|StateEstimatorAgent	    |Tracks task, context, health	        |Edge|
+|OrchestratorAgent	        |Coordinates CrewAI agents	            |Cloud|
+|DeliberativeAgent	        |LLM + retrieval for complex recovery	|Cloud|
+|HumanInterfaceAgent	    |RAG-powered operator dialogue	        |Cloud|
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+# 🛠️ Testing Scenarios
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+|Scenario	                    |Trigger	                |Expected Response|
+|---|---|---|
+|Dropped burger	                |Torque spike + occlusion	|Stop, identify drop, recover|
+|Smoke detected	                |Smoke sensor rise	        |Stop, human notification|
+|Ingredient moved by human	    |Vision mismatch	        |Pause, replan pick step|
+|Spill detected	                |Surface audio + torque	    |Pause, cleanup routine|
+|Lost vision	                |Occlusion + step timeout	|Slow, reattempt, escalate|
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+# 🧾 Evaluation Metrics
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+|Metric	                    |Description|
+|---|---|
+|Detection latency	        |Time from sensor input → decision|
+|False positive rate	    |Safety vs unnecessary interruptions|
+|MTTR	                    |Mean Time To Recover|
+|Recovery success rate	    |% anomalies successfully resolved|
+|Model drift score	        |Feature distribution change metric|
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+# 🧩 Future Work
+* Time-aware task scheduler
+* Reinforcement learning for recovery strategies
+* Fleet-wide detection and coordination
+* Integration with ROS2 / real robotic arm
+* Federated anomaly training
+* Securely encrypted communication with backend
+* OTA updates of edge agents
 
-## License
-For open source projects, say how it is licensed.
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+# 🧑‍💻 Author
+Andreas Nedelkos — Senior AI Engineer
+Passionate about fault-tolerant, human-aware robotics and multimodal intelligence.
+
+# 🏁 License
+MIT License
+
+
