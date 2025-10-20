@@ -1,0 +1,30 @@
+{
+  "name": "KitchenWatch Dev",
+  "build": {
+    "dockerfile": "Dockerfile.dev",
+    "context": ".."
+  },
+  "workspaceFolder": "/workspace/kitchenwatch",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace/kitchenwatch,type=bind,consistency=cached",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-azuretools.vscode-docker",
+        "charliermarsh.ruff",
+        "ms-python.black-formatter",
+        "ms-python.mypy-type-checker",
+        "njpwerner.autodocstring",
+        "njpwerner.taskfile"
+      ],
+      "settings": {
+        "python.venvPath": "/opt/venvs",
+        "python.defaultInterpreterPath": "/opt/venvs/kitchenwatch/bin/python",
+        "python.terminal.activateEnvironment": false
+      }
+    }
+  },
+  "postCreateCommand": "/opt/venvs/kitchenwatch/bin/python -m uv sync --group dev --active && /opt/venvs/kitchenwatch/bin/python -m uv sync --active",
+  "forwardPorts": [8000, 8888],
+  "remoteUser": "vscode"
+}

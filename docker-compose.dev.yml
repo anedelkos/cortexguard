@@ -1,0 +1,31 @@
+version: "3.9"
+
+services:
+  kitchenwatch-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: kitchenwatch-dev
+    restart: unless-stopped
+    tty: true
+    stdin_open: true
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PIP_NO_CACHE_DIR=1
+      - POETRY_VIRTUALENVS_CREATE=false
+      - UV_ENV=dev
+    volumes:
+      - ./:/workspace/kitchenwatch  # mount code
+      - /workspace/kitchenwatch/.cache/pip:/root/.cache/pip
+      - /workspace/kitchenwatch/.cache/pre-commit:/root/.cache/pre-commit
+    working_dir: /workspace/kitchenwatch
+    command: /bin/bash
+    ports:
+      - "8000:8000"  # FastAPI server port, if you run it
+      - "8888:8888"  # Optional, Jupyter or other services
+    networks:
+      - kitchenwatch-net
+
+networks:
+  kitchenwatch-net:
+    driver: bridge

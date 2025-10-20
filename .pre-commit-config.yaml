@@ -1,0 +1,90 @@
+# ============================================
+# KitchenWatch: Pre-commit configuration
+# Enforces linting, formatting, and type checks
+# across all contributors and CI pipelines.
+# ============================================
+
+# Each block defines an external repository
+# providing one or more pre-commit "hooks" to run
+# automatically before each git commit.
+
+
+repos:
+  # --------------------------------------------
+  # Ruff — Fast Python linter & formatter
+  # https://github.com/astral-sh/ruff
+  # --------------------------------------------
+  - repo: https://github.com/charliermarsh/ruff-pre-commit
+    # Pin exact version to ensure deterministic results
+    rev: v0.14.1
+    hooks:
+      # Static analysis, style & import sorting
+      - id: ruff
+        args: [--fix]   # Automatically fix simple issues when possible
+
+      # Optional: run Ruff's built-in code formatter
+      - id: ruff-format
+
+  # --------------------------------------------
+  # Black — Python code formatter (PEP8 compliant)
+  # --------------------------------------------
+  - repo: https://github.com/psf/black
+    rev: 25.9.0       # Match latest stable Black release
+    hooks:
+      - id: black       # Formats Python files for consistency
+
+
+  # --------------------------------------------
+  # Blacken-docs — Python docs formatter (PEP8 compliant)
+  # --------------------------------------------
+  - repo: https://github.com/asottile/blacken-docs
+    rev: 1.20.0
+    hooks:
+      - id: blacken-docs
+        additional_dependencies: ['black==25.9.0']
+
+
+  # --------------------------------------------
+  # Commitizen — Lint git commit messages
+  # --------------------------------------------
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v4.9.1
+    hooks:
+      - id: commitizen
+        stages: [commit-msg]
+
+  # --------------------------------------------
+  # Mypy — Static type checker for Python
+  # --------------------------------------------
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.18.2        # Pin to a stable release for consistent type checks
+    hooks:
+      - id: mypy
+        # Add common libs to make Mypy aware of their types
+        additional_dependencies:
+          [pandas, numpy, pydantic, opencv-python, fastapi, types-requests]
+        # Extra CLI arguments
+        args:
+          [
+            --ignore-missing-imports,    # Avoid false positives from 3rd-party libs
+            --disallow-untyped-defs      # Require type hints in function definitions
+          ]
+
+  # --------------------------------------------
+  # General hygiene checks
+  # --------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml            # Ensure YAML files are valid
+      - id: end-of-file-fixer     # Enforce newline at EOF
+      - id: trailing-whitespace   # Trim stray spaces automatically
+
+
+# ============================================
+# Usage:
+# 1. Install pre-commit once:
+#       pre-commit install
+# 2. Run on all files manually:
+#       pre-commit run --all-files
+# ============================================

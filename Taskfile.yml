@@ -1,0 +1,126 @@
+version: "3"
+
+vars:
+  python_version: "3.12"
+  src_dir: "src/kitchenwatch"
+  test_dir: "tests"
+  venv_path: ".venv-local"
+  uv_run: "{{.venv_path}}/bin/python -m uv run --active"
+
+
+tasks:
+  # --- Setup ---------------------------------------------------------
+  venv:
+    desc: "Create virtual environment and install dev dependencies"
+    cmds:
+      - "python{{.python_version}} -m venv {{.venv_path}}"
+      - "{{.venv_path}}/bin/python -m pip install --upgrade pip"
+      - "{{.venv_path}}/bin/python -m pip install 'uv>=0.9.5'"
+      - "{{.venv_path}}/bin/python -m uv sync --group dev --active"
+      - "{{.venv_path}}/bin/python -m uv run --active pre-commit install"
+
+  reinstall:
+    desc: "Recreate the environment from scratch"
+    cmds:
+      - "rm -rf {{.venv_path}}"
+      - "task venv"
+
+  env-info:
+    desc: "Show active Python environment and locations"
+    silent: true
+    cmds:
+      - |
+        echo "=== Environment Info ==="
+        echo "User: $(whoami)"
+        echo "PWD: $(pwd)"
+        echo "Python executable: $(which python)"
+        echo "Python version: $(python --version)"
+        echo "Virtualenv active? ${VIRTUAL_ENV:-None}"
+        echo "Path variable: $PATH"
+        if [ -f "./.venv/bin/activate" ]; then echo "Host .venv exists"; fi
+        if [ -d "/opt/venvs/kitchenwatch" ]; then echo "Container venv exists"; fi
+        if [ -f /.dockerenv ] || grep -qE 'docker|containerd' /proc/1/cgroup; then
+          echo "🧱 Running inside a container"
+        else
+          echo "💻 Running on host machine"
+        fi
+        if [ -d "{{.venv_path}}" ]; then echo "Host {{.venv_path}} exists"; else echo "Host {{.venv_path}} missing"; fi
+        echo "======================="
+
+
+  # --- Code Quality --------------------------------------------------
+  lint:
+    desc: "Run Ruff linter"
+    cmds:
+      - "{{.uv_run}} ruff check --target-version py312 {{.src_dir}} {{.test_dir}}"
+
+  format:
+    desc: "Run Ruff + Black autoformatters"
+    cmds:
+      - "{{.uv_run}} ruff check --target-version py312 --fix {{.src_dir}} {{.test_dir}}"
+      - "{{.uv_run}} black {{.src_dir}} {{.test_dir}}"
+
+  typecheck:
+    desc: "Run Mypy static type checking"
+    cmds:
+      - "{{.uv_run}} mypy --python-version {{.python_version}} {{.src_dir}}"
+
+  safety:
+    desc: "Run dependency vulnerability check"
+    cmds:
+      - "{{.uv_run}} safety check || true"
+
+  check:
+    desc: "Run full static analysis (Ruff + Mypy + Safety)"
+    deps: [lint, typecheck, safety]
+
+  # --- Testing -------------------------------------------------------
+  test:
+    desc: "Run tests with coverage"
+    cmds:
+      - "{{.uv_run}} pytest -v --cov={{.src_dir}} --cov-report=term-missing {{.test_dir}}"
+
+  test-async:
+    desc: "Run async tests only"
+    cmds:
+      - "{{.uv_run}} pytest -v -m 'asyncio' {{.test_dir}}"
+
+  # --- Commit & Docs -------------------------------------------------
+  precommit:
+    desc: "Run all pre-commit hooks"
+    cmds:
+      - "{{.uv_run}} pre-commit run --all-files"
+
+  cz-check:
+    desc: "Validate commits using Commitizen"
+    cmds:
+      - "{{.uv_run}} cz check --rev-range origin/main..HEAD"
+
+  # --- Containers ----------------------------------------------------
+  devcontainer-build:
+    desc: "Build the dev container image"
+    cmds:
+      - "docker build -f .devcontainer/Dockerfile.dev -t kitchenwatch-dev .."
+
+  devcontainer-shell:
+    desc: "Start an interactive shell inside the dev container"
+    cmds:
+      - "docker run --rm -it -v $(PWD):/workspace/kitchenwatch -w /workspace/kitchenwatch kitchenwatch-dev /bin/bash"
+
+  # --- Python cache --------------------------------------------------
+  pycache-clean:
+    desc: "Clean all __pycache__ folders and recompile for current uv Python"
+    cmds:
+      - "echo 'Cleaning all __pycache__ folders...'"
+      - "find {{.src_dir}} {{.test_dir}} -type d -name '__pycache__' -exec rm -rf {} +"
+      - "echo 'Recompiling Python files for {{.python_version}}...'"
+      - "uv run python -m compileall {{.src_dir}} {{.test_dir}} > /dev/null"
+      - "echo 'Done.'"
+
+
+
+  # --- Utility -------------------------------------------------------
+  default:
+    desc: "List all tasks"
+    cmds:
+      - "task --list"

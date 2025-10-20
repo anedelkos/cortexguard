@@ -1,0 +1,82 @@
+# --------------------------
+# Python
+# --------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.log
+
+# --------------------------
+# uv virtual environments
+# --------------------------
+.venv/
+.venv-local/
+.venv-local
+venv/
+uv.lock
+
+# --------------------------
+# Coverage
+# --------------------------
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+
+# --------------------------
+# Docker
+# --------------------------
+docker-compose.override.yml
+*.env
+*.pid
+*.sock
+
+# Ignore devcontainer build context
+.devcontainer/.env
+.devcontainer/.vscode
+
+# --------------------------
+# IDEs / Editors
+# --------------------------
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+.DS_Store
+
+# --------------------------
+# Jupyter / Notebooks
+# --------------------------
+.ipynb_checkpoints/
+*.nbconvert.ipynb
+
+# --------------------------
+# Data
+# --------------------------
+data/raw/
+data/processed/
+
+# --------------------------
+# Cache
+# --------------------------
+.cache/
+
+# --------------------------
+# Misc
+# --------------------------
+*.DS_Store
+*.swp
+*.bak
+*.tmp
+
+# --------------------------
+# Experiments
+# --------------------------
+scripts/scratchpad.py
