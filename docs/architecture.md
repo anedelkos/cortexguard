@@ -238,7 +238,7 @@ Edge performs low-latency sensing + many lightweight detectors → a fusion/scor
     * **Scenario tests (simulated)**: multi-task cooking with timed anomalies — measure how many items saved vs burned, false stop rate.
     * **Latency tests**: measure end-to-end time from sensor acquisition → decision → actuator command under different network conditions.
     * **Safety tests**: force hard-stop condition triggers, interlock validation.
-    
+
     Metrics to report on README: detection latency, P/R for hazardous classes, false positive rate per hour, successful automatic recovery rate, MTTR.
 
 

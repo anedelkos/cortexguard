@@ -14,7 +14,7 @@
     prompt = f"""
     Anomaly event:
     {json.dumps(event, indent=2)}
-    
+
     Explain in plain language what likely happened and what should be done.
     """
     explanation = llm_api.call(prompt)

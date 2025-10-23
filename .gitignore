@@ -62,6 +62,13 @@ docker-compose.override.yml
 # --------------------------
 data/raw/
 data/processed/
+data/fused/
+data/*.tar.gz
+data/*.zip
+data/*.npy
+data/*.jsonl
+data/*.pkl
+
 
 # --------------------------
 # Cache
