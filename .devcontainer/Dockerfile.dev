@@ -12,11 +12,16 @@ ENV PYTHONUNBUFFERED=1 \
 # Working directory
 WORKDIR /workspace/kitchenwatch
 
-# ---- System dependencies ----
+
+# ---- Shell utilities and Taskfile support ----
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    git curl wget build-essential && \
+    coreutils bash-completion ca-certificates \
+    git curl wget build-essential make && \
+    curl -sL https://taskfile.dev/install.sh | sh && \
+    mv ./bin/task /usr/local/bin/task && \
     rm -rf /var/lib/apt/lists/*
+
 
 # ---- Create virtual environment and install uv ----
 RUN python -m venv $VENV_PATH && \
@@ -26,12 +31,17 @@ RUN python -m venv $VENV_PATH && \
 # ---- Dependency metadata ----
 COPY pyproject.toml uv.lock ./
 
-# ---- Install dependencies ----
-RUN $VENV_PATH/bin/python -m uv sync --group dev --frozen --active
-
 # ---- Create non-root user ----
 RUN useradd -ms /bin/bash vscode && \
     chown -R vscode:vscode /workspace
 
+# ---- Install dependencies ----
+RUN $VENV_PATH/bin/python -m uv sync --group dev --frozen --active && \
+    chown -R vscode:vscode $VENV_PATH
+
+
 USER vscode
 CMD ["/bin/bash"]
+
+# ---- Activate environment----
+RUN echo 'source /opt/venvs/kitchenwatch/bin/activate' >> /home/vscode/.bashrc
