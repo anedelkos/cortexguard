@@ -4,7 +4,10 @@ version = "0.1.0"
 description = "Real-Time Multimodal Anomaly Detection & Fault-Tolerant AI Architecture for Collaborative Robotics"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "pydantic>=2.12.3",
+    "pyyaml>=6.0.3",
+]
 
 [dependency-groups]
 dev = [
@@ -14,6 +17,7 @@ dev = [
     "commitizen>=4.9.1",
     "deptry>=0.23.1",
     "interrogate>=1.7.0",
+    "jsonschema>=4.25.1",
     "mypy>=1.18.2",
     "pre-commit>=4.3.0",
     "pytest>=8.4.2",
@@ -22,6 +26,8 @@ dev = [
     "ruff>=0.14.1",
     "safety>=3.6.2",
     "tox>=4.31.0",
+    "types-jsonschema>=4.25.1.20251009",
+    "types-pyyaml>=6.0.12.20250915",
     "types-requests>=2.32.4.20250913",
 ]
 
@@ -77,10 +83,12 @@ python_version = "3.12"
 strict = true
 warn_unused_configs = true
 check_untyped_defs = true
-ignore_missing_imports = true
+disable_error_code = 'misc'
+ignore_missing_imports = false
 follow_imports = "silent"
 exclude = "data"
-files = ["src/kitchenwatch"]
+files = ["src/kitchenwatch", "tests"]
+mypy_path = "src"
 
 # Explicitly reinforce strictness
 disallow_untyped_defs = true
@@ -90,7 +98,7 @@ disallow_untyped_decorators = true
 disallow_any_unimported = true
 disallow_any_expr = true
 disallow_any_decorated = true
-disallow_any_explicit = true
+disallow_any_explicit = false
 disallow_any_generics = true
 warn_unused_ignores = true
 warn_return_any = true
@@ -102,7 +110,7 @@ no_implicit_optional = true
 
 [tool.pytest.ini_options]
 minversion = "7.0"
-addopts = "--strict-markers --maxfail=3 --tb=short --cov=services --cov-report=term-missing"
+addopts = "--strict-markers --maxfail=3 --tb=short --cov=src/kitchenwatch --cov-report=term-missing"
 testpaths = ["tests"]
 
 [tool.safety]

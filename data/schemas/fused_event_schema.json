@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FusedEvent",
+  "type": "object",
+  "required": [
+    "timestamp_ns",
+    "rgb_path",
+    "force_x", "force_y", "force_z",
+    "torque_x", "torque_y", "torque_z",
+    "pos_x", "pos_y", "pos_z"
+  ],
+  "properties": {
+    "timestamp_ns": { "type": "integer" },
+    "rgb_path": {
+      "type": "string",
+      "pattern": "^.+\\.(jpg|jpeg|png)$"
+    },
+    "depth_path": {
+      "type": ["string", "null"],
+      "pattern": "^.+\\.(png)$"
+    },
+    "force_x": { "type": "number" },
+    "force_y": { "type": "number" },
+    "force_z": { "type": "number" },
+    "torque_x": { "type": "number" },
+    "torque_y": { "type": "number" },
+    "torque_z": { "type": "number" },
+    "pos_x": { "type": "number" },
+    "pos_y": { "type": "number" },
+    "pos_z": { "type": "number" }
+  },
+  "additionalProperties": false
+}
