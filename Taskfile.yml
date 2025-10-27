@@ -4,6 +4,7 @@ vars:
   python_version: "3.12"
   src_dir: "src/kitchenwatch"
   test_dir: "tests"
+  demo_dir: "demo"
   venv_path: ".venv-local"
   uv_run: "{{.venv_path}}/bin/python -m uv run --active"
 
@@ -63,7 +64,7 @@ tasks:
   typecheck:
     desc: "Run Mypy static type checking"
     cmds:
-      - "{{.uv_run}} mypy --python-version {{.python_version}} {{.src_dir}}"
+      - "{{.uv_run}} mypy --python-version {{.python_version}} {{.src_dir}} {{.test_dir}} {{.demo_dir}}"
 
   safety:
     desc: "Run dependency vulnerability check"
@@ -78,12 +79,12 @@ tasks:
   test:
     desc: "Run tests with coverage"
     cmds:
-      - "{{.uv_run}} pytest -v --cov={{.src_dir}} --cov-report=term-missing {{.test_dir}}"
+      - "PYTHONPATH=src {{.uv_run}} pytest -v --cov={{.src_dir}} --cov-report=term-missing {{.test_dir}}"
 
   test-async:
     desc: "Run async tests only"
     cmds:
-      - "{{.uv_run}} pytest -v -m 'asyncio' {{.test_dir}}"
+      - "PYTHONPATH=src {{.uv_run}} pytest -v -m 'asyncio' {{.test_dir}}"
 
   # --- Commit & Docs -------------------------------------------------
   precommit:
@@ -116,6 +117,35 @@ tasks:
       - "echo 'Recompiling Python files for {{.python_version}}...'"
       - "uv run python -m compileall {{.src_dir}} {{.test_dir}} > /dev/null"
       - "echo 'Done.'"
+
+# --- Simulator and demo --------------------------------------------------
+
+  simulate:download:
+    desc: Download and extract robot dataset
+    cmds:
+      - "python data/download_dataset.py"
+
+  simulate:fuse:
+    desc: "Fuse one trial into JSONL"
+    cmds:
+      - "python demo/fuse_trial.py --images-dir ... --csv ... --out ..."
+
+  simulate:stream:
+    desc: "Stream fused data to edge"
+    cmds:
+      - "python demo/simulate_stream.py --input ... --mode http --endpoint ..."
+
+  simulate:all:
+    desc: "Run full simulation pipeline"
+    cmds:
+      - "task simulate:download"
+      - "task simulate:fuse"
+      - "task simulate:stream"
+
+  demo:run:
+    desc: "One-liner demo: fuse + stream + observe"
+    cmds:
+      - "bash demo/run_demo.sh"
 
 
   # --- Utility -------------------------------------------------------

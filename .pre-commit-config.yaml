@@ -62,7 +62,16 @@ repos:
       - id: mypy
         # Add common libs to make Mypy aware of their types
         additional_dependencies:
-          [pandas, numpy, pydantic, opencv-python, fastapi, types-requests]
+          [
+            pandas,
+            numpy,
+            pydantic,
+            opencv-python,
+            fastapi,
+            types-requests,
+            types-PyYAML,
+            pytest
+          ]
         # Extra CLI arguments
         args:
           [

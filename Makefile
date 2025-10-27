@@ -1,6 +1,7 @@
 .PHONY: venv reinstall env-info lint format typecheck safety check \
         test test-async precommit cz-check \
         devcontainer-build devcontainer-shell pycache-clean \
+        download fuse stream all demo \
         task-install task-help
 
 # --- Setup ---
@@ -53,6 +54,22 @@ devcontainer-shell:
 # --- Python Cache ---
 pycache-clean:
 	@task pycache-clean
+
+# --- Simulator and demo ---
+download:
+	@task simulate:download
+
+fuse:
+	@task simulate:fuse
+
+stream:
+	@task simulate:stream
+
+all:
+	@task simulate:all
+
+demo:
+	@task demo:run
 
 
 # --- Taskfile Bootstrap ---
