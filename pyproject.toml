@@ -110,7 +110,7 @@ no_implicit_optional = true
 
 [tool.pytest.ini_options]
 minversion = "7.0"
-addopts = "--strict-markers --maxfail=3 --tb=short --cov=src/kitchenwatch --cov-report=term-missing"
+addopts = "--strict-markers --maxfail=3 --tb=short --cov=kitchenwatch --cov-report=term-missing"
 testpaths = ["tests"]
 
 [tool.safety]

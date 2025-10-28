@@ -9,18 +9,15 @@ from kitchenwatch.simulation.models.trial import Trial
 VALID_MANIFEST = """
 trials:
   - trial_id: "1"
-    rgb_path: "rgb/1.png"
-    depth_path: null
-    timestamp_ns: 123
-    force_x: 1.0
-    force_y: 0.0
-    force_z: 0.0
-    torque_x: 0.1
-    torque_y: 0.2
-    torque_z: 0.3
-    pos_x: 0.0
-    pos_y: 0.0
-    pos_z: 0.0
+    subject: "subject_1"
+    food_type: "bagel"
+    trial_num: 1
+    sensor_file: "data/sample/subject_1_bagel/wrenches_poses_transforms/1_wrenches_poses.csv"
+    image_folder: "data/sample/subject_1_bagel/rgb_images/1/"
+    depth_folder: "data/sample/subject_1_bagel/depth_images/1/"
+    fusion_window: 0.03
+    anomaly_scenario: "none"
+    seed: 42
 """
 
 INVALID_MANIFESTS = [
@@ -28,23 +25,12 @@ INVALID_MANIFESTS = [
     ("not: [valid: yaml", ValueError),
     # missing 'trials' key
     ("not_trails_key: []", ValueError),
-    # invalid trial field type
+    # invalid trial entry (missing required field 'trial_id')
     (
         """
         trials:
-        - trial_id: "1"
-          rgb_path: "rgb/1.png"
-          depth_path: null
-          timestamp_ns: "not-an-int"
-          force_x: 1.0
-          force_y: 0.0
-          force_z: 0.0
-          torque_x: 0.1
-          torque_y: 0.2
-          torque_z: 0.3
-          pos_x: 0.0
-          pos_y: 0.0
-          pos_z: 0.0
+          - subject: "subject_1"
+            food_type: "bagel"
         """,
         ValueError,
     ),
@@ -62,7 +48,6 @@ def valid_manifest_file(tmp_path: Path) -> Path:
 def test_load_invalid_manifests(
     tmp_path: Path, manifest_content: str, expected_exception: type, caplog: LogCaptureFixture
 ) -> None:
-    """Parametrized test for all invalid manifests including logging."""
     f = tmp_path / "invalid.yaml"
     f.write_text(manifest_content)
     loader = ManifestLoader(f)
@@ -70,16 +55,12 @@ def test_load_invalid_manifests(
         with pytest.raises(expected_exception):
             loader.load()
 
-    # For validation errors, assert debug logs exist
-    if (
-        expected_exception is ValueError
-        and "trials" in manifest_content
-        or "not-an-int" in manifest_content
-    ):
-        assert (
-            "Trial #0 failed at" in caplog.text
-            or "Manifest must contain a top-level 'trials' key" in caplog.text
-        )
+        # If it was a trial-level validation error, ensure debug log exists
+        if "trials" in manifest_content or "subject" in manifest_content:
+            assert (
+                "failed" in caplog.text
+                or "Manifest must contain a top-level 'trials'" in caplog.text
+            )
 
 
 def test_load_valid_manifest(valid_manifest_file: Path) -> None:

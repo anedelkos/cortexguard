@@ -1,8 +1,29 @@
 from pathlib import Path
 
-DEFAULT_FULL_MANIFEST_PATH = Path("data/manifests/dataset_manifest.yaml")
-DEFAULT_SAMPLE_MANIFEST_PATH = Path("data/manifests/sample_manifest.yaml")
-DATA_DIR = Path("data")
+# --------------------------------------------------------------------
+# Resolve paths relative to the project root
+# --------------------------------------------------------------------
+# This file lives at: src/kitchenwatch/common/constants.py
+# So .resolve().parents[2] -> project root (one up from `src/`)
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+# --------------------------------------------------------------------
+# Data and schema directories
+# --------------------------------------------------------------------
+DATA_DIR = PROJECT_ROOT / "data"
 SAMPLE_DATA_DIR = DATA_DIR / "sample"
 SCHEMA_DIR = DATA_DIR / "schemas"
+
+# --------------------------------------------------------------------
+# File paths
+# --------------------------------------------------------------------
+DEFAULT_FULL_MANIFEST_PATH = DATA_DIR / "manifests" / "dataset_manifest.yaml"
+DEFAULT_SAMPLE_MANIFEST_PATH = DATA_DIR / "manifests" / "sample_manifest.yaml"
 FUSED_EVENT_SCHEMA = SCHEMA_DIR / "fused_event_schema.json"
+
+# --------------------------------------------------------------------
+# Optional: sanity check (useful during debugging)
+# --------------------------------------------------------------------
+if __name__ == "__main__":
+    print(f"PROJECT_ROOT: {PROJECT_ROOT}")
+    print(f"FUSED_EVENT_SCHEMA exists: {FUSED_EVENT_SCHEMA.exists()}")
