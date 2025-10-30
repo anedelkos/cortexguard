@@ -70,13 +70,15 @@ repos:
             fastapi,
             types-requests,
             types-PyYAML,
-            pytest
+            pytest,
+            pandas-stubs
           ]
         # Extra CLI arguments
         args:
           [
             --ignore-missing-imports,    # Avoid false positives from 3rd-party libs
-            --disallow-untyped-defs      # Require type hints in function definitions
+            --disallow-untyped-defs,      # Require type hints in function definitions
+            --config-file=pyproject.toml
           ]
 
   # --------------------------------------------

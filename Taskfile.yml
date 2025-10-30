@@ -86,6 +86,23 @@ tasks:
     cmds:
       - "PYTHONPATH=src {{.uv_run}} pytest -v -m 'asyncio' {{.test_dir}}"
 
+  test-unit:
+    desc: "Run unit tests only"
+    cmds:
+      - "PYTHONPATH=src {{.uv_run}} pytest -v {{.test_dir}}/unit --maxfail=1 --disable-warnings --cov={{.src_dir}} --cov-report=term-missing"
+
+  test-integration:
+    desc: "Run integration tests only"
+    cmds:
+      - "PYTHONPATH=src {{.uv_run}} pytest -v {{.test_dir}}/integration --maxfail=1 --disable-warnings --cov={{.src_dir}} --cov-report=term-missing"
+
+
+  test-e2e:
+    desc: "Run e2e tests only"
+    cmds:
+      - "PYTHONPATH=src {{.uv_run}} pytest -v {{.test_dir}}/e2e --maxfail=1 --disable-warnings --cov={{.src_dir}} --cov-report=term-missing"
+
+
   # --- Commit & Docs -------------------------------------------------
   precommit:
     desc: "Run all pre-commit hooks"
@@ -115,7 +132,7 @@ tasks:
       - "echo 'Cleaning all __pycache__ folders...'"
       - "find {{.src_dir}} {{.test_dir}} -type d -name '__pycache__' -exec rm -rf {} +"
       - "echo 'Recompiling Python files for {{.python_version}}...'"
-      - "uv run python -m compileall {{.src_dir}} {{.test_dir}} > /dev/null"
+      - "{{.uv_run}} python -m compileall {{.src_dir}} {{.test_dir}} > /dev/null"
       - "echo 'Done.'"
 
 # --- Simulator and demo --------------------------------------------------
