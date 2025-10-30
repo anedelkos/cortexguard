@@ -61,3 +61,22 @@ class ManifestLoader:
                 return trial
 
         raise ValueError(f"Trial ID '{trial_id}' not found in manifest")
+
+    def save(self, trials: list[Trial]) -> None:
+        """Safely save updated trials to the manifest YAML file."""
+        data = {
+            "trials": [
+                {k: str(v) if isinstance(v, Path) else v for k, v in t.model_dump().items()}
+                for t in trials
+            ]
+        }
+
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with open(self.path, "w", encoding="utf-8") as f:
+                yaml.safe_dump(data, f, sort_keys=False)
+            self.logger.info(f"Manifest saved successfully to {self.path}")
+
+        except (OSError, yaml.YAMLError) as e:
+            self.logger.error(f"Failed to save manifest to {self.path}: {e}")
+            raise RuntimeError(f"Error writing manifest file: {self.path}") from e

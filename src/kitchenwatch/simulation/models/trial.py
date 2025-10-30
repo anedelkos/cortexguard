@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from pydantic import BaseModel
 
 
@@ -16,3 +18,6 @@ class Trial(BaseModel):
     fusion_window: float = 0.03
     anomaly_scenario: str | None = None
     seed: int | None = None
+
+    # added by fuser
+    fused_file: Path | None = None

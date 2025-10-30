@@ -1,6 +1,9 @@
 from pathlib import Path
+from typing import Any
+from unittest.mock import mock_open, patch
 
 import pytest
+import yaml
 from _pytest.logging import LogCaptureFixture
 
 from kitchenwatch.simulation.manifest_loader import ManifestLoader
@@ -96,3 +99,58 @@ def test_missing_file_raises() -> None:
     loader = ManifestLoader(Path("/non/existent/file.yaml"))
     with pytest.raises(FileNotFoundError):
         loader.load()
+
+
+@pytest.fixture
+def dummy_trial() -> Trial:
+    return Trial(
+        trial_id="bagel_001",
+        subject="subject_1",
+        food_type="bagel",
+        trial_num=1,
+        sensor_file="fake/path.csv",
+        image_folder="rgb/",
+        depth_folder="depth/",
+        fusion_window=0.03,
+        seed=42,
+    )
+
+
+def test_save_manifest_success(tmp_path: Path, dummy_trial: Trial) -> None:
+    """Test that manifest is saved successfully and YAML content is correct."""
+    manifest_path = tmp_path / "manifest.yaml"
+    loader = ManifestLoader(manifest_path)
+
+    # Patch open to use a mock file
+    m = mock_open()
+    with patch("builtins.open", m):
+        loader.save([dummy_trial])
+
+    # Verify open() was called correctly
+    m.assert_called_once_with(manifest_path, "w", encoding="utf-8")
+
+    # Extract what was written and validate YAML structure
+    handle = m()
+    written_data = "".join(call.args[0] for call in handle.write.call_args_list)
+    loaded = yaml.safe_load(written_data)
+
+    assert "trials" in loaded
+    assert loaded["trials"][0]["trial_id"] == "bagel_001"
+
+
+def test_save_manifest_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, dummy_trial: Trial
+) -> None:
+    """Test that a write failure raises RuntimeError."""
+    manifest_path = tmp_path / "manifest.yaml"
+    loader = ManifestLoader(manifest_path)
+
+    def fail_open(*args: Any, **kwargs: Any) -> None:
+        raise OSError("Disk full")
+
+    monkeypatch.setattr("builtins.open", fail_open)
+
+    with pytest.raises(RuntimeError) as exc:
+        loader.save([dummy_trial])
+
+    assert "Error writing manifest file" in str(exc.value)

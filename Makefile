@@ -1,5 +1,5 @@
 .PHONY: venv reinstall env-info lint format typecheck safety check \
-        test test-async precommit cz-check \
+        test test-async test-unit test-integration test-e2e precommit cz-check \
         devcontainer-build devcontainer-shell pycache-clean \
         download fuse stream all demo \
         task-install task-help
@@ -36,6 +36,15 @@ test:
 
 test-async:
 	@task test-async
+
+test-unit:
+	@task test-unit
+
+test-integration:
+	@task test-integration
+
+test-e2e:
+	@task test-e2e
 
 # --- Commit & Docs ---
 precommit:

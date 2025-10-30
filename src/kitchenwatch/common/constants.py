@@ -13,6 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DATA_DIR = PROJECT_ROOT / "data"
 SAMPLE_DATA_DIR = DATA_DIR / "sample"
 SCHEMA_DIR = DATA_DIR / "schemas"
+DEFAULT_FUSED_DATA_PATH = DATA_DIR / "fused"
 
 # --------------------------------------------------------------------
 # File paths
