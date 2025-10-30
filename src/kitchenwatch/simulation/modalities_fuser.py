@@ -47,11 +47,45 @@ class ModalityFuser:
             for f in sorted(folder.glob(f"*{suffix}"))
         ]
 
+    def _preprocess_sensor_df(self, csv_path: Path) -> pd.DataFrame:
+        """Load a sensor CSV and normalize column names for fusion."""
+        df = pd.read_csv(csv_path)
+
+        # Map CSV columns → FusedRecord field names
+        column_map = {
+            "Force X (N)": "force_x",
+            "Force Y (N)": "force_y",
+            "Force Z (N)": "force_z",
+            "Torque X (Nm)": "torque_x",
+            "Torque Y (Nm)": "torque_y",
+            "Torque Z (Nm)": "torque_z",
+            "Forktip Pose X (m)": "pos_x",
+            "Forktip Pose Y (m)": "pos_y",
+            "Forktip Pose Z (m)": "pos_z",
+            "Forktip Pose Roll (rad)": "roll",
+            "Forktip Pose Pitch (rad)": "pitch",
+            "Forktip Pose Yaw (rad)": "yaw",
+        }
+
+        # Keep only columns that exist in the CSV
+        existing_columns = {k: v for k, v in column_map.items() if k in df.columns}
+        df = df.rename(columns=existing_columns)
+
+        # Convert timestamps to nanoseconds if needed
+        if "Time (sec)" in df.columns:
+            df["timestamp_ns"] = (df["Time (sec)"] * 1e9).astype(int)
+        elif "timestamp_ns" not in df.columns:
+            raise ValueError("Expected 'Time (sec)' or 'timestamp_ns' in CSV")
+
+        return df
+
     def fuse_trial(
         self, trial: Trial, fusion_strategy: BaseFusionStrategy | None = None
     ) -> list[WindowedFusedRecord | FusedRecord]:
         """Fuse modalities for a single trial."""
-        sensor_df = pd.read_csv(trial.sensor_file)
+
+        sensor_df = self._preprocess_sensor_df(Path(trial.sensor_file))
+
         rgb_frames = self._load_frames(Path(trial.image_folder), "_rgb.jpg")
         depth_frames = (
             self._load_frames(Path(trial.depth_folder), "_depth.png") if trial.depth_folder else []

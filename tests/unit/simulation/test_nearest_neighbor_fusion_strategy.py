@@ -19,11 +19,22 @@ def test_nearest_neighbor_fusion_basic() -> None:
             "Forktip Pose X (m)": [0, 0.1, 0.2],
             "Forktip Pose Y (m)": [0, 0.2, 0.4],
             "Forktip Pose Z (m)": [0, 0.3, 0.6],
-            "Forktip Pose Roll (rad)": [0, 0.01, 0.02],
-            "Forktip Pose Pitch (rad)": [0, 0.02, 0.04],
-            "Forktip Pose Yaw (rad)": [0, 0.03, 0.06],
         }
     )
+
+    # Preprocess to snake_case as fuse expects
+    column_map = {
+        "Force X (N)": "force_x",
+        "Force Y (N)": "force_y",
+        "Force Z (N)": "force_z",
+        "Torque X (Nm)": "torque_x",
+        "Torque Y (Nm)": "torque_y",
+        "Torque Z (Nm)": "torque_z",
+        "Forktip Pose X (m)": "pos_x",
+        "Forktip Pose Y (m)": "pos_y",
+        "Forktip Pose Z (m)": "pos_z",
+    }
+    sensor_df = sensor_df.rename(columns=column_map)
 
     rgb_frames = [
         {"timestamp_ns": 1_000_000_000, "path": "frame1.jpg"},  # 1.0 sec
@@ -34,8 +45,8 @@ def test_nearest_neighbor_fusion_basic() -> None:
     fused = strategy.fuse(sensor_df, rgb_frames)
 
     assert len(fused) == 2
-    assert fused[0]["Force X (N)"] == 15  # avg of 10, 20 near 1.0 sec
-    assert fused[1]["Force X (N)"] == 30
+    assert fused[0]["force_x"] == 15  # avg of 10, 20 near 1.0 sec
+    assert fused[1]["force_x"] == 30
 
 
 def test_nearest_neighbor_fusion_complex() -> None:
@@ -52,11 +63,21 @@ def test_nearest_neighbor_fusion_complex() -> None:
             "Forktip Pose X (m)": [0, 0.1, 0.2, 0.3],
             "Forktip Pose Y (m)": [0, 0.2, 0.4, 0.6],
             "Forktip Pose Z (m)": [0, 0.3, 0.6, 0.9],
-            "Forktip Pose Roll (rad)": [0, 0.01, 0.02, 0.03],
-            "Forktip Pose Pitch (rad)": [0, 0.02, 0.04, 0.06],
-            "Forktip Pose Yaw (rad)": [0, 0.03, 0.06, 0.09],
         }
     )
+
+    column_map = {
+        "Force X (N)": "force_x",
+        "Force Y (N)": "force_y",
+        "Force Z (N)": "force_z",
+        "Torque X (Nm)": "torque_x",
+        "Torque Y (Nm)": "torque_y",
+        "Torque Z (Nm)": "torque_z",
+        "Forktip Pose X (m)": "pos_x",
+        "Forktip Pose Y (m)": "pos_y",
+        "Forktip Pose Z (m)": "pos_z",
+    }
+    sensor_df = sensor_df.rename(columns=column_map)
 
     rgb_frames = [
         {"timestamp_ns": 1_000_000_000, "path": "frame1.jpg"},
@@ -69,5 +90,5 @@ def test_nearest_neighbor_fusion_complex() -> None:
 
     # Only the first two frames should have fused sensor readings
     assert len(fused) == 2
-    assert fused[0]["Force X (N)"] == 15  # avg of 10, 20 near 1.0 sec
-    assert fused[1]["Force X (N)"] == 30  # single reading near 2.0 sec
+    assert fused[0]["force_x"] == 15  # avg of 10, 20 near 1.0 sec
+    assert fused[1]["force_x"] == 30  # single reading near 2.0 sec

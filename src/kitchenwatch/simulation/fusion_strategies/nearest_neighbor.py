@@ -30,18 +30,15 @@ class NearestNeighborFusion(BaseFusionStrategy):
             )
 
             numeric_cols = [
-                "Force X (N)",
-                "Force Y (N)",
-                "Force Z (N)",
-                "Torque X (Nm)",
-                "Torque Y (Nm)",
-                "Torque Z (Nm)",
-                "Forktip Pose X (m)",
-                "Forktip Pose Y (m)",
-                "Forktip Pose Z (m)",
-                "Forktip Pose Roll (rad)",
-                "Forktip Pose Pitch (rad)",
-                "Forktip Pose Yaw (rad)",
+                "force_x",
+                "force_y",
+                "force_z",
+                "torque_x",
+                "torque_y",
+                "torque_z",
+                "pos_x",
+                "pos_y",
+                "pos_z",
             ]
 
             nearby = sensor_df.loc[window_mask, numeric_cols]
