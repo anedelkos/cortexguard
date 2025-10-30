@@ -126,14 +126,22 @@ tasks:
       - "docker run --rm -it -v $(PWD):/workspace/kitchenwatch -w /workspace/kitchenwatch kitchenwatch-dev /bin/bash"
 
   # --- Python cache --------------------------------------------------
-  pycache-clean:
-    desc: "Clean all __pycache__ folders and recompile for current uv Python"
+  pycache-purge:
+    desc: "Purge all __pycache__ folders"
+    cmds:
+      - "echo 'Purging all __pycache__ folders...'"
+      - "find {{.src_dir}} {{.test_dir}} -type d -name '__pycache__' -exec rm -rf {} +"
+      - "echo 'Done.'"
+
+  pycache-rebuild:
+    desc: "Rebuild all __pycache__ folders and recompile Python files"
     cmds:
       - "echo 'Cleaning all __pycache__ folders...'"
       - "find {{.src_dir}} {{.test_dir}} -type d -name '__pycache__' -exec rm -rf {} +"
       - "echo 'Recompiling Python files for {{.python_version}}...'"
       - "{{.uv_run}} python -m compileall {{.src_dir}} {{.test_dir}} > /dev/null"
       - "echo 'Done.'"
+
 
 # --- Simulator and demo --------------------------------------------------
 

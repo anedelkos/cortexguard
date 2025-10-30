@@ -82,6 +82,7 @@ data/*.pkl
 *.swp
 *.bak
 *.tmp
+.~lock*
 
 # --------------------------
 # Experiments
