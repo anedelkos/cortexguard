@@ -153,12 +153,12 @@ tasks:
   simulate:fuse:
     desc: "Fuse one trial into JSONL"
     cmds:
-      - "python demo/fuse_trial.py --images-dir ... --csv ... --out ..."
+      - "PYTHONPATH=src python demo/fuse_trial.py --manifest data/manifests/sample_manifest.yaml"
 
   simulate:stream:
     desc: "Stream fused data to edge"
     cmds:
-      - "python demo/simulate_stream.py --input ... --mode http --endpoint ..."
+      - "PYTHONPATH=src python demo/simulate_stream.py"
 
   simulate:all:
     desc: "Run full simulation pipeline"

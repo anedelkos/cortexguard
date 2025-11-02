@@ -1,19 +1,21 @@
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from kitchenwatch.simulation.models.base_record import BaseFusedRecord
 
 
-class FusedRecord(BaseModel):
+class FusedRecord(BaseFusedRecord):
     timestamp_ns: int = Field(description="Nanosecond timestamp from image filename")
     rgb_path: str = Field(description="Path to RGB image")
     depth_path: str | None = Field(default=None, description="Path to depth image (optional)")
 
-    force_x: float = Field(description="Force in X (N)")
-    force_y: float = Field(description="Force in Y (N)")
-    force_z: float = Field(description="Force in Z (N)")
+    force_x: float | None = None
+    force_y: float | None = None
+    force_z: float | None = None
 
-    torque_x: float = Field(description="Torque in X (Nm)")
-    torque_y: float = Field(description="Torque in Y (Nm)")
-    torque_z: float = Field(description="Torque in Z (Nm)")
+    torque_x: float | None = None
+    torque_y: float | None = None
+    torque_z: float | None = None
 
-    pos_x: float = Field(description="Feeling position X (m)")
-    pos_y: float = Field(description="Feeling position Y (m)")
-    pos_z: float = Field(description="Feeling position Z (m)")
+    pos_x: float | None = None
+    pos_y: float | None = None
+    pos_z: float | None = None

@@ -53,7 +53,7 @@ def test_fused_record_valid_construction(record: FusedRecord) -> None:
     [
         ("force_x", "not-a-float"),
         ("timestamp_ns", "not-an-int"),
-        ("pos_y", None),
+        ("pos_y", "not-a-float"),
     ],
 )
 def test_fused_record_invalid_field(field: str, value: Any) -> None:
