@@ -33,6 +33,8 @@ The script will:
 2. Stream the fused records to the edge module in real time.
 
 
+See `docs/simulator.md` for usage of fuser and streamer tasks.
+
 ## What to expect
 
 * The simulator outputs logs showing progress of streaming.

@@ -2,6 +2,7 @@
 import argparse
 from pathlib import Path
 
+from kitchenwatch.common.constants import DEFAULT_FULL_MANIFEST_PATH, DEFAULT_FUSED_DATA_PATH
 from kitchenwatch.simulation.fusion_strategies.windowed import WindowedFusion
 from kitchenwatch.simulation.modalities_fuser import ModalityFuser
 
@@ -11,13 +12,13 @@ def main() -> None:
     parser.add_argument(
         "--manifest",
         type=Path,
-        default=Path("data/manifests/dataset_manifest.yaml"),
+        default=DEFAULT_FULL_MANIFEST_PATH,
         help="Path to the manifest YAML file",
     )
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("data/fused/fused_dataset.jsonl"),
+        default=DEFAULT_FUSED_DATA_PATH,
         help="Path to write the fused JSONL dataset",
     )
     args = parser.parse_args()
@@ -31,7 +32,7 @@ def main() -> None:
     # Here we assume you want to fuse all trials in the manifest
     for trial in fuser.loader.trials:
         output_path = fuser.fuse_and_save_trial(
-            trial.trial_id, output_dir=args.output.parent, fusion_strategy=strategy
+            trial.trial_id, output_dir=args.output, fusion_strategy=strategy
         )
         print(f"Fused trial {trial.trial_id} → {output_path}")
 
