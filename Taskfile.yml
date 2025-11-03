@@ -5,6 +5,7 @@ vars:
   src_dir: "src/kitchenwatch"
   test_dir: "tests"
   demo_dir: "demo"
+  data_dir: "data"
   venv_path: ".venv-local"
   uv_run: "{{.venv_path}}/bin/python -m uv run --active"
 
@@ -53,13 +54,13 @@ tasks:
   lint:
     desc: "Run Ruff linter"
     cmds:
-      - "{{.uv_run}} ruff check --target-version py312 {{.src_dir}} {{.test_dir}}"
+      - "{{.uv_run}} ruff check --target-version py312 {{.src_dir}} {{.test_dir}} {{.demo_dir}} {{.data_dir}}"
 
   format:
     desc: "Run Ruff + Black autoformatters"
     cmds:
-      - "{{.uv_run}} ruff check --target-version py312 --fix {{.src_dir}} {{.test_dir}}"
-      - "{{.uv_run}} black {{.src_dir}} {{.test_dir}}"
+      - "{{.uv_run}} ruff check --target-version py312 --fix {{.src_dir}} {{.test_dir}} {{.demo_dir}} {{.data_dir}}"
+      - "{{.uv_run}} black {{.src_dir}} {{.test_dir}} {{.demo_dir}} {{.data_dir}}"
 
   typecheck:
     desc: "Run Mypy static type checking"
