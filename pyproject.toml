@@ -31,6 +31,11 @@ dev = [
     "types-jsonschema>=4.25.1.20251009",
     "types-pyyaml>=6.0.12.20250915",
     "types-requests>=2.32.4.20250913",
+    "ipython>=9.6.0",
+    "ipywidgets>=8.1.8",
+    "pillow>=12.0.0",
+    "plotly>=6.3.1",
+    "nbformat>=5.10.4",
 ]
 
 
