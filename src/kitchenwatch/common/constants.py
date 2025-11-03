@@ -14,11 +14,12 @@ DATA_DIR = PROJECT_ROOT / "data"
 SAMPLE_DATA_DIR = DATA_DIR / "sample"
 SCHEMA_DIR = DATA_DIR / "schemas"
 DEFAULT_FUSED_DATA_PATH = DATA_DIR / "fused"
+DEFAULT_RAW_DATA_PATH = DATA_DIR / "raw"
 
 # --------------------------------------------------------------------
 # File paths
 # --------------------------------------------------------------------
-DEFAULT_FULL_MANIFEST_PATH = DATA_DIR / "manifests" / "dataset_manifest.yaml"
+DEFAULT_FULL_MANIFEST_PATH = DATA_DIR / "manifests" / "full_dataset_manifest.yaml"
 DEFAULT_SAMPLE_MANIFEST_PATH = DATA_DIR / "manifests" / "sample_manifest.yaml"
 FUSED_EVENT_SCHEMA = SCHEMA_DIR / "fused_event_schema.json"
 

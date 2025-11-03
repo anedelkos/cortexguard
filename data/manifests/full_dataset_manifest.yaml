@@ -1,0 +1,43 @@
+trials:
+  - trial_id: bagel_001
+    subject: subject1
+    food_type: bagel
+    trial_num: 1
+    sensor_file: data/raw/wrenches_poses_transforms/subject1_bagel/1_wrenches_poses.csv
+    image_folder: data/raw/rgb_images/subject1_bagel/1/
+    depth_folder: data/raw/depth_images/subject1_bagel/1/
+    fusion_window: 0.03
+    anomaly_scenario: none
+    seed: 42
+    fused_file:
+    download_files:
+      rgb_images:
+        url: https://dataverse.harvard.edu/api/access/datafile/6690621
+        target_dir: data/raw/rgb_images
+      depth_images:
+        url: https://dataverse.harvard.edu/api/access/datafile/6690634
+        target_dir: data/raw/depth_images
+      wrenches:
+        url: https://dataverse.harvard.edu/api/access/datafile/6690640
+        target_dir: data/raw/wrenches_poses_transforms
+  - trial_id: bagel_002
+    subject: subject1
+    food_type: bagel
+    trial_num: 2
+    sensor_file: data/raw/wrenches_poses_transforms/subject1_bagel/2_wrenches_poses.csv
+    image_folder: data/raw/rgb_images/subject1_bagel/2/
+    depth_folder: data/raw/depth_images/subject1_bagel/2/
+    fusion_window: 0.03
+    anomaly_scenario: none
+    seed: 42
+    fused_file:
+    download_files:
+      rgb_images:
+        url: https://dataverse.harvard.edu/api/access/datafile/6690621
+        target_dir: data/raw/rgb_images
+      depth_images:
+        url: https://dataverse.harvard.edu/api/access/datafile/6690634
+        target_dir: data/raw/depth_images
+      wrenches:
+        url: https://dataverse.harvard.edu/api/access/datafile/6690640
+        target_dir: data/raw/wrenches_poses_transforms
