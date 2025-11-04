@@ -149,7 +149,7 @@ tasks:
   simulate:download:
     desc: Download and extract robot dataset
     cmds:
-      - "python data/download_dataset.py"
+      - "PYTHONPATH=src python data/download_dataset.py"
 
   simulate:fuse:
     desc: "Fuse one trial into JSONL"
@@ -172,6 +172,44 @@ tasks:
     desc: "One-liner demo: fuse + stream + observe"
     cmds:
       - "bash demo/run_demo.sh"
+
+  simulate:local:
+    desc: Run simulation script directly in the local venv
+    vars:
+      manifest: '{{.manifest | default "data/manifests/sample_dataset_manifest.yaml"}}'
+      rate: '{{.rate | default "1.0"}}'
+      repeat: '{{.repeat | default "0"}}'
+    cmds:
+      - "bash scripts/run_simulator.sh --manifest {{.manifest}} --rate {{.rate}} --repeat {{.repeat}}"
+
+
+# --- Simulator container --------------------------------------------------
+  simulator:build:
+    desc: "Build the kitchenwatch-simulator Docker image"
+    cmds:
+      - "docker compose -f docker-compose.dev.yaml build simulator"
+
+  simulator:run-dev:
+    desc: "Run the kitchenwatch-simulator container in development mode"
+    cmds:
+      - "docker compose -f docker-compose.dev.yaml run --rm simulator"
+
+  simulator:run-with:
+    desc: Run the simulator with custom manifest, rate, or repeat args
+    vars:
+      manifest: '{{.manifest | default "data/manifests/sample_dataset_manifest.yaml"}}'
+      rate: '{{.rate | default "1.0"}}'
+      repeat: '{{.repeat | default "0"}}'
+    cmds:
+      - >
+        docker compose -f docker-compose.dev.yaml run --rm simulator
+        --manifest {{.manifest}} --rate {{.rate}} --repeat {{.repeat}}
+
+  simulator:clean:
+    desc: Stop and remove simulator containers, volumes, and networks
+    cmds:
+      - "docker compose -f docker-compose.dev.yaml down -v --remove-orphans"
+
 
 
   # --- Utility -------------------------------------------------------

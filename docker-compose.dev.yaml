@@ -1,0 +1,24 @@
+
+
+services:
+  simulator:
+    build:
+      context: .
+      dockerfile: docker/simulator.Dockerfile
+    container_name: kitchenwatch-simulator-dev
+    working_dir: /workspace/kitchenwatch
+    command:  []
+    environment:
+      - PYTHONUNBUFFERED=1
+      - UV_ENV=dev
+      - MANIFEST_PATH=/workspace/kitchenwatch/data/manifests/sample_dataset_manifest.yaml
+      - FUSED_DIR=/workspace/kitchenwatch/data/fused
+    volumes:
+      # Mount local folders for live development (overrides COPY in Dockerfile)
+      - ./src:/workspace/kitchenwatch/src
+      - ./demo:/workspace/kitchenwatch/demo
+      - ./data:/workspace/kitchenwatch/data
+      - ./scripts:/workspace/kitchenwatch/scripts
+    ports:
+      - "8080:8080"    # if simulator exposes an API or socket (optional)
+    restart: unless-stopped

@@ -1,0 +1,20 @@
+
+
+services:
+  simulator:
+    image: kitchenwatch-simulator:latest
+    build:
+      context: .
+      dockerfile: docker/simulator.Dockerfile
+    container_name: kitchenwatch-simulator
+    working_dir: /workspace/kitchenwatch
+    command: []
+    environment:
+      - PYTHONUNBUFFERED=1
+      - UV_ENV=prod
+      - MANIFEST_PATH=/workspace/kitchenwatch/data/manifests/sample_dataset_manifest.yaml
+      - FUSED_DIR=/workspace/kitchenwatch/data/fused
+    # No volume mounts — uses built-in COPY layers
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
