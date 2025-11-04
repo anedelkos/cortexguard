@@ -1,0 +1,43 @@
+# ---- Python cache and artifacts ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.log
+build/
+dist/
+.eggs/
+*.egg
+
+# ---- Virtual environments ----
+.venv/
+.venv-local/
+env/
+venv/
+
+# ---- IDE and editor metadata ----
+.vscode/
+.devcontainer/
+.idea/
+
+# ---- Git and CI ----
+.git/
+.gitlab/
+.gitignore
+.gitlab-ci.yml
+
+# ---- Large or generated data (mounted at runtime) ----
+data/raw/
+data/fused/
+data/tmp/
+logs/
+tmp/
+*.tmp
+
+# ---- Local notebooks and caches ----
+notebooks/
+*.ipynb_checkpoints/
+
+# ---- Compose overrides, temp files ----
+docker-compose.override.yml
+docker-compose*.log
+*.pid
