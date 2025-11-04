@@ -44,12 +44,12 @@ def test_download_and_extract_skips_if_dir_exists(tmp_path: Path) -> None:
     (target_dir / "existing_folder").mkdir(parents=True)
 
     with (
-        patch("data.download_dataset.urlretrieve") as mock_url,
+        patch("data.download_dataset.urlopen") as mock_urlopen,
         patch("tarfile.open") as mock_open,
     ):
         downloader._download_and_extract(url, target_dir)
 
-    mock_url.assert_not_called()
+    mock_urlopen.assert_not_called()
     mock_open.assert_not_called()
 
 
@@ -58,7 +58,7 @@ def test_download_and_extract_http_error(tmp_path: Path) -> None:
     url = "http://example.com/error.tar.gz"
     target_dir = tmp_path / "target"
 
-    with patch("data.download_dataset.urlretrieve") as mock_url:
-        mock_url.side_effect = URLError("Network fail")
+    with patch("data.download_dataset.urlopen") as mock_urlopen:
+        mock_urlopen.side_effect = URLError("Network fail")
         with pytest.raises(RuntimeError):
             downloader._download_and_extract(url, target_dir)
