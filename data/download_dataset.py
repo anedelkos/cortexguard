@@ -78,8 +78,6 @@ class DatasetDownloader:
                     self.logger.error(f"Failed to process {trial_id}/{name}: {e}")
                     raise e
 
-    from urllib.request import Request, urlopen
-
     def _download_and_extract(self, url: str, target_dir: Path) -> None:
         """Download and extract a .tar.gz archive. Skip if files already exist."""
         target_dir.mkdir(parents=True, exist_ok=True)

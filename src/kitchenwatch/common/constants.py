@@ -20,7 +20,7 @@ DEFAULT_RAW_DATA_PATH = DATA_DIR / "raw"
 # File paths
 # --------------------------------------------------------------------
 DEFAULT_FULL_MANIFEST_PATH = DATA_DIR / "manifests" / "full_dataset_manifest.yaml"
-DEFAULT_SAMPLE_MANIFEST_PATH = DATA_DIR / "manifests" / "sample_manifest.yaml"
+DEFAULT_SAMPLE_MANIFEST_PATH = DATA_DIR / "manifests" / "sample_dataset_manifest.yaml"
 FUSED_EVENT_SCHEMA = SCHEMA_DIR / "fused_event_schema.json"
 
 # --------------------------------------------------------------------

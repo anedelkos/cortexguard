@@ -33,7 +33,7 @@ def main() -> None:
         "--manifest",
         type=Path,
         default=DEFAULT_FULL_MANIFEST_PATH,
-        help="Path to dataset manifest (default: data/manifests/dataset_manifest.yaml).",
+        help="Path to dataset manifest (default: data/manifests/full_dataset_manifest.yaml).",
     )
     parser.add_argument(
         "--trial-id",
