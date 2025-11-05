@@ -51,7 +51,11 @@ def load_fused_records[T: BaseFusedRecord](
                 try:
                     records.append(record_type(**obj))
                 except Exception as e:
-                    assert record_type is not None
+                    if record_type is None:
+                        raise RuntimeError(
+                            "record_type should have been inferred before parsing records"
+                        ) from e
+
                     raise ValueError(
                         f"Failed to parse record at line {line_no} as {record_type.__name__}: {e}"
                     ) from e
