@@ -82,6 +82,59 @@ repos:
           ]
 
   # --------------------------------------------
+  # Bandit — Scans for security issues in Python code
+  # --------------------------------------------
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.8.6
+    hooks:
+      - id: bandit
+        args: [ "-r" ]
+        files: ^src/
+
+  # --------------------------------------------
+  # Deptry - Detects unused, missing, or miscategorized dependencies.
+  # --------------------------------------------
+  - repo: https://github.com/fpgmaas/deptry
+    rev: 0.23.1
+    hooks:
+      - id: deptry
+        args: ["src", "-nb"]
+
+  # --------------------------------------------
+  # Interrogate - Checks for missing docstrings.
+  # --------------------------------------------
+  - repo: https://github.com/econchick/interrogate
+    rev: 1.7.0
+    hooks:
+      - id: interrogate
+        args: ["--fail-under", "30", "--exclude", "tests,scripts"]
+
+  # --------------------------------------------
+  # nbstripout - Strips output cells from notebooks before committing.
+  # --------------------------------------------
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.6.1
+    hooks:
+      - id: nbstripout
+
+  # --------------------------------------------
+  # Test
+  # --------------------------------------------
+  - repo: local
+    hooks:
+      - id: pytest
+        name: Run pytest
+        entry: bash
+        language: system
+        pass_filenames: false  # prevents pre-commit from passing file args
+        args:
+          - -c
+          - |
+            rm -f .coverage*  # clean up any leftover coverage files
+            PYTHONPATH=src COVERAGE_NO_PARALLEL=true pytest -v --cov=src --cov-report=term-missing tests
+
+
+  # --------------------------------------------
   # General hygiene checks
   # --------------------------------------------
   - repo: https://github.com/pre-commit/pre-commit-hooks
