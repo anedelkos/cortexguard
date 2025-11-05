@@ -1,0 +1,148 @@
+[project]
+name = "KitchenWatch"
+version = "0.1.0"
+description = "Real-Time Multimodal Anomaly Detection & Fault-Tolerant AI Architecture for Collaborative Robotics"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pandas>=2.3.3",
+    "pydantic>=2.12.3",
+    "pyyaml>=6.0.3",
+]
+
+[dependency-groups]
+dev = [
+    "bandit>=1.8.6",
+    "black>=25.9.0",
+    "blacken-docs>=1.20.0",
+    "commitizen>=4.9.1",
+    "deptry>=0.23.1",
+    "interrogate>=1.7.0",
+    "jsonschema>=4.25.1",
+    "mypy>=1.18.2",
+    "pandas-stubs>=2.3.2.250926",
+    "pre-commit>=4.3.0",
+    "pytest>=8.4.2",
+    "pytest-asyncio>=1.2.0",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.14.1",
+    "safety>=3.6.2",
+    "tox>=4.31.0",
+    "types-jsonschema>=4.25.1.20251009",
+    "types-pyyaml>=6.0.12.20250915",
+    "types-requests>=2.32.4.20250913",
+    "ipython>=9.6.0",
+    "ipywidgets>=8.1.8",
+    "pillow>=12.0.0",
+    "plotly>=6.3.1",
+    "nbformat>=5.10.4",
+]
+
+
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+include = '\.pyi?$'
+exclude = '''
+(
+  /(
+      \.git
+    | \.venv
+    | build
+    | dist
+    | __pycache__
+    | docker
+    | .devcontainer
+  )/
+)
+'''
+
+[tool.ruff]
+exclude = [
+    ".git",
+    "__pycache__",
+    "build",
+    "dist",
+    "docker",
+    ".devcontainer",
+]
+line-length = 100  # line length handled by Black
+target-version = "py312"
+src = ["src/kitchenwatch"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["kitchenwatch"]
+
+
+[tool.isort]
+profile = "black"
+line_length = 100
+src_paths = ["src"]
+
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_configs = true
+check_untyped_defs = true
+disable_error_code = 'misc'
+ignore_missing_imports = false
+follow_imports = "silent"
+exclude = "data"
+files = ["src/kitchenwatch", "tests"]
+mypy_path = "src"
+
+# Explicitly reinforce strictness
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_calls = true
+disallow_untyped_decorators = true
+disallow_any_unimported = true
+disallow_any_expr = true
+disallow_any_decorated = true
+disallow_any_explicit = false
+disallow_any_generics = true
+warn_unused_ignores = true
+warn_return_any = true
+warn_no_return = true
+no_implicit_optional = true
+
+
+
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "--strict-markers --maxfail=3 --tb=short --cov=kitchenwatch --cov-report=term-missing"
+testpaths = ["tests"]
+
+[tool.safety]
+# Mostly run via CLI, but could have a section if using CI
+ignore = []
+
+[tool.coverage.run]
+branch = true
+source = ["src"]
+omit = ["tests/*", "docker/*", ".devcontainer/*", "__pycache__/*"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+exclude_lines = [
+    "if __name__ == .__main__.:",
+    "pragma: no cover"
+]
+
+[tool.pydocstyle]
+convention = "numpy"
+add_ignore = ["D104", "D107"]  # ignores missing docstring in packages/classes if you prefer
+
+[tool.bandit]
+skips = ["B101"]  # Example: skip asserts for testing
+
+[tool.pre-commit]
+# pre-commit itself does not use pyproject.toml, but tools invoked by pre-commit (Black, Ruff, Mypy) will

@@ -1,0 +1,220 @@
+version: "3"
+
+vars:
+  python_version: "3.12"
+  src_dir: "src/kitchenwatch"
+  test_dir: "tests"
+  demo_dir: "demo"
+  data_dir: "data"
+  venv_path: ".venv-local"
+  uv_run: "{{.venv_path}}/bin/python -m uv run --active"
+
+
+tasks:
+  # --- Setup ---------------------------------------------------------
+  venv:
+    desc: "Create virtual environment and install dev dependencies"
+    cmds:
+      - "python{{.python_version}} -m venv {{.venv_path}}"
+      - "{{.venv_path}}/bin/python -m pip install --upgrade pip"
+      - "{{.venv_path}}/bin/python -m pip install 'uv>=0.9.5'"
+      - "{{.venv_path}}/bin/python -m uv sync --group dev --active"
+      - "{{.venv_path}}/bin/python -m uv run --active pre-commit install"
+
+  reinstall:
+    desc: "Recreate the environment from scratch"
+    cmds:
+      - "rm -rf {{.venv_path}}"
+      - "task venv"
+
+  env-info:
+    desc: "Show active Python environment and locations"
+    silent: true
+    cmds:
+      - |
+        echo "=== Environment Info ==="
+        echo "User: $(whoami)"
+        echo "PWD: $(pwd)"
+        echo "Python executable: $(which python)"
+        echo "Python version: $(python --version)"
+        echo "Virtualenv active? ${VIRTUAL_ENV:-None}"
+        echo "Path variable: $PATH"
+        if [ -f "./.venv/bin/activate" ]; then echo "Host .venv exists"; fi
+        if [ -d "/opt/venvs/kitchenwatch" ]; then echo "Container venv exists"; fi
+        if [ -f /.dockerenv ] || grep -qE 'docker|containerd' /proc/1/cgroup; then
+          echo "🧱 Running inside a container"
+        else
+          echo "💻 Running on host machine"
+        fi
+        if [ -d "{{.venv_path}}" ]; then echo "Host {{.venv_path}} exists"; else echo "Host {{.venv_path}} missing"; fi
+        echo "======================="
+
+
+  # --- Code Quality --------------------------------------------------
+  lint:
+    desc: "Run Ruff linter"
+    cmds:
+      - "{{.uv_run}} ruff check --target-version py312 {{.src_dir}} {{.test_dir}} {{.demo_dir}} {{.data_dir}}"
+
+  format:
+    desc: "Run Ruff + Black autoformatters"
+    cmds:
+      - "{{.uv_run}} ruff check --target-version py312 --fix {{.src_dir}} {{.test_dir}} {{.demo_dir}} {{.data_dir}}"
+      - "{{.uv_run}} black {{.src_dir}} {{.test_dir}} {{.demo_dir}} {{.data_dir}}"
+
+  typecheck:
+    desc: "Run Mypy static type checking"
+    cmds:
+      - "{{.uv_run}} mypy --python-version {{.python_version}} {{.src_dir}} {{.test_dir}} {{.demo_dir}}"
+
+  safety:
+    desc: "Run dependency vulnerability check"
+    cmds:
+      - "{{.uv_run}} safety check || true"
+
+  check:
+    desc: "Run full static analysis (Ruff + Mypy + Safety)"
+    deps: [lint, typecheck, safety]
+
+  # --- Testing -------------------------------------------------------
+  test:
+    desc: "Run tests with coverage"
+    cmds:
+      - "rm -f .coverage*"
+      - "PYTHONPATH=src {{.uv_run}} pytest -v --cov={{.src_dir}} --cov-report=term-missing {{.test_dir}}"
+
+  test-async:
+    desc: "Run async tests only"
+    cmds:
+      - "PYTHONPATH=src {{.uv_run}} pytest -v -m 'asyncio' {{.test_dir}}"
+
+  test-unit:
+    desc: "Run unit tests only"
+    cmds:
+      - "PYTHONPATH=src {{.uv_run}} pytest -v {{.test_dir}}/unit --maxfail=1 --disable-warnings --cov={{.src_dir}} --cov-report=term-missing"
+
+  test-integration:
+    desc: "Run integration tests only"
+    cmds:
+      - "PYTHONPATH=src {{.uv_run}} pytest -v {{.test_dir}}/integration --maxfail=1 --disable-warnings --cov={{.src_dir}} --cov-report=term-missing"
+
+
+  test-e2e:
+    desc: "Run e2e tests only"
+    cmds:
+      - "PYTHONPATH=src {{.uv_run}} pytest -v {{.test_dir}}/e2e --maxfail=1 --disable-warnings --cov={{.src_dir}} --cov-report=term-missing"
+
+
+  # --- Commit & Docs -------------------------------------------------
+  precommit:
+    desc: "Run all pre-commit hooks"
+    cmds:
+      - "{{.uv_run}} pre-commit run --all-files"
+
+  cz-check:
+    desc: "Validate commits using Commitizen"
+    cmds:
+      - "{{.uv_run}} cz check --rev-range origin/main..HEAD"
+
+  # --- Containers ----------------------------------------------------
+  devcontainer-build:
+    desc: "Build the dev container image"
+    cmds:
+      - "docker build -f .devcontainer/Dockerfile.dev -t kitchenwatch-dev .."
+
+  devcontainer-shell:
+    desc: "Start an interactive shell inside the dev container"
+    cmds:
+      - "docker run --rm -it -v $(PWD):/workspace/kitchenwatch -w /workspace/kitchenwatch kitchenwatch-dev /bin/bash"
+
+  # --- Python cache --------------------------------------------------
+  pycache-purge:
+    desc: "Purge all __pycache__ folders"
+    cmds:
+      - "echo 'Purging all __pycache__ folders...'"
+      - "find {{.src_dir}} {{.test_dir}} -type d -name '__pycache__' -exec rm -rf {} +"
+      - "echo 'Done.'"
+
+  pycache-rebuild:
+    desc: "Rebuild all __pycache__ folders and recompile Python files"
+    cmds:
+      - "echo 'Cleaning all __pycache__ folders...'"
+      - "find {{.src_dir}} {{.test_dir}} -type d -name '__pycache__' -exec rm -rf {} +"
+      - "echo 'Recompiling Python files for {{.python_version}}...'"
+      - "{{.uv_run}} python -m compileall {{.src_dir}} {{.test_dir}} > /dev/null"
+      - "echo 'Done.'"
+
+
+# --- Simulator and demo --------------------------------------------------
+
+  simulate:download:
+    desc: Download and extract robot dataset
+    cmds:
+      - "PYTHONPATH=src python data/download_dataset.py"
+
+  simulate:fuse:
+    desc: "Fuse one trial into JSONL"
+    cmds:
+      - "PYTHONPATH=src python demo/fuse_trial.py --manifest data/manifests/sample_dataset_manifest.yaml"
+
+  simulate:stream:
+    desc: "Stream fused data to edge"
+    cmds:
+      - "PYTHONPATH=src python demo/simulate_stream.py"
+
+  simulate:all:
+    desc: "Run full simulation pipeline"
+    cmds:
+      - "task simulate:download"
+      - "task simulate:fuse"
+      - "task simulate:stream"
+
+  demo:run:
+    desc: "One-liner demo: fuse + stream + observe"
+    cmds:
+      - "bash demo/run_demo.sh"
+
+  simulate:local:
+    desc: Run simulation script directly in the local venv
+    vars:
+      manifest: '{{.manifest | default "data/manifests/sample_dataset_manifest.yaml"}}'
+      rate: '{{.rate | default "1.0"}}'
+      repeat: '{{.repeat | default "0"}}'
+    cmds:
+      - "bash scripts/run_simulator.sh --manifest {{.manifest}} --rate {{.rate}} --repeat {{.repeat}}"
+
+
+# --- Simulator container --------------------------------------------------
+  simulator:build:
+    desc: "Build the kitchenwatch-simulator Docker image"
+    cmds:
+      - "docker compose -f docker-compose.dev.yaml build simulator"
+
+  simulator:run-dev:
+    desc: "Run the kitchenwatch-simulator container in development mode"
+    cmds:
+      - "docker compose -f docker-compose.dev.yaml run --rm simulator"
+
+  simulator:run-with:
+    desc: Run the simulator with custom manifest, rate, or repeat args
+    vars:
+      manifest: '{{.manifest | default "data/manifests/sample_dataset_manifest.yaml"}}'
+      rate: '{{.rate | default "1.0"}}'
+      repeat: '{{.repeat | default "0"}}'
+    cmds:
+      - >
+        docker compose -f docker-compose.dev.yaml run --rm simulator
+        --manifest {{.manifest}} --rate {{.rate}} --repeat {{.repeat}}
+
+  simulator:clean:
+    desc: Stop and remove simulator containers, volumes, and networks
+    cmds:
+      - "docker compose -f docker-compose.dev.yaml down -v --remove-orphans"
+
+
+
+  # --- Utility -------------------------------------------------------
+  default:
+    desc: "List all tasks"
+    cmds:
+      - "task --list"

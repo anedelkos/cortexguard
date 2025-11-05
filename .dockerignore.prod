@@ -1,0 +1,41 @@
+# Everything except source and manifests
+
+# ---- Ignore development-only content ----
+.vscode/
+.devcontainer/
+.idea/
+.git/
+.gitlab/
+.gitignore
+.gitlab-ci.yml
+Taskfile.yaml
+
+# ---- Ignore large local data ----
+data/raw/
+data/fused/
+data/tmp/
+logs/
+tmp/
+
+# ---- Ignore notebooks, tests, and scratch files ----
+notebooks/
+tests/
+scratchpad.py
+*.ipynb
+*.ipynb_checkpoints/
+*.log
+
+# ---- Ignore build artifacts ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+.venv-local/
+env/
+venv/
+
+# ---- But KEEP core data and manifests ----
+!data/manifests/
+!data/manifests/*.yaml

@@ -72,7 +72,9 @@ pip install -r requirements.txt
 ```
 
 2️⃣ Run Simulator
-```python edge/simulator/stream_simulator.py```
+```
+python edge/simulator/stream_simulator.py
+```
 
 3️⃣ Start Detection Pipelines
 ```
@@ -161,11 +163,18 @@ Use notebooks under /notebooks for:
 * OTA updates of edge agents
 
 
+# 🧹 Code Quality
+KitchenWatch enforces production-level quality with:
+* Ruff for linting + formatting
+* mypy for static typing
+* pytest for testing
+* Bandit for security scanning
+* pre-commit for local commit checks
+
+
 # 🧑‍💻 Author
 Andreas Nedelkos — Senior AI Engineer
 Passionate about fault-tolerant, human-aware robotics and multimodal intelligence.
 
 # 🏁 License
 MIT License
-
-
