@@ -5,9 +5,12 @@ description = "Real-Time Multimodal Anomaly Detection & Fault-Tolerant AI Archit
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "fastapi[standard]>=0.121.0",
     "pandas>=2.3.3",
     "pydantic>=2.12.3",
     "pyyaml>=6.0.3",
+    "requests>=2.32.5",
+    "uvicorn[standard]>=0.38.0",
 ]
 
 [dependency-groups]
@@ -127,7 +130,7 @@ ignore = []
 [tool.coverage.run]
 branch = true
 source = ["src"]
-omit = ["tests/*", "docker/*", ".devcontainer/*", "__pycache__/*"]
+omit = ["tests/*", "docker/*", ".devcontainer/*", "__pycache__/*", "src/kitchenwatch/common/logging_config.py"]
 
 [tool.coverage.report]
 fail_under = 80
@@ -146,3 +149,7 @@ skips = ["B101"]  # Example: skip asserts for testing
 
 [tool.pre-commit]
 # pre-commit itself does not use pyproject.toml, but tools invoked by pre-commit (Black, Ruff, Mypy) will
+
+
+[tool.deptry.per_rule_ignores]
+DEP002 = ["uvicorn"]

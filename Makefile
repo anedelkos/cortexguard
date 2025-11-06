@@ -3,6 +3,7 @@
         devcontainer-build devcontainer-shell pycache-clean \
         simulate-download simulate-fuse simulate-stream simulate-all demo-run \
         simulate-local simulator-build simulator-run-dev simulator-run-with simulator-clean \
+        edge-run \
         task-install task-help
 
 # --- Setup ---
@@ -95,6 +96,9 @@ simulator-run-with:
 
 simulator-clean:
 	@task simulator:clean
+
+edge-run:
+	@task edge:run
 
 # --- Taskfile Bootstrap ---
 task-install:

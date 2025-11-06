@@ -8,15 +8,19 @@ from kitchenwatch.common.constants import (
     DEFAULT_FULL_MANIFEST_PATH,
     DEFAULT_FUSED_DATA_PATH,
 )
-from kitchenwatch.edge.local_edge_receiver import LocalEdgeReceiver
+from kitchenwatch.common.logging_config import setup_logging
+from kitchenwatch.edge.http_receiver import HttpReceiver
+from kitchenwatch.edge.local_receiver import LocalReceiver
 from kitchenwatch.simulation.manifest_loader import ManifestLoader
 from kitchenwatch.simulation.models.base_record import BaseFusedRecord
 from kitchenwatch.simulation.models.trial import Trial
 from kitchenwatch.simulation.streamers.local_streamer import LocalStreamer
 from kitchenwatch.simulation.utils.load_fused_records import load_fused_records
 
+setup_logging()
+
+
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
 
 def main() -> None:
@@ -54,6 +58,12 @@ def main() -> None:
         help="Number of times to repeat the stream (0 = infinite).",
     )
     parser.add_argument(
+        "--endpoint",
+        type=str,
+        default=None,
+        help="Endpoint to stream records to.",
+    )
+    parser.add_argument(
         "--verbose",
         type=bool,
         default=False,
@@ -63,11 +73,17 @@ def main() -> None:
 
     logger.info(f"🗂  Dataset: {args.dataset}")
     logger.info(f"📜 Manifest: {args.manifest if args.manifest.exists() else '(not found)'}")
-    logger.info(f"⏱️  Streaming rate: {args.rate:.2f}×")
+    logger.info(f"⏱️ Streaming rate: {args.rate:.2f}×")
     logger.info(f"🔁 Repeat count: {'∞' if args.repeat == 0 else args.repeat}")
+    logger.info(f"🔗 Edge endpoint: {args.endpoint}")
 
-    receiver = LocalEdgeReceiver(verbose=args.verbose)
-    streamer = LocalStreamer(rate_hz=args.rate, handle_record=receiver.ingest)
+    receiver = (
+        HttpReceiver(edge_url=args.endpoint, verbose=args.verbose, logger=logger)
+        if args.endpoint
+        else LocalReceiver(verbose=args.verbose, logger=logger)
+    )
+    logger.info(f"📡 Initializing streamer with receiver: {type(receiver).__name__}")
+    streamer = LocalStreamer(rate_hz=args.rate, handle_record=receiver.ingest, logger=logger)
 
     # --- Helper: stream a single trial file ---
     def stream_trial_file(file_path: Path, trial_id: str | None = None) -> None:
