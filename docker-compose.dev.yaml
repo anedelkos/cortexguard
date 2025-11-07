@@ -1,18 +1,47 @@
-
+networks:
+  kitchenwatch_net:
+    driver: bridge
 
 services:
+  edge:
+    build:
+      context: .
+      dockerfile: docker/edge.Dockerfile
+    container_name: kitchenwatch-edge-dev
+    working_dir: /workspace/kitchenwatch
+    command: >
+      fastapi run src/kitchenwatch/edge/api/main.py
+      --host 0.0.0.0
+      --port 8080
+      --reload
+    environment:
+      - LOG_LEVEL=INFO
+      - LOG_JSON=false
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./src:/workspace/kitchenwatch/src
+      - ./data:/workspace/kitchenwatch/data
+    restart: unless-stopped
+    networks:
+      - kitchenwatch_net
+
+
   simulator:
     build:
       context: .
       dockerfile: docker/simulator.Dockerfile
     container_name: kitchenwatch-simulator-dev
     working_dir: /workspace/kitchenwatch
+    depends_on:
+      - edge
     command:  []
     environment:
       - PYTHONUNBUFFERED=1
       - UV_ENV=dev
-      - MANIFEST_PATH=/workspace/kitchenwatch/data/manifests/sample_dataset_manifest.yaml
       - FUSED_DIR=/workspace/kitchenwatch/data/fused
+      - LOG_LEVEL=INFO
+      - LOG_JSON=false
     volumes:
       # Mount local folders for live development (overrides COPY in Dockerfile)
       - ./src:/workspace/kitchenwatch/src
@@ -20,5 +49,7 @@ services:
       - ./data:/workspace/kitchenwatch/data
       - ./scripts:/workspace/kitchenwatch/scripts
     ports:
-      - "8080:8080"    # if simulator exposes an API or socket (optional)
+      - "8081:8080"
     restart: unless-stopped
+    networks:
+      - kitchenwatch_net

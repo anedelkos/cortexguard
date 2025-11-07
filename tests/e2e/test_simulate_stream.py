@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from kitchenwatch.edge.local_edge_receiver import LocalEdgeReceiver
+from kitchenwatch.edge.local_receiver import LocalReceiver
 from kitchenwatch.simulation.manifest_loader import ManifestLoader
 from kitchenwatch.simulation.streamers.local_streamer import LocalStreamer
 
@@ -48,7 +48,7 @@ def test_simulate_stream_end_to_end(
     # --- Dummy receiver to capture streamed records ---
     received = []
 
-    class DummyReceiver(LocalEdgeReceiver):
+    class DummyReceiver(LocalReceiver):
         def ingest(self, record: Any) -> None:
             received.append(record)
 

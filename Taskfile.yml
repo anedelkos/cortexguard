@@ -180,8 +180,11 @@ tasks:
       manifest: '{{.manifest | default "data/manifests/sample_dataset_manifest.yaml"}}'
       rate: '{{.rate | default "1.0"}}'
       repeat: '{{.repeat | default "0"}}'
+      endpoint: '{{.endpoint | default "http://edge:8080/api/v1/ingest"}}'
+      verbose: '{{.verbose | default "False"}}'
     cmds:
-      - "bash scripts/run_simulator.sh --manifest {{.manifest}} --rate {{.rate}} --repeat {{.repeat}}"
+      - "bash scripts/run_simulator.sh --manifest {{.manifest}}
+      --rate {{.rate}} --repeat {{.repeat}} --endpoint {{.endpoint}} --verbose {{.verbose}}"
 
 
 # --- Simulator container --------------------------------------------------
@@ -201,16 +204,64 @@ tasks:
       manifest: '{{.manifest | default "data/manifests/sample_dataset_manifest.yaml"}}'
       rate: '{{.rate | default "1.0"}}'
       repeat: '{{.repeat | default "0"}}'
+      endpoint: '{{.endpoint | default "http://edge:8080/api/v1/ingest"}}'
+      verbose: '{{.verbose | default "False"}}'
     cmds:
       - >
         docker compose -f docker-compose.dev.yaml run --rm simulator
-        --manifest {{.manifest}} --rate {{.rate}} --repeat {{.repeat}}
+        --manifest {{.manifest}} --rate {{.rate}} --repeat {{.repeat}} -- endpoint {{.endpoint}} --verbose {{.verbose}}
 
   simulator:clean:
     desc: Stop and remove simulator containers, volumes, and networks
     cmds:
       - "docker compose -f docker-compose.dev.yaml down -v --remove-orphans"
 
+
+# --- Edge fastapi --------------------------------------------------
+  edge:run:
+    desc: Receive and process sensor stream
+    cmds:
+      - "PYTHONPATH=src fastapi run {{.src_dir}}/edge/api/main.py --host localhost --port 8080 --reload"
+
+
+# --- Edge % simulator containers --------------------------------------------------
+  edge-sim:up:
+    desc: Build and start Edge + Simulator stack (dev)
+    vars:
+      manifest: '{{.manifest | default "data/manifests/sample_dataset_manifest.yaml"}}'
+      rate: '{{.rate | default "1.0"}}'
+      repeat: '{{.repeat | default "0"}}'
+      endpoint: '{{.endpoint | default "http://localhost:8080/api/v1/ingest"}}'
+      verbose: '{{.verbose | default "False"}}'
+    cmds:
+      - "docker compose --env-file .env -f docker-compose.dev.yaml up --build"
+
+
+  edge-sim:build:
+    desc: Build Edge + Simulator images
+    cmds:
+      - docker compose -f docker-compose.dev.yaml build
+
+  edge-sim:run-with:
+    desc: Run Edge + Simulator stack with custom args
+    vars:
+      manifest: '{{.manifest | default "data/manifests/sample_dataset_manifest.yaml"}}'
+      rate: '{{.rate | default "1.0"}}'
+      repeat: '{{.repeat | default "0"}}'
+      endpoint: '{{.endpoint | default "http://edge:8080/api/v1/ingest"}}'
+      verbose: '{{.verbose | default "False"}}'
+    cmds:
+      - >
+        docker compose -f docker-compose.dev.yaml up -d edge &&
+        docker compose -f docker-compose.dev.yaml run --rm simulator
+        --manifest {{.manifest}} --rate {{.rate}} --repeat {{.repeat}}
+        --endpoint {{.endpoint}} --verbose {{.verbose}}
+
+
+  edge-sim:down:
+    desc: Stop containers and remove volumes
+    cmds:
+      - "docker compose -f docker-compose.dev.yaml down -v"
 
 
   # --- Utility -------------------------------------------------------
