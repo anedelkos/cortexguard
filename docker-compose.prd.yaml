@@ -1,20 +1,42 @@
-
+networks:
+  kitchenwatch_net:
+    driver: bridge
 
 services:
+  edge:
+    image: kitchenwatch-edge:latest
+    build:
+      context: .
+      dockerfile: docker/edge.Dockerfile
+    container_name: kitchenwatch-edge
+    environment:
+      - LOG_LEVEL=INFO
+      - LOG_JSON=true
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    networks:
+      - kitchenwatch_net
+
   simulator:
     image: kitchenwatch-simulator:latest
     build:
       context: .
       dockerfile: docker/simulator.Dockerfile
     container_name: kitchenwatch-simulator
+    depends_on:
+      - edge
     working_dir: /workspace/kitchenwatch
     command: []
     environment:
       - PYTHONUNBUFFERED=1
       - UV_ENV=prod
-      - MANIFEST_PATH=/workspace/kitchenwatch/data/manifests/sample_dataset_manifest.yaml
       - FUSED_DIR=/workspace/kitchenwatch/data/fused
+      - LOG_LEVEL=INFO
+      - LOG_JSON=true
     # No volume mounts — uses built-in COPY layers
-    ports:
-      - "8080:8080"
+    expose:
+      - "8080"
     restart: unless-stopped
+    networks:
+      - kitchenwatch_net
