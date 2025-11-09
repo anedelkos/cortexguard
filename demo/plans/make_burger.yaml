@@ -1,0 +1,17 @@
+plan_id: make_burger_001
+plan_type: recipe
+version: 1.0
+goal: make_burger
+steps:
+  - id: step_1
+    name: pick_patty
+    action: pick
+    expected_modalities: [force, vision]
+    parameters:
+      source: tray_A
+  - id: step_2
+    name: place_patty
+    action: place
+    expected_modalities: [vision_pose]
+    parameters:
+      target: grill_slot_1
