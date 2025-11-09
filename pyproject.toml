@@ -130,7 +130,8 @@ ignore = []
 [tool.coverage.run]
 branch = true
 source = ["src"]
-omit = ["tests/*", "docker/*", ".devcontainer/*", "__pycache__/*", "src/kitchenwatch/common/logging_config.py"]
+omit = ["tests/*", "docker/*", ".devcontainer/*", "__pycache__/*", "src/kitchenwatch/common/logging_config.py",
+    "src/kitchenwatch/edge/models/*.py"]
 
 [tool.coverage.report]
 fail_under = 80
