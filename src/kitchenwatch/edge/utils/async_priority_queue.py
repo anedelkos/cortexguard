@@ -23,12 +23,36 @@ class AsyncPriorityQueue[T]:
             heapq.heappush(self._heap, (priority, datetime.now(), item))
             self._cv.notify()
 
-    async def pop(self) -> T:
+    async def pop(self, block: bool = True, timeout: float | None = None) -> T | None:
         async with self._cv:
+            if not block:
+                if not self._heap:
+                    return None
+                _, _, item = heapq.heappop(self._heap)
+                return item
+
+            if timeout is not None:
+                try:
+                    await asyncio.wait_for(self._cv.wait(), timeout)
+                except TimeoutError:
+                    return None
+
             while not self._heap:
                 await self._cv.wait()
             _, _, item = heapq.heappop(self._heap)
             return item
+
+    async def pop_if_priority_lower_than(self, current_priority: int) -> T | None:
+        async with self._cv:
+            if not self._heap:
+                return None
+
+            priority, _, item = self._heap[0]
+            if priority < current_priority:
+                heapq.heappop(self._heap)
+                return item
+
+            return None
 
     async def empty(self) -> bool:
         async with self._cv:
