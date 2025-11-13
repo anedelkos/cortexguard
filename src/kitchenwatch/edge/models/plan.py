@@ -33,7 +33,6 @@ class PlanStep(BaseModel):
 
     id: str
     name: str
-    intent: str
     parameters: dict[str, Any] = {}
     expected_modalities: list[str] = []
     expected_duration_s: float | None = None  # planned duration

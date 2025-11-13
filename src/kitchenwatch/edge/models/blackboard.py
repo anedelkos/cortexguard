@@ -1,47 +1,57 @@
 import asyncio
-
-from pydantic import BaseModel
+from dataclasses import dataclass, field
+from typing import Any
 
 from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
 from kitchenwatch.edge.models.plan import IntentContext, Plan, PlanStep
 
 
-class Blackboard(BaseModel):
+@dataclass
+class Blackboard:
     """
-    Async-safe shared memory and context store for the KitchenWatch Edge agent.
+    Async-safe shared memory store for KitchenWatch Edge agent.
 
-    Acts as the central hub for inter-subsystem communication within the edge runtime.
-    Subsystems read from and write to the Blackboard to share the current state, intent,
-    and sensor-derived information.
+    Implements the Blackboard architectural pattern for inter-subsystem
+    communication. Acts as the central hub for plan execution state,
+    sensor data, and system flags.
 
-    Responsibilities:
-        - Store the current intent context (plan, step, action, parameters)
-        - Keep the latest FusionSnapshot(s) or aggregated sensor summaries
-        - Track plan execution states (running, paused, completed)
-        - Maintain anomaly flags and recovery status for other agents
-        - Maintain safety flags for high-priority overrides
-        - Provide async-safe access to all shared data
+    Design Philosophy:
+    - Single lock for simplicity (adequate for edge workload)
+    - Events for non-blocking state change notifications
+    - Type-safe accessors for core state
+    - Extensible via custom_state for experimentation
+
+    Production Enhancements (not implemented):
+    - Fine-grained locking per state category
+    - State snapshots for debugging/replay
+    - Metrics/observability hooks
     """
 
-    model_config = {"arbitrary_types_allowed": True}
-
+    # Core execution state
     current_intent: IntentContext | None = None
     current_step: PlanStep | None = None
     current_plan: Plan | None = None
     paused_plan: Plan | None = None
+
+    # Sensor state
     latest_snapshot: FusionSnapshot | None = None
 
-    anomaly_flags: dict[str, bool] = {}
-    recovery_status: dict[str, str] = {}
-    safety_flags: dict[str, bool] = {}
+    # System flags
+    anomaly_flags: dict[str, bool] = field(default_factory=dict)
+    recovery_status: dict[str, str] = field(default_factory=dict)
+    safety_flags: dict[str, bool] = field(default_factory=dict)
 
-    # Internal asyncio lock for async-safe access
-    _lock: asyncio.Lock = asyncio.Lock()
+    # Failed plans for analysis
+    failed_plans: list[Plan] = field(default_factory=list)
 
-    # Async Events to signal important changes (optional)
-    intent_updated: asyncio.Event = asyncio.Event()
-    snapshot_updated: asyncio.Event = asyncio.Event()
-    anomaly_updated: asyncio.Event = asyncio.Event()
+    # Custom extensible state
+    _custom_state: dict[str, Any] = field(default_factory=dict)
+
+    # Async primitives (created per-instance)
+    _lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False, repr=False)
+    intent_updated: asyncio.Event = field(default_factory=asyncio.Event, init=False, repr=False)
+    snapshot_updated: asyncio.Event = field(default_factory=asyncio.Event, init=False, repr=False)
+    anomaly_updated: asyncio.Event = field(default_factory=asyncio.Event, init=False, repr=False)
 
     # ---------------------
     # Intent Methods
@@ -49,8 +59,7 @@ class Blackboard(BaseModel):
     async def update_intent(self, intent: IntentContext) -> None:
         async with self._lock:
             self.current_intent = intent
-            self.intent_updated.set()
-            self.intent_updated.clear()
+        self.intent_updated.set()  # Signal outside lock
 
     async def get_intent(self) -> IntentContext | None:
         async with self._lock:
@@ -60,14 +69,18 @@ class Blackboard(BaseModel):
         async with self._lock:
             return self.current_intent.action if self.current_intent else None
 
+    async def wait_for_intent_change(self) -> IntentContext | None:
+        """Block until intent changes. Caller should clear event after handling."""
+        await self.intent_updated.wait()
+        return await self.get_intent()
+
     # ---------------------
     # Snapshot Methods
     # ---------------------
     async def update_fusion_snapshot(self, snapshot: FusionSnapshot) -> None:
         async with self._lock:
             self.latest_snapshot = snapshot
-            self.snapshot_updated.set()
-            self.snapshot_updated.clear()
+        self.snapshot_updated.set()
 
     async def get_fusion_snapshot(self) -> FusionSnapshot | None:
         async with self._lock:
@@ -83,6 +96,11 @@ class Blackboard(BaseModel):
     async def set_paused_plan(self, plan: Plan | None) -> None:
         async with self._lock:
             self.paused_plan = plan
+
+    async def set_failed_plan(self, plan: Plan) -> None:
+        """Store failed plan for analysis and potential retry."""
+        async with self._lock:
+            self.failed_plans.append(plan)
 
     async def get_current_plan(self) -> Plan | None:
         async with self._lock:
@@ -100,14 +118,22 @@ class Blackboard(BaseModel):
         async with self._lock:
             return self.current_step
 
+    async def clear_current_plan(self) -> None:
+        """
+        Clear active plan and step.
+        Typically called by Orchestrator during plan transitions.
+        """
+        async with self._lock:
+            self.current_plan = None
+            self.current_step = None
+
     # ---------------------
     # Anomaly & Recovery Flags
     # ---------------------
     async def set_anomaly_flag(self, key: str, value: bool) -> None:
         async with self._lock:
             self.anomaly_flags[key] = value
-            self.anomaly_updated.set()
-            self.anomaly_updated.clear()
+        self.anomaly_updated.set()
 
     async def get_anomaly_flag(self, key: str) -> bool | None:
         async with self._lock:
@@ -132,13 +158,18 @@ class Blackboard(BaseModel):
         async with self._lock:
             return self.safety_flags.get(key)
 
-    async def set(self, key: str, value: object) -> None:
+    # ---------------------
+    # Extensibility
+    # ---------------------
+    async def set(self, key: str, value: Any) -> None:
         """
-        Generic setter for arbitrary blackboard attributes.
-        Only sets attributes that already exist on the blackboard.
+        Store custom state for experimental features.
+        Uses separate namespace to avoid corrupting core state.
         """
         async with self._lock:
-            if hasattr(self, key):
-                setattr(self, key, value)
-            else:
-                raise AttributeError(f"Blackboard has no attribute '{key}'")
+            self._custom_state[key] = value
+
+    async def get(self, key: str, default: Any = None) -> Any:
+        """Retrieve custom state."""
+        async with self._lock:
+            return self._custom_state.get(key, default)

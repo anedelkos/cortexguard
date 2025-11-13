@@ -23,7 +23,7 @@ def priority_queue() -> AsyncPriorityQueue[str]:
 @pytest.mark.asyncio
 async def test_put_and_get_single_item(priority_queue: AsyncPriorityQueue[str]) -> None:
     await priority_queue.put(5, "low")
-    result: str = await priority_queue.pop()
+    result: str | None = await priority_queue.pop()
     assert result == "low"
     assert await priority_queue.empty()
 
@@ -48,7 +48,9 @@ async def test_concurrent_put_and_get(priority_queue: AsyncPriorityQueue[str]) -
     async def consumer() -> list[str]:
         results: list[str] = []
         for _ in range(3):
-            results.append(await priority_queue.pop())
+            popped = await priority_queue.pop()
+            if popped:
+                results.append(popped)
         return results
 
     producer_task: asyncio.Task[None] = asyncio.create_task(producer())
@@ -67,9 +69,9 @@ async def test_empty_queue_waits(priority_queue: AsyncPriorityQueue[str]) -> Non
         await priority_queue.put(1, "late-item")
 
     put_task: asyncio.Task[None] = asyncio.create_task(delayed_put())
-    get_task: asyncio.Task[str] = asyncio.create_task(priority_queue.pop())
+    get_task: asyncio.Task[str | None] = asyncio.create_task(priority_queue.pop())
 
-    result: str = await get_task
+    result: str | None = await get_task
     await put_task
 
     assert result == "late-item"
@@ -99,3 +101,55 @@ async def test_len_and_empty(priority_queue: AsyncPriorityQueue[str]) -> None:
 
     assert await priority_queue.empty()
     assert len(priority_queue) == 0
+
+
+@pytest.mark.asyncio
+async def test_pop_non_blocking_empty(priority_queue: AsyncPriorityQueue[str]) -> None:
+    result = await priority_queue.pop(block=False)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_pop_with_timeout(priority_queue: AsyncPriorityQueue[str]) -> None:
+    result = await priority_queue.pop(timeout=0.01)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_peek_behavior(priority_queue: AsyncPriorityQueue[str]) -> None:
+    assert await priority_queue.peek() is None
+
+    await priority_queue.put(3, "peeked")
+    item = await priority_queue.peek()
+    assert item == "peeked"
+
+    # Ensure item is still in queue
+    assert len(priority_queue) == 1
+
+
+@pytest.mark.asyncio
+async def test_pop_if_priority_lower_than(priority_queue: AsyncPriorityQueue[str]) -> None:
+    await priority_queue.put(5, "low")
+    await priority_queue.put(10, "lower")
+
+    result = await priority_queue.pop_if_priority_lower_than(3)
+    assert result is None  # No item lower than 3
+
+    result = await priority_queue.pop_if_priority_lower_than(6)
+    assert result == "low"
+
+    remaining = await priority_queue.pop()
+    assert remaining == "lower"
+
+
+@pytest.mark.asyncio
+async def test_get_all_items_sorted(priority_queue: AsyncPriorityQueue[str]) -> None:
+    await priority_queue.put(3, "c")
+    await priority_queue.put(1, "a")
+    await priority_queue.put(2, "b")
+
+    snapshot = await priority_queue.get_all_items()
+    assert snapshot == ["a", "b", "c"]
+
+    # Ensure queue is still intact
+    assert len(priority_queue) == 3
