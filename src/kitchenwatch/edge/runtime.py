@@ -28,8 +28,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from kitchenwatch.common.logging_config import setup_logging
+from kitchenwatch.core.action_registry import ActionRegistry
+from kitchenwatch.core.mocks.mock_controller import MockController
+from kitchenwatch.core.mocks.mock_step_classifier import MockStepClassifier
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.orchestrator import Orchestrator
+from kitchenwatch.edge.step_executor import StepExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +109,20 @@ class EdgeRuntime:
         # Core subsystems
         self.orchestrator = Orchestrator(self.blackboard)
 
+        # Create controller & registry
+        self.controller = MockController()  # or real robot controller
+        self.action_registry = ActionRegistry(controller=self.controller)
+        self.step_classifier = MockStepClassifier()
+
+        # Step executor
+        self.executor = StepExecutor(
+            blackboard=self.blackboard,
+            step_classifier=self.step_classifier,
+            action_registry=self.action_registry,
+            default_max_retries=self.config.executor_max_retries,
+            default_retry_delay=self.config.executor_retry_delay,
+        )
+
         # Runtime state
         self._running = False
         self._stop_event = asyncio.Event()
@@ -152,6 +170,8 @@ class EdgeRuntime:
             start_tasks.append(
                 self.orchestrator.start(tick_interval=self.config.orchestrator_tick_interval)
             )
+        if self.executor:
+            start_tasks.append(self.executor.start())
 
         # Start all subsystems concurrently
         await asyncio.gather(*start_tasks, return_exceptions=True)
@@ -179,6 +199,8 @@ class EdgeRuntime:
             stop_tasks = []
 
             # Stop execution layer first (prevent new work)
+            if self.executor:
+                stop_tasks.append(self.executor.stop())
             if self.orchestrator:
                 stop_tasks.append(self.orchestrator.stop())
 

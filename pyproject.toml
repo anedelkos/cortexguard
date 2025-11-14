@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi[standard]>=0.121.0",
     "pandas>=2.3.3",
+    "py-trees>=2.3.0",
     "pydantic>=2.12.3",
     "pyyaml>=6.0.3",
     "requests>=2.32.5",
@@ -93,7 +94,7 @@ python_version = "3.12"
 strict = true
 warn_unused_configs = true
 check_untyped_defs = true
-disable_error_code = 'misc'
+disable_error_code = ["misc", "no-any-unimported"]
 ignore_missing_imports = false
 follow_imports = "silent"
 exclude = "data"
@@ -131,7 +132,7 @@ ignore = []
 branch = true
 source = ["src"]
 omit = ["tests/*", "docker/*", ".devcontainer/*", "__pycache__/*", "src/kitchenwatch/common/logging_config.py",
-    "src/kitchenwatch/edge/models/*.py"]
+    "src/kitchenwatch/edge/models/*.py", "src/kitchenwatch/core/mocks/*.py"]
 
 [tool.coverage.report]
 fail_under = 80
