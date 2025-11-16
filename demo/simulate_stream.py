@@ -1,21 +1,31 @@
 #!/usr/bin/env python3
 import argparse
+import asyncio
+import inspect
 import logging
 import time
+from collections.abc import Callable, Coroutine
 from pathlib import Path
+from typing import Any, TypeVar
 
 from kitchenwatch.common.constants import (
     DEFAULT_FULL_MANIFEST_PATH,
     DEFAULT_FUSED_DATA_PATH,
 )
 from kitchenwatch.common.logging_config import setup_logging
+from kitchenwatch.core.interfaces.base_receiver import BaseReceiver
+from kitchenwatch.edge.edge_fusion import EdgeFusion
 from kitchenwatch.edge.http_receiver import HttpReceiver
 from kitchenwatch.edge.local_receiver import LocalReceiver
+from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.simulation.manifest_loader import ManifestLoader
 from kitchenwatch.simulation.models.base_record import BaseFusedRecord
 from kitchenwatch.simulation.models.trial import Trial
 from kitchenwatch.simulation.streamers.local_streamer import LocalStreamer
 from kitchenwatch.simulation.utils.load_fused_records import load_fused_records
+
+RecordT = TypeVar("RecordT")
+
 
 setup_logging()
 
@@ -77,13 +87,41 @@ def main() -> None:
     logger.info(f"🔁 Repeat count: {'∞' if args.repeat == 0 else args.repeat}")
     logger.info(f"🔗 Edge endpoint: {args.endpoint}")
 
-    receiver = (
-        HttpReceiver(edge_url=args.endpoint, verbose=args.verbose, logger=logger)
-        if args.endpoint
-        else LocalReceiver(verbose=args.verbose, logger=logger)
-    )
+    receiver: BaseReceiver[Any]
+    if args.endpoint:
+        receiver = HttpReceiver(edge_url=args.endpoint, verbose=args.verbose, logger=logger)
+    else:
+        blackboard = Blackboard()
+        edge_fusion = EdgeFusion(blackboard)
+        receiver = LocalReceiver(
+            verbose=args.verbose, custom_logger=logger, edge_fusion=edge_fusion
+        )
+
+    def make_sync_ingest(func: Callable[[RecordT], Any]) -> Callable[[RecordT], None]:
+        """
+        Wrap a receiver ingest function.
+        - If it's async: run it via asyncio.run()
+        - If it's sync: call it directly
+        """
+
+        # Pre-check whether the function is async
+        is_async = inspect.iscoroutinefunction(func)
+
+        def wrapper(record: RecordT) -> None:
+            if is_async:
+                coro = func(record)
+                # mypy requires explicit Coroutine type
+                assert isinstance(coro, Coroutine)
+                asyncio.run(coro)
+            else:
+                func(record)
+
+        return wrapper
+
     logger.info(f"📡 Initializing streamer with receiver: {type(receiver).__name__}")
-    streamer = LocalStreamer(rate_hz=args.rate, handle_record=receiver.ingest, logger=logger)
+    streamer = LocalStreamer(
+        rate_hz=args.rate, handle_record=make_sync_ingest(receiver.ingest), logger=logger
+    )
 
     # --- Helper: stream a single trial file ---
     def stream_trial_file(file_path: Path, trial_id: str | None = None) -> None:
