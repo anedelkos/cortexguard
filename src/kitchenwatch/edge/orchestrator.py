@@ -1,8 +1,9 @@
 import asyncio
 import logging
+from datetime import datetime
 
 from kitchenwatch.edge.models.blackboard import Blackboard
-from kitchenwatch.edge.models.plan import Plan, PlanStatus, StepStatus
+from kitchenwatch.edge.models.plan import IntentContext, Plan, PlanStatus, StepStatus
 from kitchenwatch.edge.utils.async_priority_queue import AsyncPriorityQueue
 
 logger = logging.getLogger(__name__)
@@ -72,6 +73,17 @@ class Orchestrator:
                 self._current_plan = next_plan
                 await self._blackboard.set_current_plan(next_plan)
                 await self._blackboard.set_current_step(current_step)
+
+                intent = IntentContext(
+                    goal=next_plan.goal,
+                    step_id=current_step.id,
+                    action=current_step.name,
+                    parameters=current_step.parameters,
+                    started_at=datetime.now(),
+                    ended_at=None,
+                    duration_actual_s=None,
+                )
+                await self._blackboard.update_intent(intent)
             else:
                 self._logger.warning(f"Plan {next_plan.plan_id} has no steps, skipping")
 
@@ -146,6 +158,21 @@ class Orchestrator:
         if not self._current_plan:
             return
 
+        current_step = await self._blackboard.get_current_step()
+        step_status = getattr(current_step, "status", None) if current_step else None
+        current_intent = await self._blackboard.get_intent()
+        if (
+            step_status
+            and step_status in (StepStatus.COMPLETED, StepStatus.FAILED)
+            and current_intent
+        ):
+            current_intent.ended_at = datetime.now()
+            if current_intent.started_at:
+                current_intent.duration_actual_s = (
+                    current_intent.ended_at - current_intent.started_at
+                ).total_seconds()
+            await self._blackboard.update_intent(current_intent)
+
         if not self._current_plan.steps:
             self._logger.warning(f"Plan {self._current_plan.plan_id} has no steps to advance")
             await self._clear_current_plan()
@@ -169,12 +196,38 @@ class Orchestrator:
                     # Advance plan
                     next_step = self._current_plan.steps[self._current_plan.current_step_index]
                     await self._blackboard.set_current_step(next_step)
+
+                    intent = IntentContext(
+                        goal=self._current_plan.goal,
+                        step_id=next_step.id,
+                        action=next_step.name,
+                        parameters=next_step.parameters,
+                        started_at=datetime.now(),
+                        ended_at=None,
+                        duration_actual_s=None,
+                    )
+                    await self._blackboard.update_intent(intent)
                 else:
                     # Complete plan
                     self._logger.info(f"Plan completed: {self._current_plan.plan_id} successfully")
                     self._current_plan.status = PlanStatus.COMPLETED
                     await self._blackboard.set_current_plan(self._current_plan)  # just making sure
                     await self._clear_current_plan()
+
+                    intent = IntentContext(
+                        goal=self._current_plan.goal,
+                        step_id="",
+                        action="completed",
+                        parameters={},
+                        started_at=current_intent.started_at if current_intent else datetime.now(),
+                        ended_at=datetime.now(),
+                        duration_actual_s=(
+                            (datetime.now() - current_intent.started_at).total_seconds()
+                            if current_intent and current_intent.started_at
+                            else None
+                        ),
+                    )
+                    await self._blackboard.update_intent(intent)
 
         except Exception as e:
             self._logger.exception(f"Error advancing plan: {e}")

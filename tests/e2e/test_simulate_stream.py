@@ -1,7 +1,9 @@
+import asyncio
 import json
 import logging
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -49,13 +51,17 @@ def test_simulate_stream_end_to_end(
     received = []
 
     class DummyReceiver(LocalReceiver):
-        def ingest(self, record: Any) -> None:
+        async def ingest(self, record: Any) -> None:
             received.append(record)
 
-    receiver = DummyReceiver()
+    dummy_fusion = AsyncMock()
+    receiver = DummyReceiver(edge_fusion=dummy_fusion, verbose=True)
+
+    def handle_record_sync(record: Any) -> None:
+        asyncio.run(receiver.ingest(record))
 
     # --- Run streamer ---
-    streamer = LocalStreamer(rate_hz=1000.0, handle_record=receiver.ingest)
+    streamer = LocalStreamer(rate_hz=1000.0, handle_record=handle_record_sync)
     records = streamer.load_records_from_trial(trial)
     streamer.stream(records)
 
