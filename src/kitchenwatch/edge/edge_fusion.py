@@ -2,7 +2,11 @@ import logging
 import statistics
 from collections import defaultdict
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
+
+import torch
+from PIL import Image
+from torchvision import models, transforms
 
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
@@ -14,6 +18,30 @@ from kitchenwatch.simulation.models.windowed_fused_record import WindowedFusedRe
 DEFAULT_ALPHA = 0.1
 
 logger = logging.getLogger(__name__)
+
+
+class VisionEmbedder:
+    """Lightweight ResNet-based embedder for images."""
+
+    def __init__(self, device: str = "cpu"):
+        self._device = device
+        self._model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+        self._model = torch.nn.Sequential(*list(self._model.children())[:-1])  # Remove classifier
+        self._model.eval().to(device)
+
+        self.preprocess = transforms.Compose(
+            [
+                transforms.Resize((224, 224)),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ]
+        )
+
+    @torch.no_grad()
+    def embed(self, img: Image.Image) -> torch.Tensor:
+        x = self.preprocess(img).unsqueeze(0).to(self._device)
+        emb = cast(torch.Tensor, self._model(x).squeeze())
+        return emb.cpu()
 
 
 class EdgeFusion:
@@ -46,6 +74,7 @@ class EdgeFusion:
         blackboard: Blackboard,
         alpha: float = DEFAULT_ALPHA,
         custom_logger: logging.Logger | None = None,
+        embedder: VisionEmbedder | None = None,
     ):
         """
         Initialize sensor fusion engine.
@@ -64,6 +93,7 @@ class EdgeFusion:
         self._blackboard = blackboard
         self._alpha = alpha
         self._logger = custom_logger or logger
+        self.embedder = embedder
 
         # EMA state: sensor_key -> smoothed_value
         self._ema_state: dict[str, float] = {}
@@ -97,6 +127,15 @@ class EdgeFusion:
 
         self._records_processed += 1
 
+        # Compute image embedding (one per window)
+        image_embedding = None
+        if self.embedder is not None and hasattr(record, "rgb_path") and record.rgb_path:
+            try:
+                img = Image.open(record.rgb_path).convert("RGB")
+                image_embedding = self.embedder.embed(img)
+            except Exception as e:
+                self._logger.warning(f"Failed to embed image {record.rgb_path}: {e}")
+
         # Create snapshot from current EMA state
         snapshot = FusionSnapshot(
             timestamp=datetime.fromtimestamp(record.timestamp_ns / 1e9),
@@ -104,6 +143,7 @@ class EdgeFusion:
                 "raw": record.sensor_window,
                 "ema_smoothed": self._ema_state.copy(),
                 "window_stats": self._compute_window_stats(record.sensor_window),
+                "image_embedding": image_embedding,  # single embedding
             },
             derived=self._ema_state.copy(),  # Smoothed values as derived features
             intent=current_intent.action if current_intent else None,

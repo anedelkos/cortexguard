@@ -11,6 +11,9 @@ dependencies = [
     "pydantic>=2.12.3",
     "pyyaml>=6.0.3",
     "requests>=2.32.5",
+    "pillow>=12.0.0",
+    "torch>=2.9.1",
+    "torchvision>=0.24.1",
     "uvicorn[standard]>=0.38.0",
 ]
 
@@ -37,7 +40,6 @@ dev = [
     "types-requests>=2.32.4.20250913",
     "ipython>=9.6.0",
     "ipywidgets>=8.1.8",
-    "pillow>=12.0.0",
     "plotly>=6.3.1",
     "nbformat>=5.10.4",
 ]
@@ -95,7 +97,7 @@ strict = true
 warn_unused_configs = true
 check_untyped_defs = true
 disable_error_code = ["misc", "no-any-unimported"]
-ignore_missing_imports = false
+ignore_missing_imports = true
 follow_imports = "silent"
 exclude = "data"
 files = ["src/kitchenwatch", "tests"]
@@ -116,8 +118,8 @@ warn_return_any = true
 warn_no_return = true
 no_implicit_optional = true
 
-
-
+[[tool.mypy.overrides]]
+module = ["torchvision", "torchvision.*", "torch", "torch.*"]
 
 [tool.pytest.ini_options]
 minversion = "7.0"
