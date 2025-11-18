@@ -11,6 +11,7 @@ from torchvision import models, transforms
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
 from kitchenwatch.edge.models.plan import IntentContext
+from kitchenwatch.edge.online_learner_state_estimator import OnlineLearnerStateEstimator
 from kitchenwatch.simulation.models.windowed_fused_record import WindowedFusedRecord
 
 # Default smoothing factor for EMA (0 < alpha <= 1)
@@ -72,6 +73,7 @@ class EdgeFusion:
     def __init__(
         self,
         blackboard: Blackboard,
+        state_estimator: OnlineLearnerStateEstimator | None = None,
         alpha: float = DEFAULT_ALPHA,
         custom_logger: logging.Logger | None = None,
         embedder: VisionEmbedder | None = None,
@@ -94,6 +96,7 @@ class EdgeFusion:
         self._alpha = alpha
         self._logger = custom_logger or logger
         self.embedder = embedder
+        self._state_estimator: OnlineLearnerStateEstimator | None = state_estimator
 
         # EMA state: sensor_key -> smoothed_value
         self._ema_state: dict[str, float] = {}
@@ -156,6 +159,13 @@ class EdgeFusion:
             f"Updated snapshot for intent='{snapshot.intent}' "
             f"(window_size={len(record.sensor_window)})"
         )
+
+        if self._state_estimator:
+            try:
+                estimate = await self._state_estimator.update(snapshot)
+                await self._blackboard.update_state_estimate(estimate)
+            except Exception as e:
+                self._logger.exception(f"StateEstimator failed: {e}")
 
         return snapshot
 

@@ -4,6 +4,7 @@ from typing import Any
 
 from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
 from kitchenwatch.edge.models.plan import IntentContext, Plan, PlanStep
+from kitchenwatch.edge.models.state_estimate import StateEstimate
 
 
 @dataclass
@@ -48,10 +49,12 @@ class Blackboard:
     _custom_state: dict[str, Any] = field(default_factory=dict)
 
     # Async primitives (created per-instance)
-    _lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False, repr=False)
-    intent_updated: asyncio.Event = field(default_factory=asyncio.Event, init=False, repr=False)
-    snapshot_updated: asyncio.Event = field(default_factory=asyncio.Event, init=False, repr=False)
-    anomaly_updated: asyncio.Event = field(default_factory=asyncio.Event, init=False, repr=False)
+    _lock: asyncio.Lock = asyncio.Lock()
+    intent_updated: asyncio.Event = asyncio.Event()
+    snapshot_updated: asyncio.Event = asyncio.Event()
+    latest_state_estimate: StateEstimate | None = None
+    state_estimate_updated: asyncio.Event = asyncio.Event()
+    anomaly_updated: asyncio.Event = asyncio.Event()
 
     # ---------------------
     # Intent Methods
@@ -157,6 +160,22 @@ class Blackboard:
     async def get_safety_flag(self, key: str) -> bool | None:
         async with self._lock:
             return self.safety_flags.get(key)
+
+    # ---------------------
+    # State estimates
+    # ---------------------
+    async def update_state_estimate(self, estimate: StateEstimate) -> None:
+        async with self._lock:
+            self.latest_state_estimate = estimate
+            self.state_estimate_updated.set()
+
+    async def get_state_estimate(self) -> StateEstimate | None:
+        async with self._lock:
+            return self.latest_state_estimate
+
+    async def wait_for_state_estimate(self) -> StateEstimate | None:
+        await self.state_estimate_updated.wait()
+        return await self.get_state_estimate()
 
     # ---------------------
     # Extensibility
