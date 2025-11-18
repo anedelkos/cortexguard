@@ -2,9 +2,11 @@ import logging
 
 from fastapi import APIRouter, status
 
-from kitchenwatch.edge.edge_fusion import EdgeFusion
+from kitchenwatch.edge.edge_fusion import EdgeFusion, VisionEmbedder
 from kitchenwatch.edge.local_receiver import LocalReceiver
 from kitchenwatch.edge.models.blackboard import Blackboard
+from kitchenwatch.edge.online_learner_state_estimator import OnlineLearnerStateEstimator
+from kitchenwatch.edge.river_online_learner import RiverOnlineLearner
 from kitchenwatch.simulation.models.fused_record import FusedRecord
 from kitchenwatch.simulation.models.windowed_fused_record import WindowedFusedRecord
 
@@ -12,7 +14,10 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 blackboard = Blackboard()
-edge_fusion = EdgeFusion(blackboard)
+vision_embedder = VisionEmbedder()
+online_learner = RiverOnlineLearner()
+state_estimator = OnlineLearnerStateEstimator(online_learner)
+edge_fusion = EdgeFusion(blackboard, state_estimator=state_estimator, embedder=vision_embedder)
 receiver = LocalReceiver(verbose=False, custom_logger=logger, edge_fusion=edge_fusion)
 
 
