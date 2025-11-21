@@ -1,8 +1,9 @@
 import asyncio
 import logging
-from datetime import datetime  # ADDED: Required for FusionSnapshot timestamp
+from datetime import datetime
+from enum import Enum  # ADDED: For AnomalySeverity mock
 from typing import Any, cast
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, call  # ADDED: import 'call' for assertion
 
 import pytest
 
@@ -11,6 +12,13 @@ from kitchenwatch.core.interfaces.base_detector import BaseDetector
 from kitchenwatch.edge.detectors.anomaly_detector import AnomalyDetector
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
+
+
+# Define a minimal AnomalySeverity Enum for testing purposes since the source file is not provided.
+class AnomalySeverity(str, Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
 
 
 # Define a mock detector to use in the tests
@@ -49,7 +57,6 @@ def mock_blackboard() -> Blackboard:
     mock_bb = MagicMock(spec=Blackboard)
 
     # Assign AsyncMocks to the coroutine methods on the mock object
-    # Mypy now accepts this assignment because mock_bb is a mock, not a live instance.
     mock_bb.get_fusion_snapshot = AsyncMock()
     mock_bb.set_anomaly_flag = AsyncMock()
 
@@ -97,7 +104,6 @@ class TestAnomalyDetector:
         self, mock_blackboard: Blackboard, mock_snapshot: FusionSnapshot
     ) -> None:
         # Arrange: Setup 3 detectors that each take 0.1s
-        # FIX: Cast before accessing return_value
         cast(AsyncMock, mock_blackboard.get_fusion_snapshot).return_value = mock_snapshot
 
         detector = AnomalyDetector(mock_blackboard)
@@ -117,36 +123,39 @@ class TestAnomalyDetector:
         # Allow a small buffer (e.g., 50ms) for execution overhead
         assert duration == pytest.approx(0.1, abs=0.05)
 
-        # --- Test 3: Result Aggregation Logic ---
+        # We only check for the tick to complete, not the call count here
+
+    # --- Test 3: Result Aggregation Logic ---
 
     async def test_aggregation_strategy_medium_and_high_trigger_flag(
         self, mock_blackboard: Blackboard, mock_snapshot: FusionSnapshot
     ) -> None:
         # Arrange: Setup detectors with different severities
-        # FIX: Cast before accessing return_value
         cast(AsyncMock, mock_blackboard.get_fusion_snapshot).return_value = mock_snapshot
 
         detector = AnomalyDetector(mock_blackboard)
-        # d1: low severity -> False
+        # d1: low severity -> Ignored by aggregation (not an active flag)
         detector.register_detector(MockDetector("low_risk", 0.2, "low"))
-        # d2: medium severity -> True
+        # d2: medium severity -> Active flag (Medium, True)
         detector.register_detector(MockDetector("med_risk", 0.6, "medium"))
-        # d3: high severity -> True
+        # d3: high severity -> Active flag (High, True)
         detector.register_detector(MockDetector("high_risk", 0.9, "high"))
 
         # Act: Run one tick
         await detector._run_tick()
 
-        # Assert 1: set_anomaly_flag called three times for unique keys
-        # FIX: Cast before accessing call_args_list
+        # Assert 1: set_anomaly_flag called two times (only for medium and high severity results)
         calls = cast(AsyncMock, mock_blackboard.set_anomaly_flag).call_args_list
-        assert len(calls) == 3
+        assert len(calls) == 2  # FIX: Changed from 3 to 2
 
-        # Assert 2: Verify boolean flags based on severity logic
-        flag_map = {args[0][0]: args[0][1] for args in calls}
-        assert flag_map["low_risk"] is False
-        assert flag_map["med_risk"] is True
-        assert flag_map["high_risk"] is True
+        # Assert 2: Verify the exact calls, including severity and is_active=True
+        call_list = [
+            call("med_risk", AnomalySeverity.MEDIUM, True),
+            call("high_risk", AnomalySeverity.HIGH, True),
+        ]
+        cast(AsyncMock, mock_blackboard.set_anomaly_flag).assert_has_calls(
+            call_list, any_order=True
+        )
 
     # --- Test 4: OR Logic in Aggregation ---
 
@@ -154,21 +163,22 @@ class TestAnomalyDetector:
         self, mock_blackboard: Blackboard, mock_snapshot: FusionSnapshot
     ) -> None:
         # Arrange: Setup two detectors using the SAME key
-        # FIX: Cast before accessing return_value
         cast(AsyncMock, mock_blackboard.get_fusion_snapshot).return_value = mock_snapshot
 
         detector = AnomalyDetector(mock_blackboard)
         # d1: high severity (True)
         detector.register_detector(MockDetector("collision", 0.9, "high"))
-        # d2: low severity (False)
+        # d2: low severity (False) -> Ignored, but the collision key is already HIGH
         detector.register_detector(MockDetector("collision", 0.3, "low"))
 
         # Act: Run one tick
         await detector._run_tick()
 
-        # Assert: set_anomaly_flag called only ONCE for the key, and the result is True (High OR Low = True)
-        # FIX: Cast before accessing assert_called_once_with
-        cast(AsyncMock, mock_blackboard.set_anomaly_flag).assert_called_once_with("collision", True)
+        # Assert: set_anomaly_flag called only ONCE for the key, and it uses the HIGHEST severity (HIGH)
+        # FIX: Added AnomalySeverity.HIGH and True as the second and third arguments
+        cast(AsyncMock, mock_blackboard.set_anomaly_flag).assert_called_once_with(
+            "collision", AnomalySeverity.HIGH, True
+        )
 
     # --- Test 5: Exception Handling ---
 
@@ -180,7 +190,6 @@ class TestAnomalyDetector:
     ) -> None:
         # Arrange: Use MagicMock to capture logging calls
         mock_logger = MagicMock(spec=logging.Logger)
-        # FIX: Cast before accessing return_value
         cast(AsyncMock, mock_blackboard.get_fusion_snapshot).return_value = mock_snapshot
 
         detector = AnomalyDetector(mock_blackboard, custom_logger=mock_logger)
@@ -192,12 +201,15 @@ class TestAnomalyDetector:
         # Act: Run one tick
         await detector._run_tick()
 
-        # Assert 1: The successful detector result was posted (critical: True)
-        # FIX: Cast before accessing assert_called_once_with
-        cast(AsyncMock, mock_blackboard.set_anomaly_flag).assert_called_once_with("critical", True)
+        # Assert 1: The successful detector result was posted (critical: HIGH, True)
+        # FIX: Added AnomalySeverity.HIGH and True as the second and third arguments
+        cast(AsyncMock, mock_blackboard.set_anomaly_flag).assert_called_once_with(
+            "critical", AnomalySeverity.HIGH, True
+        )
 
         # Assert 2: An exception was logged, but the tick completed successfully
         mock_logger.error.assert_called_once()
+        # The logging call includes the exception information
         assert "Sub-detector FailingDetector failed" in mock_logger.error.call_args[0][0]
 
     # --- Test 6: Lifecycle Management ---
@@ -206,7 +218,6 @@ class TestAnomalyDetector:
         self, mock_blackboard: Blackboard, mock_snapshot: FusionSnapshot
     ) -> None:
         # Arrange: Setup the detector with a low tick interval for quick test run
-        # FIX: Cast before accessing return_value
         cast(AsyncMock, mock_blackboard.get_fusion_snapshot).return_value = mock_snapshot
         detector = AnomalyDetector(mock_blackboard, tick_interval=0.01)
         detector.register_detector(MockDetector("a", 0.9, "high"))
@@ -238,7 +249,6 @@ class TestAnomalyDetector:
         self, mock_blackboard: Blackboard, mock_snapshot: FusionSnapshot
     ) -> None:
         # Arrange: Simulate one successful snapshot, followed by None
-        # FIX: Cast before accessing side_effect
         cast(AsyncMock, mock_blackboard.get_fusion_snapshot).side_effect = [mock_snapshot, None]
 
         detector = AnomalyDetector(mock_blackboard)
@@ -259,8 +269,11 @@ class TestAnomalyDetector:
 
         # Assert 2: ticks_processed remains 1 because the second tick found NO snapshot (Logical Fix)
         metrics = detector.get_metrics()
-        assert metrics["ticks_processed"] == 1  # LOGICAL FIX APPLIED
+        assert metrics["ticks_processed"] == 1
         assert metrics["anomalies_detected"] == 1
 
         # Assert 3: set_anomaly_flag called only once (during the first tick)
-        cast(AsyncMock, mock_blackboard.set_anomaly_flag).assert_called_once()
+        # The call is always with 3 arguments: key, severity, is_active
+        cast(AsyncMock, mock_blackboard.set_anomaly_flag).assert_called_once_with(
+            "always_true", AnomalySeverity.HIGH, True
+        )

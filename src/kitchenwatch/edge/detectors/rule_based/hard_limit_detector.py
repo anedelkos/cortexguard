@@ -2,7 +2,7 @@ import logging
 from typing import Any
 
 from kitchenwatch.core.interfaces.base_detector import BaseDetector
-from kitchenwatch.edge.detectors.anomaly_detector import AnomalySeverity
+from kitchenwatch.edge.models.anomaly_severity import AnomalySeverity
 from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
 
 default_logger = logging.getLogger(__name__)

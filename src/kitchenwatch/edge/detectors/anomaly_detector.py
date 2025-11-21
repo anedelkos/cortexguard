@@ -1,19 +1,13 @@
 import asyncio
 import logging
-from enum import Enum
 from typing import Any, cast
 
 from kitchenwatch.core.interfaces.base_detector import BaseDetector
+from kitchenwatch.edge.models.anomaly_severity import AnomalySeverity
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
 
 logger = logging.getLogger(__name__)
-
-
-class AnomalySeverity(str, Enum):
-    LOW = "low"  # Logging / Info only
-    MEDIUM = "medium"  # Warning / Local retry might be needed
-    HIGH = "high"  # Critical / Safety Stop required
 
 
 class AnomalyDetector:
@@ -62,6 +56,10 @@ class AnomalyDetector:
         self._sub_detectors: list[BaseDetector] = []
         self._loop_running = False
         self._task: asyncio.Task[Any] | None = None
+
+        # State to manage which keys are currently active on the Blackboard.
+        # This is essential for clearing flags that are no longer reported.
+        self._active_anomaly_keys: set[str] = set()
 
         # Metrics for observability
         self._ticks_processed = 0
@@ -131,18 +129,33 @@ class AnomalyDetector:
 
             # Aggregate and post results
             if valid_results:
-                aggregated = self._aggregate_results(valid_results)
+                # Returns only currently active anomalies: {key: (severity, True)}
+                active_aggregated_flags = self._aggregate_results(valid_results)
 
-                # Update blackboard with anomaly flags
-                for key, value in aggregated.items():
-                    await self._blackboard.set_anomaly_flag(key, value)
+                newly_active_keys = set(active_aggregated_flags.keys())
+
+                # --- Anomaly Clearing Logic ---
+                # Step 3: Clear flags that were active last tick but are NOT active now.
+                keys_to_clear = self._active_anomaly_keys - newly_active_keys
+                for key in keys_to_clear:
+                    # Explicitly set is_active=False to clear the flag on the Blackboard
+                    # Severity is irrelevant for clearing, but a placeholder is needed for the signature.
+                    await self._blackboard.set_anomaly_flag(
+                        key, AnomalySeverity.LOW, is_active=False
+                    )
+
+                # Step 4: Set/Update currently active flags
+                for key, (severity, is_active) in active_aggregated_flags.items():
+                    # is_active will always be True here, and we pass the required severity
+                    await self._blackboard.set_anomaly_flag(key, severity, is_active)
+
+                # Step 5: Update the state tracker for the next tick
+                self._active_anomaly_keys = newly_active_keys
 
                 # Track metrics
-                if any(aggregated.values()):
+                if newly_active_keys:
                     self._anomalies_detected += 1
-                    self._logger.info(
-                        f"Anomalies detected: {[k for k, v in aggregated.items() if v]}"
-                    )
+                    self._logger.info(f"Anomalies detected: {list(newly_active_keys)}")
 
         except Exception as e:
             # Catch any unexpected errors in aggregation or posting
@@ -152,36 +165,69 @@ class AnomalyDetector:
             # Increment tick counter only after processing work (snapshot was available)
             self._ticks_processed += 1
 
-    def _aggregate_results(self, results: list[dict[str, Any]]) -> dict[str, bool]:
+    def _aggregate_results(
+        self, results: list[dict[str, Any]]
+    ) -> dict[str, tuple[AnomalySeverity, bool]]:
         """
-        Aggregate sub-detector results into boolean anomaly flags.
+        Aggregate sub-detector results into (Severity, is_active=True) flags for currently active anomalies.
 
         Strategy: Flag as anomalous if ANY detector reports medium/high severity.
-        This is a conservative approach (high sensitivity, may have false positives).
-
-        Alternative Strategies (not implemented):
-        - Majority voting: Require N/2 + 1 detectors to agree
-        - Weighted voting: Weight by detector confidence or historical accuracy
-        - Threshold-based: Require sum of confidences > threshold
+        The severity recorded is the HIGHEST reported severity that triggered the flag.
 
         Args:
             results: List of detection results from sub-detectors
 
         Returns:
-            Dictionary mapping anomaly keys to boolean flags
+            Dictionary mapping anomaly keys to a tuple: (AnomalySeverity, bool is_active).
+            Only returns keys that are currently active (is_active=True).
         """
-        aggregated: dict[str, bool] = {}
+        # Map: Anomaly Key -> (Highest Triggering Severity, is_active)
+        aggregated: dict[str, tuple[AnomalySeverity, bool]] = {}
+
+        # Severity ranking for comparison (HIGH > MEDIUM > LOW)
+        SEVERITY_RANKING = {
+            AnomalySeverity.LOW: 1,
+            AnomalySeverity.MEDIUM: 2,
+            AnomalySeverity.HIGH: 3,
+        }
 
         for result in results:
             key = result.get("key", "generic_anomaly")
-            severity = result.get("severity", "low")
 
-            # Flag as anomalous if medium or high severity
-            is_anomalous = severity in ("medium", "high")
+            # Ensure severity is the AnomalySeverity enum type
+            severity_str = result.get("severity", AnomalySeverity.LOW)
+            # NOTE: Assuming AnomalySeverity can be constructed from a string
+            # and that results['severity'] contains the appropriate string representation.
+            try:
+                severity = AnomalySeverity(severity_str)
+            except ValueError:
+                self._logger.warning(
+                    f"Invalid severity string '{severity_str}' received for key '{key}'"
+                )
+                severity = AnomalySeverity.LOW  # Default to LOW on bad data
 
-            # Use OR logic: any detector flags → True
-            # Conservative approach: prefer false positives over false negatives
-            aggregated[key] = aggregated.get(key, False) or is_anomalous
+            # Flag as anomalous if medium or high severity (detectors only report if it IS anomalous)
+            is_anomalous = severity in (AnomalySeverity.MEDIUM, AnomalySeverity.HIGH)
+
+            # Since a detector only reports a result if an anomaly is present,
+            # we only process if the result indicates an actual anomaly.
+            if is_anomalous:
+                # Get current aggregated state for this key, default to LOW/False if not seen yet
+                current_severity, current_is_active = aggregated.get(
+                    key, (AnomalySeverity.LOW, False)
+                )
+
+                # The flag is active: is_active=True
+                new_is_active = True
+
+                # Determine the highest severity seen for this key
+                highest_severity = current_severity
+
+                if SEVERITY_RANKING[severity] > SEVERITY_RANKING[current_severity]:
+                    highest_severity = severity
+
+                # Only store active flags
+                aggregated[key] = (highest_severity, new_is_active)
 
         return aggregated
 

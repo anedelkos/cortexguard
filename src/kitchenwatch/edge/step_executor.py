@@ -1,9 +1,12 @@
 import asyncio
 import logging
 
+import py_trees
+
 from kitchenwatch.core.action_registry import ActionRegistry
 from kitchenwatch.core.interfaces.base_executor import BaseExecutor
 from kitchenwatch.core.interfaces.base_step_classifier import BaseStepClassifier
+from kitchenwatch.edge.models.anomaly_severity import AnomalySeverity
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.models.plan import PlanStep, StepStatus
 
@@ -73,17 +76,70 @@ class StepExecutor(BaseExecutor):
         self._paused = False
         self._logger.info("StepExecutor resumed.")
 
+    async def _run_tree_to_completion(
+        self, root: py_trees.behaviour.Behaviour
+    ) -> py_trees.common.Status:
+        """
+        Ticks a behavior tree continuously until it returns SUCCESS, FAILURE,
+        or is externally terminated. This is the core logic that allows async
+        actions (like the controller call) to complete.
+        """
+
+        tree = py_trees.trees.BehaviourTree(root)
+
+        # 1. Setup the Tree
+        tree.setup(timeout=15.0)
+
+        try:
+            # Tick once to initiate the sequence and move status to RUNNING (or instantly SUCCESS/FAILURE)
+            tree.tick()
+
+            # CRITICAL YIELD: Ensure the task created in PrimitiveLeaf gets scheduled and runs
+            # immediately, which is vital for instantly-resolving AsyncMocks in tests.
+            await asyncio.sleep(0)
+
+            # 2. Continuous Tick Loop
+            # The loop is necessary to process the RUNNING -> SUCCESS transition
+            while tree.root.status == py_trees.common.Status.RUNNING:
+                # Check for critical anomaly on every tick (prevents the loop from running indefinitely)
+                if await self._blackboard.is_anomaly_present(severity_min=AnomalySeverity.MEDIUM):
+                    self._logger.warning("Step execution interrupted by critical anomaly.")
+                    # Return INVALID status to signify external termination/pause
+                    return py_trees.common.Status.INVALID
+
+                tree.tick()
+                # Yield control to allow async action (controller.execute) to complete
+                await asyncio.sleep(STEP_RUNNING_POLL_INTERVAL)
+
+            return tree.root.status
+
+        except Exception as e:
+            self._logger.exception(f"Internal PyTree execution failure: {e}")
+            return py_trees.common.Status.FAILURE
+
+        finally:
+            # 3. Always terminate the tree to clean up resources
+            tree.root.terminate(tree.root.status)
+
     async def execute_step(self, step: PlanStep) -> None:
         """
         Execute a single PlanStep using:
-        - PyTrees behavior leaf
+        - PyTrees behavior leaf (run to completion)
         - StepClassifier for success/failure
         - retry logic with delay
-        - running polling loop
         """
 
         if step.status != StepStatus.PENDING:
             self._logger.debug(f"Skipping step {step.id} with status {step.status}")
+            return
+
+        # Before starting execution, check for critical anomalies
+        if await self._blackboard.is_anomaly_present(
+            key_prefix=None, severity_min=AnomalySeverity.MEDIUM
+        ):
+            self._logger.warning(
+                f"🛑 Cannot start step {step.id}. Execution is blocked by a MEDIUM+ anomaly flag."
+            )
             return
 
         max_attempts = getattr(step, "max_retries", self._default_max_retries)
@@ -92,59 +148,76 @@ class StepExecutor(BaseExecutor):
         for attempt in range(1, max_attempts + 1):
             step.status = StepStatus.RUNNING
             try:
-                sequence = self._action_registry.build(step.name)
+                # 1. Build the behaviour (The behaviour is a py_trees.Sequence)
+                behaviour = self._action_registry.build(step.name)
             except KeyError:
                 self._logger.error(f"Step '{step.name}' not registered in ActionRegistry")
                 step.status = StepStatus.FAILED
                 return
 
-            sequence.setup(timeout=0)
+            # 2. Run the tree until the PrimitiveLeaf returns SUCCESS or FAILURE
+            final_tree_status = await self._run_tree_to_completion(behaviour)
 
+            if final_tree_status == py_trees.common.Status.INVALID:
+                # Execution was interrupted by an anomaly during the tick loop
+                self._logger.info(f"Step {step.id} interrupted and returned to PENDING status.")
+                step.status = StepStatus.PENDING
+                return
+
+            if final_tree_status == py_trees.common.Status.FAILURE:
+                self._logger.warning(f"PyTree failed internally for step {step.id}.{step.name}")
+                # Fall through to classifier check
+
+            # 3. Classify the final observed state
             try:
-                sequence.tick_once()
                 completion_status = self._step_classifier.classify_completion_status(step)
             except Exception as e:
-                self._logger.exception(f"⚠️ Unexpected execution error in step {step.id}: {e}")
-                completion_status = StepStatus.FAILED
-            finally:
-                sequence.shutdown()
+                self._logger.exception(f"⚠️ Classifier error for step {step.id}: {e}")
+                completion_status = StepStatus.FAILED  # Default to failed if classifier crashes
 
             if completion_status == StepStatus.COMPLETED:
+                # SUCCESS: Final state matches desired post-condition
                 step.status = StepStatus.COMPLETED
                 self._logger.info(f"✅ Step {step.id}.{step.name} completed on attempt {attempt}")
                 return
 
-            elif completion_status == StepStatus.RUNNING:
-                self._logger.debug(
-                    f"⏳ Step {step.id}.{step.name} still running (attempt {attempt})"
+            # If classifier returns RUNNING or FAILED:
+            if attempt < max_attempts:
+                self._logger.warning(
+                    f"⚠️ Step {step.id}.{step.name} failed/stalled on attempt {attempt}, retrying..."
                 )
-                await asyncio.sleep(STEP_RUNNING_POLL_INTERVAL)
+                step.status = StepStatus.PENDING  # Ready for next attempt
+                await asyncio.sleep(retry_delay)
                 continue
 
-            else:  # FAILED
-                if attempt < max_attempts:
-                    self._logger.warning(
-                        f"⚠️ Step {step.id}.{step.name} failed on attempt {attempt}, retrying..."
-                    )
-                    await asyncio.sleep(retry_delay)
-                    continue
-
-                # Out of retries → permanent failure
-                step.status = StepStatus.FAILED
-                self._logger.error(
-                    f"❌ Step {step.id}.{step.name} permanently failed after {attempt} attempts"
-                )
-                return
+            # Out of retries → permanent failure
+            step.status = StepStatus.FAILED
+            self._logger.error(
+                f"❌ Step {step.id}.{step.name} permanently failed after {attempt} attempts"
+            )
+            return
 
     async def _executor_loop(self) -> None:
         """
         Watches blackboard for new steps and executes them.
+        Includes safety check for critical anomalies.
         """
         while self._loop_running:
+            # 1. Check for manual pause
             if self._paused:
+                self._logger.debug("Paused by user/external command.")
                 await asyncio.sleep(EXECUTOR_IDLE_INTERVAL)
                 continue
 
+            # 2. Check for safety pause (Critical Anomaly)
+            if await self._blackboard.is_anomaly_present(
+                key_prefix=None, severity_min=AnomalySeverity.MEDIUM
+            ):
+                self._logger.warning("🛑 Execution paused by MEDIUM+ anomaly flag.")
+                await asyncio.sleep(EXECUTOR_IDLE_INTERVAL)
+                continue
+
+            # 3. Normal execution path
             step = await self._blackboard.get_current_step()
             if step and step.status == StepStatus.PENDING:
                 await self.execute_step(step)
