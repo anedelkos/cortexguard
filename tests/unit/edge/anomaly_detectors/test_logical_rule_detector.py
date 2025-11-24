@@ -43,7 +43,6 @@ def mock_snapshot() -> Callable[[bool | None], FusionSnapshot]:
 def detector(mock_logger: MagicMock) -> LogicalRuleDetector:
     """Fixture for a LogicalRuleDetector instance with default settings."""
     return LogicalRuleDetector(
-        logger=mock_logger,
         max_failures=3,
         freeze_limit_s=2.0,
     )

@@ -6,8 +6,7 @@ from kitchenwatch.core.interfaces.base_detector import BaseDetector
 from kitchenwatch.edge.models.anomaly_severity import AnomalySeverity
 from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
 
-# Fallback logger if none is injected
-default_logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class LogicalRuleDetector(BaseDetector):
@@ -38,14 +37,12 @@ class LogicalRuleDetector(BaseDetector):
 
     def __init__(
         self,
-        logger: logging.Logger,
         max_failures: int | None = None,
         freeze_limit_s: float | None = None,
     ) -> None:
         """
         Initialize the LogicalRuleDetector with state.
         """
-        self._logger = logger
         self._max_consecutive_failures = max_failures or self.MAX_CONSECUTIVE_FAILURES
         self._freeze_limit_s = freeze_limit_s or self.FREEZE_TIME_LIMIT_S
 
@@ -54,7 +51,7 @@ class LogicalRuleDetector(BaseDetector):
         # Tracks when this detector last received and processed a tick.
         self._last_detector_tick: datetime = datetime.min
 
-        self._logger.debug(
+        logger.debug(
             f"LogicalRuleDetector initialized with consecutive failure limit={self._max_consecutive_failures}, "
             f"freeze limit={self._freeze_limit_s}s"
         )
@@ -97,7 +94,7 @@ class LogicalRuleDetector(BaseDetector):
         time_since_last_update = current_time - previous_tick_time
 
         if time_since_last_update.total_seconds() > self._freeze_limit_s:
-            self._logger.critical(
+            logger.critical(
                 f"🚨 DETECTOR FREEZE DETECTED: No update in "
                 f"{time_since_last_update.total_seconds():.2f}s "
                 f"(Limit: {self._freeze_limit_s}s). This implies the AnomalyDetector "
@@ -132,7 +129,7 @@ class LogicalRuleDetector(BaseDetector):
         if success_status == self.VALUE_SYSTEM_SUCCESS:
             # Success: Reset the counter
             if self._consecutive_failure_count > 0:
-                self._logger.info(
+                logger.info(
                     f"System success reported. Resetting failure count from {self._consecutive_failure_count}."
                 )
             self._consecutive_failure_count = 0
@@ -140,13 +137,13 @@ class LogicalRuleDetector(BaseDetector):
 
         # Failure: Increment counter
         self._consecutive_failure_count += 1
-        self._logger.warning(
+        logger.warning(
             f"System failure detected via derived metric '{self.KEY_SYSTEM_SUCCESS_STATUS}'. "
             f"Count: {self._consecutive_failure_count} / {self._max_consecutive_failures}"
         )
 
         if self._consecutive_failure_count >= self._max_consecutive_failures:
-            self._logger.error(
+            logger.error(
                 f"🛑 CONSECUTIVE FAILURE (S1.1): Count reached {self._max_consecutive_failures}. "
                 f"Requesting system pause."
             )
@@ -177,5 +174,5 @@ class LogicalRuleDetector(BaseDetector):
                 "metadata": metadata,
             }
         except Exception as e:
-            self._logger.error(f"Failed to construct anomaly event: {e}", exc_info=True)
+            logger.error(f"Failed to construct anomaly event: {e}", exc_info=True)
             return {}

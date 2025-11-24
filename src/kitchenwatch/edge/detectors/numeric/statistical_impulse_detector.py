@@ -31,7 +31,6 @@ class StatisticalImpulseDetector(BaseDetector):
         self,
         state_estimator: OnlineLearnerStateEstimator,
         z_score_threshold: float = DEFAULT_Z_SCORE_THRESHOLD,
-        custom_logger: logging.Logger = logger,
     ) -> None:
         """
         Initializes the detector.
@@ -44,7 +43,6 @@ class StatisticalImpulseDetector(BaseDetector):
         """
         self._estimator = state_estimator
         self._threshold = z_score_threshold
-        self._logger = custom_logger
 
     async def detect(self, snapshot: FusionSnapshot) -> dict[str, Any]:
         """
@@ -60,7 +58,7 @@ class StatisticalImpulseDetector(BaseDetector):
         uncertainty = state_estimate.uncertainty
 
         if not uncertainty or not residuals:
-            self._logger.debug("Skipping tick: residuals or uncertainty data is missing.")
+            logger.debug("Skipping tick: residuals or uncertainty data is missing.")
             return {}  # Cannot detect without required metrics
 
         max_z_score = 0.0
@@ -81,7 +79,7 @@ class StatisticalImpulseDetector(BaseDetector):
         if max_z_score >= self._threshold:
             # Check defensively before accessing dictionary keys
             if not feature_name:
-                self._logger.error(
+                logger.error(
                     f"Max Z-score {max_z_score:.2f} reached, but feature_name is empty. Data inconsistency."
                 )
                 return {}
@@ -91,7 +89,7 @@ class StatisticalImpulseDetector(BaseDetector):
             anomaly_score = min(1.0, (max_z_score - self._threshold) / self._threshold)
 
             # Log the full details for production monitoring/debugging
-            self._logger.warning(
+            logger.warning(
                 f"🚨 Impulse detected! Z={max_z_score:.2f} ({feature_name}). "
                 f"Score={anomaly_score:.2f}. Residual={residuals[feature_name]:.3f}, "
                 f"Sigma={uncertainty[feature_name]:.3f}"
@@ -111,7 +109,7 @@ class StatisticalImpulseDetector(BaseDetector):
                     },
                 }
             except KeyError:
-                self._logger.error(
+                logger.error(
                     f"Failed to assemble final anomaly dict due to missing key for '{feature_name}'.",
                     exc_info=True,
                 )

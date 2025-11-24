@@ -1,5 +1,3 @@
-import logging
-
 import pytest
 
 from kitchenwatch.edge.river_online_learner import RiverOnlineLearner
@@ -7,7 +5,7 @@ from kitchenwatch.edge.river_online_learner import RiverOnlineLearner
 
 @pytest.fixture
 def learner() -> RiverOnlineLearner:
-    return RiverOnlineLearner(logger=logging.getLogger("test"))
+    return RiverOnlineLearner()
 
 
 def test_initialization(learner: RiverOnlineLearner) -> None:

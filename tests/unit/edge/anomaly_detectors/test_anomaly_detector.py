@@ -1,24 +1,21 @@
 import asyncio
 import logging
 from datetime import datetime
-from enum import Enum  # ADDED: For AnomalySeverity mock
 from typing import Any, cast
-from unittest.mock import AsyncMock, MagicMock, call  # ADDED: import 'call' for assertion
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
-# Assuming these imports are correct based on your project structure
 from kitchenwatch.core.interfaces.base_detector import BaseDetector
 from kitchenwatch.edge.detectors.anomaly_detector import AnomalyDetector
+from kitchenwatch.edge.models.anomaly_severity import AnomalySeverity
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
 
-
-# Define a minimal AnomalySeverity Enum for testing purposes since the source file is not provided.
-class AnomalySeverity(str, Enum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
+# --- Path for Patching ---
+# This path points to the 'logger' variable defined globally within the
+# kitchenwatch.edge.detectors.anomaly_detector module.
+ANOMALY_DETECTOR_LOGGER_PATH = "kitchenwatch.edge.detectors.anomaly_detector.logger"
 
 
 # Define a mock detector to use in the tests
@@ -182,17 +179,20 @@ class TestAnomalyDetector:
 
     # --- Test 5: Exception Handling ---
 
+    @pytest.mark.asyncio
+    @patch(ANOMALY_DETECTOR_LOGGER_PATH, spec=logging.Logger)
     async def test_failing_detector_does_not_halt_ensemble(
         self,
+        mock_logger: MagicMock,  # The patched object is passed as the first argument
         mock_blackboard: Blackboard,
         mock_snapshot: FusionSnapshot,
-        test_logger: logging.Logger,
     ) -> None:
-        # Arrange: Use MagicMock to capture logging calls
-        mock_logger = MagicMock(spec=logging.Logger)
+        # Arrange: Patching is handled by the decorator. We just use the mock_logger object.
         cast(AsyncMock, mock_blackboard.get_fusion_snapshot).return_value = mock_snapshot
 
-        detector = AnomalyDetector(mock_blackboard, custom_logger=mock_logger)
+        # Detector is instantiated, and will use the patched logger internally
+        detector = AnomalyDetector(mock_blackboard)
+
         # d1: High risk detector (successful)
         detector.register_detector(MockDetector("critical", 0.9, "high"))
         # d2: Detector that raises an exception
@@ -202,14 +202,15 @@ class TestAnomalyDetector:
         await detector._run_tick()
 
         # Assert 1: The successful detector result was posted (critical: HIGH, True)
-        # FIX: Added AnomalySeverity.HIGH and True as the second and third arguments
         cast(AsyncMock, mock_blackboard.set_anomaly_flag).assert_called_once_with(
             "critical", AnomalySeverity.HIGH, True
         )
 
         # Assert 2: An exception was logged, but the tick completed successfully
         mock_logger.error.assert_called_once()
+
         # The logging call includes the exception information
+        # We check the first argument (the message) of the logger call
         assert "Sub-detector FailingDetector failed" in mock_logger.error.call_args[0][0]
 
     # --- Test 6: Lifecycle Management ---

@@ -39,7 +39,6 @@ class AnomalyDetector:
         self,
         blackboard: Blackboard,
         tick_interval: float = 0.1,
-        custom_logger: logging.Logger = logger,
     ):
         """
         Initialize anomaly detector ensemble.
@@ -51,7 +50,6 @@ class AnomalyDetector:
         """
         self._blackboard = blackboard
         self._tick_interval = tick_interval
-        self._logger = custom_logger
 
         self._sub_detectors: list[BaseDetector] = []
         self._loop_running = False
@@ -74,7 +72,7 @@ class AnomalyDetector:
             detector: SubDetector instance implementing the detection protocol
         """
         self._sub_detectors.append(detector)
-        self._logger.info(f"Registered sub-detector: {detector.__class__.__name__}")
+        logger.info(f"Registered sub-detector: {detector.__class__.__name__}")
 
     async def _poll_blackboard(self) -> FusionSnapshot | None:
         """
@@ -85,7 +83,7 @@ class AnomalyDetector:
         """
         snapshot = await self._blackboard.get_fusion_snapshot()
         if snapshot is None:
-            self._logger.debug("No fusion snapshot available yet")
+            logger.debug("No fusion snapshot available yet")
         return snapshot
 
     async def _run_tick(self) -> None:
@@ -119,7 +117,7 @@ class AnomalyDetector:
 
                     # NOTE: Keeping .error(..., exc_info=) is functionally correct
                     # but requires the test suite update below.
-                    self._logger.error(
+                    logger.error(
                         f"Sub-detector {detector.__class__.__name__} failed",
                         exc_info=result,
                     )
@@ -155,11 +153,11 @@ class AnomalyDetector:
                 # Track metrics
                 if newly_active_keys:
                     self._anomalies_detected += 1
-                    self._logger.info(f"Anomalies detected: {list(newly_active_keys)}")
+                    logger.info(f"Anomalies detected: {list(newly_active_keys)}")
 
         except Exception as e:
             # Catch any unexpected errors in aggregation or posting
-            self._logger.exception(f"Unexpected error during tick processing: {e}")
+            logger.exception(f"Unexpected error during tick processing: {e}")
 
         finally:
             # Increment tick counter only after processing work (snapshot was available)
@@ -201,9 +199,7 @@ class AnomalyDetector:
             try:
                 severity = AnomalySeverity(severity_str)
             except ValueError:
-                self._logger.warning(
-                    f"Invalid severity string '{severity_str}' received for key '{key}'"
-                )
+                logger.warning(f"Invalid severity string '{severity_str}' received for key '{key}'")
                 severity = AnomalySeverity.LOW  # Default to LOW on bad data
 
             # Flag as anomalous if medium or high severity (detectors only report if it IS anomalous)
@@ -234,7 +230,7 @@ class AnomalyDetector:
     async def _run_loop(self) -> None:
         """Main detection loop with graceful error handling."""
         self._loop_running = True
-        self._logger.info(
+        logger.info(
             f"AnomalyDetector loop started "
             f"(detectors={len(self._sub_detectors)}, "
             f"tick_interval={self._tick_interval}s)"
@@ -246,14 +242,14 @@ class AnomalyDetector:
                 await asyncio.sleep(self._tick_interval)
 
         except asyncio.CancelledError:
-            self._logger.info("AnomalyDetector loop cancelled gracefully")
+            logger.info("AnomalyDetector loop cancelled gracefully")
             raise
         except Exception as e:
-            self._logger.exception(f"Fatal error in AnomalyDetector loop: {e}")
+            logger.exception(f"Fatal error in AnomalyDetector loop: {e}")
             raise
         finally:
             self._loop_running = False
-            self._logger.info(
+            logger.info(
                 f"AnomalyDetector stopped "
                 f"(ticks={self._ticks_processed}, "
                 f"anomalies={self._anomalies_detected}, "
@@ -263,22 +259,22 @@ class AnomalyDetector:
     async def start(self) -> None:
         """Start the anomaly detection loop."""
         if self._loop_running:
-            self._logger.warning("AnomalyDetector already running")
+            logger.warning("AnomalyDetector already running")
             return
 
         if self._task and not self._task.done():
-            self._logger.warning("Previous task still active")
+            logger.warning("Previous task still active")
             return
 
         if not self._sub_detectors:
-            self._logger.warning("No sub-detectors registered, starting anyway")
+            logger.warning("No sub-detectors registered, starting anyway")
 
         self._task = asyncio.create_task(self._run_loop())
-        self._logger.info("AnomalyDetector started")
+        logger.info("AnomalyDetector started")
 
     async def stop(self) -> None:
         """Stop the anomaly detection loop gracefully."""
-        self._logger.info("Stopping AnomalyDetector...")
+        logger.info("Stopping AnomalyDetector...")
         self._loop_running = False
 
         if self._task and not self._task.done():
@@ -286,9 +282,9 @@ class AnomalyDetector:
             try:
                 await self._task
             except asyncio.CancelledError:
-                self._logger.debug("AnomalyDetector task cancelled")
+                logger.debug("AnomalyDetector task cancelled")
 
-        self._logger.info("AnomalyDetector stopped")
+        logger.info("AnomalyDetector stopped")
 
     def get_metrics(self) -> dict[str, int | float]:
         """

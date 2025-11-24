@@ -34,7 +34,6 @@ class StepExecutor(BaseExecutor):
         action_registry: ActionRegistry,
         default_max_retries: int = DEFAULT_MAX_PLAN_FAILURES,
         default_retry_delay: float = DEFAULT_RETRY_DELAY,
-        custom_logger: logging.Logger = logger,
     ) -> None:
         self._blackboard = blackboard
         self._step_classifier = step_classifier
@@ -44,19 +43,18 @@ class StepExecutor(BaseExecutor):
         self._loop_running = False
         self._paused = False
         self._task: asyncio.Task[None] | None = None
-        self._logger = custom_logger
 
     async def start(self) -> None:
         if self._loop_running:
-            self._logger.warning("StepExecutor already running")
+            logger.warning("StepExecutor already running")
             return
         if self._task and not self._task.done():
-            self._logger.warning("Previous task still active")
+            logger.warning("Previous task still active")
             return
 
         self._loop_running = True
         self._task = asyncio.create_task(self._executor_loop())
-        self._logger.info("StepExecutor started.")
+        logger.info("StepExecutor started.")
 
     async def stop(self) -> None:
         self._loop_running = False
@@ -65,16 +63,16 @@ class StepExecutor(BaseExecutor):
             try:
                 await self._task
             except asyncio.CancelledError:
-                self._logger.debug("Executor task cancelled")
-        self._logger.info("StepExecutor stopped.")
+                logger.debug("Executor task cancelled")
+        logger.info("StepExecutor stopped.")
 
     async def pause(self) -> None:
         self._paused = True
-        self._logger.info("StepExecutor paused.")
+        logger.info("StepExecutor paused.")
 
     async def resume(self) -> None:
         self._paused = False
-        self._logger.info("StepExecutor resumed.")
+        logger.info("StepExecutor resumed.")
 
     async def _run_tree_to_completion(
         self, root: py_trees.behaviour.Behaviour
@@ -103,7 +101,7 @@ class StepExecutor(BaseExecutor):
             while tree.root.status == py_trees.common.Status.RUNNING:
                 # Check for critical anomaly on every tick (prevents the loop from running indefinitely)
                 if await self._blackboard.is_anomaly_present(severity_min=AnomalySeverity.MEDIUM):
-                    self._logger.warning("Step execution interrupted by critical anomaly.")
+                    logger.warning("Step execution interrupted by critical anomaly.")
                     # Return INVALID status to signify external termination/pause
                     return py_trees.common.Status.INVALID
 
@@ -114,7 +112,7 @@ class StepExecutor(BaseExecutor):
             return tree.root.status
 
         except Exception as e:
-            self._logger.exception(f"Internal PyTree execution failure: {e}")
+            logger.exception(f"Internal PyTree execution failure: {e}")
             return py_trees.common.Status.FAILURE
 
         finally:
@@ -130,14 +128,14 @@ class StepExecutor(BaseExecutor):
         """
 
         if step.status != StepStatus.PENDING:
-            self._logger.debug(f"Skipping step {step.id} with status {step.status}")
+            logger.debug(f"Skipping step {step.id} with status {step.status}")
             return
 
         # Before starting execution, check for critical anomalies
         if await self._blackboard.is_anomaly_present(
             key_prefix=None, severity_min=AnomalySeverity.MEDIUM
         ):
-            self._logger.warning(
+            logger.warning(
                 f"🛑 Cannot start step {step.id}. Execution is blocked by a MEDIUM+ anomaly flag."
             )
             return
@@ -151,7 +149,7 @@ class StepExecutor(BaseExecutor):
                 # 1. Build the behaviour (The behaviour is a py_trees.Sequence)
                 behaviour = self._action_registry.build(step.name)
             except KeyError:
-                self._logger.error(f"Step '{step.name}' not registered in ActionRegistry")
+                logger.error(f"Step '{step.name}' not registered in ActionRegistry")
                 step.status = StepStatus.FAILED
                 return
 
@@ -160,30 +158,30 @@ class StepExecutor(BaseExecutor):
 
             if final_tree_status == py_trees.common.Status.INVALID:
                 # Execution was interrupted by an anomaly during the tick loop
-                self._logger.info(f"Step {step.id} interrupted and returned to PENDING status.")
+                logger.info(f"Step {step.id} interrupted and returned to PENDING status.")
                 step.status = StepStatus.PENDING
                 return
 
             if final_tree_status == py_trees.common.Status.FAILURE:
-                self._logger.warning(f"PyTree failed internally for step {step.id}.{step.name}")
+                logger.warning(f"PyTree failed internally for step {step.id}.{step.name}")
                 # Fall through to classifier check
 
             # 3. Classify the final observed state
             try:
                 completion_status = self._step_classifier.classify_completion_status(step)
             except Exception as e:
-                self._logger.exception(f"⚠️ Classifier error for step {step.id}: {e}")
+                logger.exception(f"⚠️ Classifier error for step {step.id}: {e}")
                 completion_status = StepStatus.FAILED  # Default to failed if classifier crashes
 
             if completion_status == StepStatus.COMPLETED:
                 # SUCCESS: Final state matches desired post-condition
                 step.status = StepStatus.COMPLETED
-                self._logger.info(f"✅ Step {step.id}.{step.name} completed on attempt {attempt}")
+                logger.info(f"✅ Step {step.id}.{step.name} completed on attempt {attempt}")
                 return
 
             # If classifier returns RUNNING or FAILED:
             if attempt < max_attempts:
-                self._logger.warning(
+                logger.warning(
                     f"⚠️ Step {step.id}.{step.name} failed/stalled on attempt {attempt}, retrying..."
                 )
                 step.status = StepStatus.PENDING  # Ready for next attempt
@@ -192,7 +190,7 @@ class StepExecutor(BaseExecutor):
 
             # Out of retries → permanent failure
             step.status = StepStatus.FAILED
-            self._logger.error(
+            logger.error(
                 f"❌ Step {step.id}.{step.name} permanently failed after {attempt} attempts"
             )
             return
@@ -205,7 +203,7 @@ class StepExecutor(BaseExecutor):
         while self._loop_running:
             # 1. Check for manual pause
             if self._paused:
-                self._logger.debug("Paused by user/external command.")
+                logger.debug("Paused by user/external command.")
                 await asyncio.sleep(EXECUTOR_IDLE_INTERVAL)
                 continue
 
@@ -213,7 +211,7 @@ class StepExecutor(BaseExecutor):
             if await self._blackboard.is_anomaly_present(
                 key_prefix=None, severity_min=AnomalySeverity.MEDIUM
             ):
-                self._logger.warning("🛑 Execution paused by MEDIUM+ anomaly flag.")
+                logger.warning("🛑 Execution paused by MEDIUM+ anomaly flag.")
                 await asyncio.sleep(EXECUTOR_IDLE_INTERVAL)
                 continue
 

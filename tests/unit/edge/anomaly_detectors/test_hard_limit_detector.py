@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from kitchenwatch.edge.detectors.rule_based.hard_limit_detector import HardLimitDetector
+from kitchenwatch.edge.detectors.rule_based import HardLimitDetector
 from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
 
 

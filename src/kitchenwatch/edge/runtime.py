@@ -25,14 +25,23 @@ import signal
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from functools import partial
 from typing import Any
 
 from kitchenwatch.common.logging_config import setup_logging
 from kitchenwatch.core.action_registry import ActionRegistry
+
+# Edge Detection Subsystem Imports
+from kitchenwatch.core.interfaces.base_online_learner import BaseOnlineLearner
 from kitchenwatch.core.mocks.mock_controller import MockController
 from kitchenwatch.core.mocks.mock_step_classifier import MockStepClassifier
+from kitchenwatch.edge.detectors.anomaly_detector import AnomalyDetector
+from kitchenwatch.edge.detectors.numeric import StatisticalImpulseDetector
+from kitchenwatch.edge.detectors.rule_based import HardLimitDetector, LogicalRuleDetector
 from kitchenwatch.edge.models.blackboard import Blackboard
+from kitchenwatch.edge.online_learner_state_estimator import OnlineLearnerStateEstimator
 from kitchenwatch.edge.orchestrator import Orchestrator
+from kitchenwatch.edge.river_online_learner import RiverOnlineLearner
 from kitchenwatch.edge.step_executor import StepExecutor
 
 logger = logging.getLogger(__name__)
@@ -106,14 +115,12 @@ class EdgeRuntime:
         # Singleton Blackboard - shared across all subsystems
         self.blackboard = Blackboard()
 
-        # Core subsystems
+        # --- CORE AGENT SUBSYSTEMS ---
         self.orchestrator = Orchestrator(self.blackboard)
-
         # Create controller & registry
         self.controller = MockController()  # or real robot controller
         self.action_registry = ActionRegistry(controller=self.controller)
         self.step_classifier = MockStepClassifier()
-
         # Step executor
         self.executor = StepExecutor(
             blackboard=self.blackboard,
@@ -122,6 +129,32 @@ class EdgeRuntime:
             default_max_retries=self.config.executor_max_retries,
             default_retry_delay=self.config.executor_retry_delay,
         )
+
+        # --- ANOMALY DETECTION SUBSYSTEM (Ensemble) ---
+        # 1. Instantiate the learning dependency
+        self.online_learner: BaseOnlineLearner = RiverOnlineLearner()
+        # 2. Instantiate the State Estimator (Translates residuals to Z-scores)
+        self.state_estimator = OnlineLearnerStateEstimator(self.online_learner)
+        # 3. Instantiate the Anomaly Detector (The Manager/Coordinator)
+        self.anomaly_detector = AnomalyDetector(
+            blackboard=self.blackboard,
+            tick_interval=self.config.anomaly_check_interval,
+        )
+
+        # ... Register Sub-Detectors ...
+        # 4. Instantiate and Register Sub-Detectors (Tier 0 Safety)
+        # S0.3 Impact Detector (Statistical)
+        self.statistical_impulse_detector = StatisticalImpulseDetector(
+            state_estimator=self.state_estimator,
+            z_score_threshold=self.config.anomaly_threshold,
+        )
+        self.anomaly_detector.register_detector(self.statistical_impulse_detector)
+        # S0.2 Overheat Detector
+        self.hard_limit_detector = HardLimitDetector()
+        self.anomaly_detector.register_detector(self.hard_limit_detector)
+        # S1.1: Repeated system failures, S2.3: Sensor/Blackboard data freeze
+        self.logical_rule_detector = LogicalRuleDetector()
+        self.anomaly_detector.register_detector(self.logical_rule_detector)
 
         # Runtime state
         self._running = False
@@ -172,9 +205,21 @@ class EdgeRuntime:
             )
         if self.executor:
             start_tasks.append(self.executor.start())
+        if self.anomaly_detector:
+            start_tasks.append(self.anomaly_detector.start())
 
-        # Start all subsystems concurrently
-        await asyncio.gather(*start_tasks, return_exceptions=True)
+        # Start all subsystems concurrently and check for failures
+        results = await asyncio.gather(*start_tasks, return_exceptions=True)
+
+        # Check for startup failures
+        failed = False
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.error(f"Subsystem {i} failed to start: {result}", exc_info=result)
+                failed = True
+
+        if failed:
+            raise RuntimeError("One or more subsystems failed to start")
 
     async def stop(self) -> None:
         """
@@ -198,11 +243,15 @@ class EdgeRuntime:
             # Stop subsystems with timeout
             stop_tasks = []
 
-            # Stop execution layer first (prevent new work)
+            # 1. Stop execution layer first (prevent new work)
             if self.executor:
                 stop_tasks.append(self.executor.stop())
             if self.orchestrator:
                 stop_tasks.append(self.orchestrator.stop())
+
+            # 2. Stop Reasoning/Detection layer
+            if self.anomaly_detector:
+                stop_tasks.append(self.anomaly_detector.stop())
 
             # Wait for graceful shutdown with timeout
             await asyncio.wait_for(
@@ -238,9 +287,9 @@ class EdgeRuntime:
             logger.info(f"Received signal {sig.name}, initiating shutdown...")
             stop_event.set()
 
-        # Register signal handlers
+        # Register signal handlers using functools.partial
         for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, lambda s=sig: handle_signal(s))
+            loop.add_signal_handler(sig, partial(handle_signal, sig))
 
         logger.info("EdgeRuntime running. Press Ctrl+C to stop.")
 
@@ -274,9 +323,11 @@ class EdgeRuntime:
             "blackboard": self.blackboard is not None,
             "orchestrator": self.orchestrator is not None
             and getattr(self.orchestrator, "_loop_running", False),
+            "executor": self.executor is not None
+            and getattr(self.executor, "_loop_running", False),
+            "anomaly_detector": self.anomaly_detector is not None
+            and getattr(self.anomaly_detector, "_loop_running", False),
         }
-
-        # Check subsystem health (would call health_check() on each)
 
         return health
 
@@ -297,25 +348,25 @@ class EdgeRuntime:
         finally:
             await self.stop()
 
-    def get_metrics(self) -> dict[str, int | str | None]:
+    async def get_metrics(self) -> dict[str, int | str | None]:
         """
         Get runtime metrics for monitoring.
 
         Production: Would export to Prometheus, CloudWatch, etc.
         """
+        current_plan = await self.blackboard.get_current_plan()
+
         return {
             "uptime": "TODO",  # Track start time
             "plans_executed": "TODO",  # Track in orchestrator
             "anomalies_detected": len(self.blackboard.anomaly_flags),
             "failed_plans": len(self.blackboard.failed_plans),
-            "current_plan_id": (
-                self.blackboard.current_plan.plan_id if self.blackboard.current_plan else None
-            ),
+            "current_plan_id": current_plan.plan_id if current_plan else None,
         }
 
 
 # Factory function for creating runtime with different profiles
-def create_runtime(profile: str = "default", **overrides: dict[str, Any]) -> EdgeRuntime:
+def create_runtime(profile: str = "default", **overrides: Any) -> EdgeRuntime:
     """
     Factory for creating runtime with preset configurations.
 
@@ -332,7 +383,7 @@ def create_runtime(profile: str = "default", **overrides: dict[str, Any]) -> Edg
     Usage:
         runtime = create_runtime("development", log_level="DEBUG")
     """
-    configs = {
+    configs: dict[str, RuntimeConfig] = {
         "default": RuntimeConfig(),
         "development": RuntimeConfig(
             log_level="DEBUG",
@@ -355,10 +406,12 @@ def create_runtime(profile: str = "default", **overrides: dict[str, Any]) -> Edg
 
     config = configs.get(profile, configs["default"])
 
-    # Apply overrides
+    # Apply overrides with validation
     for key, value in overrides.items():
         if hasattr(config, key):
             setattr(config, key, value)
+        else:
+            logger.warning(f"Unknown config override ignored: {key}={value}")
 
     return EdgeRuntime(config)
 
