@@ -2,9 +2,19 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
+from kitchenwatch.edge.models.anomaly_severity import AnomalySeverity
 from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
 from kitchenwatch.edge.models.plan import IntentContext, Plan, PlanStep
 from kitchenwatch.edge.models.state_estimate import StateEstimate
+
+# --- SEVERITY ORDER MAPPING ---
+# Maps the AnomalySeverity Enum values to an integer for comparison checks.
+# This must match the defined order in the Enum (HIGH > MEDIUM > LOW).
+SEVERITY_ORDER: dict[str, int] = {
+    AnomalySeverity.LOW.value: 0,
+    AnomalySeverity.MEDIUM.value: 1,
+    AnomalySeverity.HIGH.value: 2,
+}
 
 
 @dataclass
@@ -15,17 +25,6 @@ class Blackboard:
     Implements the Blackboard architectural pattern for inter-subsystem
     communication. Acts as the central hub for plan execution state,
     sensor data, and system flags.
-
-    Design Philosophy:
-    - Single lock for simplicity (adequate for edge workload)
-    - Events for non-blocking state change notifications
-    - Type-safe accessors for core state
-    - Extensible via custom_state for experimentation
-
-    Production Enhancements (not implemented):
-    - Fine-grained locking per state category
-    - State snapshots for debugging/replay
-    - Metrics/observability hooks
     """
 
     # Core execution state
@@ -38,7 +37,9 @@ class Blackboard:
     latest_snapshot: FusionSnapshot | None = None
 
     # System flags
-    anomaly_flags: dict[str, bool] = field(default_factory=dict)
+    # anomaly_flags now stores the severity string (e.g., 'high') for active anomalies.
+    # If an anomaly is inactive, its key should be removed from the dict.
+    anomaly_flags: dict[str, str] = field(default_factory=dict)
     recovery_status: dict[str, str] = field(default_factory=dict)
     safety_flags: dict[str, bool] = field(default_factory=dict)
 
@@ -133,14 +134,84 @@ class Blackboard:
     # ---------------------
     # Anomaly & Recovery Flags
     # ---------------------
-    async def set_anomaly_flag(self, key: str, value: bool) -> None:
+    async def set_anomaly_flag(self, key: str, severity: AnomalySeverity, is_active: bool) -> None:
+        """
+        Set or clear an anomaly flag based on its severity.
+
+        Args:
+            key: Unique identifier for the anomaly (e.g., 'repeated_misgrasp').
+            severity: The severity level string ('low', 'medium', 'high').
+            is_active: If True, set the flag; if False, clear/remove the flag.
+        """
+        # Validate severity input using the imported enum's values
+        if severity.lower() not in SEVERITY_ORDER:
+            # Note: We don't raise here, as the Anomaly Detector should be validating it,
+            # but we ensure the input is recognizable before storage.
+            print(f"WARNING: Invalid severity provided to Blackboard: {severity}")
+            return
+
         async with self._lock:
-            self.anomaly_flags[key] = value
+            if is_active:
+                # Store the severity string for later querying
+                self.anomaly_flags[key] = severity.lower()
+            elif key in self.anomaly_flags:
+                # Clear the flag
+                del self.anomaly_flags[key]
+
         self.anomaly_updated.set()
 
-    async def get_anomaly_flag(self, key: str) -> bool | None:
+    async def get_anomaly_flag(self, key: str) -> str | None:
+        """
+        Retrieve the severity string of an active anomaly flag, or None if inactive.
+        """
         async with self._lock:
             return self.anomaly_flags.get(key)
+
+    async def is_anomaly_present(
+        self, key_prefix: str | None = None, severity_min: AnomalySeverity = AnomalySeverity.MEDIUM
+    ) -> bool:
+        """
+        Checks if any active anomaly flag meets or exceeds a minimum severity level.
+        This is the critical 'Safety Gate' check for the StepExecutor.
+
+        Args:
+            key_prefix: Optional prefix to filter anomaly keys (e.g., 'system_health').
+            severity_min: The minimum AnomalySeverity required to return True.
+                          Defaults to MEDIUM to trigger a pause on critical issues.
+
+        Returns:
+            True if one or more matching anomaly flags are active at or above severity_min.
+        """
+        min_level_str = severity_min.value.lower()
+        min_level = SEVERITY_ORDER.get(min_level_str)
+
+        # This should theoretically never happen if the Enum is used correctly,
+        # but serves as a safety check against improper enum usage.
+        if min_level is None:
+            raise ValueError(
+                f"Invalid severity_min: {severity_min}. Must be a valid AnomalySeverity member."
+            )
+
+        async with self._lock:
+            for key, severity_str in self.anomaly_flags.items():
+                # 1. Filter by key prefix if provided
+                if key_prefix and not key.startswith(key_prefix):
+                    continue
+
+                # 2. Check severity level
+                flag_level = SEVERITY_ORDER.get(severity_str)
+
+                if flag_level is None:
+                    # Log internal error if a severity string stored in the dict is invalid
+                    print(
+                        f"ERROR: Blackboard has invalid severity stored for {key}: {severity_str}"
+                    )
+                    continue
+
+                if flag_level >= min_level:
+                    return True  # Found an active, critical anomaly
+
+            return False  # No critical anomalies found
 
     async def set_recovery_status(self, key: str, status: str) -> None:
         async with self._lock:

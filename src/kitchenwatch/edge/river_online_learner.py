@@ -4,6 +4,8 @@ from river import linear_model, preprocessing
 
 from kitchenwatch.core.interfaces.base_online_learner import BaseOnlineLearner
 
+logger = logging.getLogger(__name__)
+
 
 class RiverOnlineLearner(BaseOnlineLearner):
     """
@@ -18,11 +20,10 @@ class RiverOnlineLearner(BaseOnlineLearner):
     - Production: Consider multivariate models or LSTM for better predictions
     """
 
-    def __init__(self, logger: logging.Logger | None = None) -> None:
+    def __init__(self) -> None:
         self._logger = logger or logging.getLogger(__name__)
         self._models: dict[str, linear_model.LinearRegression] = {}
         self._scalers: dict[str, preprocessing.StandardScaler] = {}
-        self._logger.info("RiverOnlineLearner initialized")
 
     def update(self, features: dict[str, float]) -> None:
         """

@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any
 
 import yaml
@@ -25,10 +26,7 @@ class ActionRegistry:
           - primitive: move_to_burger
             parameters: {x: 0.1, y: 0.2}
           - primitive: lower_tool
-          - primitive: grasp_burger
-          - primitive: flip_motion
-          - primitive: release_burger
-          - primitive: retreat
+          # ...
         """
         with open(path) as f:
             data = yaml.safe_load(f)
@@ -59,13 +57,13 @@ class ActionRegistry:
             leaf = PrimitiveLeaf(name=primitive, controller=self._controller, parameters=parameters)
             children.append(leaf)
 
-        sequence = Sequence(name=action_name, memory=False, children=children)
+        sequence = Sequence(name=action_name, memory=True, children=children)
         return sequence
 
 
 class PrimitiveLeaf(Behaviour):
     """
-    Leaf node that executes a single primitive via the controller.
+    Leaf node that executes a single primitive via the controller asynchronously.
     """
 
     def __init__(
@@ -77,17 +75,49 @@ class PrimitiveLeaf(Behaviour):
         super().__init__(name)
         self._controller = controller
         self._parameters: dict[str, Any] = parameters or {}
-        self._executed = False
+        # Store the running task
+        self._task: asyncio.Task[Any] | None = None
 
     def setup(self, **kwargs: Any) -> None:
-        self._executed = False
+        """Reset state on tree setup."""
+        self._task = None
 
     def update(self) -> Status:
-        if self._executed:
-            return Status.SUCCESS
+        """Called continuously by the StepExecutor's ticking loop."""
 
-        import asyncio
+        # 1. Start the task on the first tick (when _task is None)
+        if self._task is None:
+            # CRITICAL: Start the asynchronous execution call.
+            self.logger.debug(f"Starting async action: {self.name} with {self._parameters}")
 
-        asyncio.create_task(self._controller.execute(self.name, self._parameters))
-        self._executed = True
-        return Status.SUCCESS
+            # The PyTree is executed in an async context, so we can create a task.
+            self._task = asyncio.create_task(self._controller.execute(self.name, self._parameters))
+            return Status.RUNNING
+
+        # 2. Check task status on subsequent ticks
+        elif not self._task.done():
+            # Action is still running in the background
+            return Status.RUNNING
+
+        # 3. Task is complete, check result and transition status
+        else:
+            try:
+                # Retrieve the result (which will raise any exception the task raised)
+                self._task.result()
+                self.logger.debug(f"Action {self.name} completed successfully.")
+                return Status.SUCCESS
+            except asyncio.CancelledError:
+                self.logger.warning(f"Action {self.name} was cancelled.")
+                return Status.FAILURE
+            except Exception as e:
+                self.logger.error(f"Action {self.name} failed: {e}")
+                return Status.FAILURE
+
+    def terminate(self, new_status: Status) -> None:
+        """
+        Ensure the running task is cancelled if the tree terminates early (e.g., interrupted by anomaly).
+        """
+        if self._task and not self._task.done():
+            self._task.cancel()
+            self.logger.warning(f"Action {self.name} was terminated prematurely.")
+        self._task = None

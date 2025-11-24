@@ -80,7 +80,7 @@ async def test_runtime_health_check(runtime: EdgeRuntime) -> None:
 async def test_runtime_get_metrics(runtime: EdgeRuntime) -> None:
     await runtime.start()
 
-    metrics = runtime.get_metrics()
+    metrics = await runtime.get_metrics()
 
     assert isinstance(metrics, dict)
     assert "anomalies_detected" in metrics

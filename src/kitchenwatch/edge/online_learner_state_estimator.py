@@ -46,7 +46,6 @@ class OnlineLearnerStateEstimator:
         window_size: int = 50,
         sigma_threshold: float = SIGMA_THRESHOLD_NOMINAL,
         min_history: int = MIN_HISTORY_SAMPLES,
-        custom_logger: logging.Logger | None = None,
     ) -> None:
         """
         Initialize state estimator.
@@ -56,12 +55,10 @@ class OnlineLearnerStateEstimator:
             window_size: Number of recent residuals to retain per feature
             sigma_threshold: Z-score threshold for anomaly detection
             min_history: Minimum samples needed before computing statistics
-            custom_logger: Optional logger instance
         """
         self._learner = learner
         self._residuals: dict[str, deque[float]] = {}
         self._window_size = window_size
-        self._logger = custom_logger or logger
 
         # Sensitivity Configuration
         self._sigma_threshold = sigma_threshold
@@ -95,7 +92,7 @@ class OnlineLearnerStateEstimator:
         features = snapshot.derived.copy()
 
         if not features:
-            self._logger.warning("Empty features in snapshot, returning nominal state")
+            logger.warning("Empty features in snapshot, returning nominal state")
             return self._create_nominal_state(now, snapshot.intent)
 
         residuals: dict[str, float] = {}
