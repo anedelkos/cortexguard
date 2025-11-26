@@ -24,7 +24,7 @@ def mock_state_estimator() -> OnlineLearnerStateEstimator:
 @pytest.fixture
 def mock_snapshot() -> FusionSnapshot:
     """Fixture for a simple mock FusionSnapshot."""
-    return FusionSnapshot(timestamp=datetime.now(), derived={}, sensors={}, intent=None)
+    return FusionSnapshot(id="111", timestamp=datetime.now(), derived={}, sensors={})
 
 
 # Helper function to configure the mock estimator's return value

@@ -2,19 +2,12 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
-from kitchenwatch.edge.models.anomaly_severity import AnomalySeverity
+# Assuming these imports are available in your environment
+from kitchenwatch.edge.models.anomaly_event import AnomalyEvent
+from kitchenwatch.edge.models.anomaly_severity import SEVERITY_RANKING, AnomalySeverity
 from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
-from kitchenwatch.edge.models.plan import IntentContext, Plan, PlanStep
+from kitchenwatch.edge.models.plan import Plan, PlanStatus, PlanStep
 from kitchenwatch.edge.models.state_estimate import StateEstimate
-
-# --- SEVERITY ORDER MAPPING ---
-# Maps the AnomalySeverity Enum values to an integer for comparison checks.
-# This must match the defined order in the Enum (HIGH > MEDIUM > LOW).
-SEVERITY_ORDER: dict[str, int] = {
-    AnomalySeverity.LOW.value: 0,
-    AnomalySeverity.MEDIUM.value: 1,
-    AnomalySeverity.HIGH.value: 2,
-}
 
 
 @dataclass
@@ -28,18 +21,22 @@ class Blackboard:
     """
 
     # Core execution state
-    current_intent: IntentContext | None = None
     current_step: PlanStep | None = None
     current_plan: Plan | None = None
     paused_plan: Plan | None = None
 
+    _plan_step_indices: dict[str, int] = field(default_factory=dict)
+
     # Sensor state
     latest_snapshot: FusionSnapshot | None = None
 
-    # System flags
-    # anomaly_flags now stores the severity string (e.g., 'high') for active anomalies.
-    # If an anomaly is inactive, its key should be removed from the dict.
-    anomaly_flags: dict[str, str] = field(default_factory=dict)
+    # System state & Agent Memory
+    # Stores active AnomalyEvent objects, keyed by their semantic key (AnomalyEvent.key).
+    active_anomalies: dict[str, AnomalyEvent] = field(default_factory=dict)
+
+    # The Reasoning Trace (Agent Scratchpad) - Stores a history of all significant events.
+    reasoning_trace: list[AnomalyEvent] = field(default_factory=list)
+
     recovery_status: dict[str, str] = field(default_factory=dict)
     safety_flags: dict[str, bool] = field(default_factory=dict)
 
@@ -51,32 +48,10 @@ class Blackboard:
 
     # Async primitives (created per-instance)
     _lock: asyncio.Lock = asyncio.Lock()
-    intent_updated: asyncio.Event = asyncio.Event()
     snapshot_updated: asyncio.Event = asyncio.Event()
     latest_state_estimate: StateEstimate | None = None
     state_estimate_updated: asyncio.Event = asyncio.Event()
     anomaly_updated: asyncio.Event = asyncio.Event()
-
-    # ---------------------
-    # Intent Methods
-    # ---------------------
-    async def update_intent(self, intent: IntentContext) -> None:
-        async with self._lock:
-            self.current_intent = intent
-        self.intent_updated.set()  # Signal outside lock
-
-    async def get_intent(self) -> IntentContext | None:
-        async with self._lock:
-            return self.current_intent
-
-    async def get_intent_action(self) -> str | None:
-        async with self._lock:
-            return self.current_intent.action if self.current_intent else None
-
-    async def wait_for_intent_change(self) -> IntentContext | None:
-        """Block until intent changes. Caller should clear event after handling."""
-        await self.intent_updated.wait()
-        return await self.get_intent()
 
     # ---------------------
     # Snapshot Methods
@@ -128,83 +103,110 @@ class Blackboard:
         Typically called by Orchestrator during plan transitions.
         """
         async with self._lock:
+            # If the plan is running, assume it completed and clear its index
+            if (
+                self.current_plan
+                and self.current_plan.status != PlanStatus.PREEMPTED
+                and self.current_plan.status != PlanStatus.FAILED
+            ):
+                if self.current_plan.plan_id in self._plan_step_indices:
+                    del self._plan_step_indices[self.current_plan.plan_id]
+
             self.current_plan = None
             self.current_step = None
 
-    # ---------------------
-    # Anomaly & Recovery Flags
-    # ---------------------
-    async def set_anomaly_flag(self, key: str, severity: AnomalySeverity, is_active: bool) -> None:
-        """
-        Set or clear an anomaly flag based on its severity.
-
-        Args:
-            key: Unique identifier for the anomaly (e.g., 'repeated_misgrasp').
-            severity: The severity level string ('low', 'medium', 'high').
-            is_active: If True, set the flag; if False, clear/remove the flag.
-        """
-        # Validate severity input using the imported enum's values
-        if severity.lower() not in SEVERITY_ORDER:
-            # Note: We don't raise here, as the Anomaly Detector should be validating it,
-            # but we ensure the input is recognizable before storage.
-            print(f"WARNING: Invalid severity provided to Blackboard: {severity}")
-            return
-
+    async def set_step_index_for_plan(self, plan_id: str, index: int) -> None:
+        """Saves the current step index for a specific plan ID."""
         async with self._lock:
-            if is_active:
-                # Store the severity string for later querying
-                self.anomaly_flags[key] = severity.lower()
-            elif key in self.anomaly_flags:
-                # Clear the flag
-                del self.anomaly_flags[key]
+            self._plan_step_indices[plan_id] = index
+
+    async def get_step_index_for_plan(self, plan_id: str) -> int | None:
+        """Retrieves the last saved step index for a plan, or None if new."""
+        async with self._lock:
+            return self._plan_step_indices.get(plan_id)
+
+    async def clear_step_index_for_plan(self, plan_id: str) -> None:
+        """Removes the stored step index when a plan execution is finalized."""
+        async with self._lock:
+            if plan_id in self._plan_step_indices:
+                del self._plan_step_indices[plan_id]
+
+    # ---------------------
+    # Anomaly & Recovery Flags (Cleaned to only use AnomalyEvent objects)
+    # ---------------------
+    async def set_anomaly(self, event: AnomalyEvent) -> None:
+        """
+        Adds a new AnomalyEvent to the Reasoning Trace and registers it
+        as an active anomaly.
+        """
+        async with self._lock:
+            # 1. Add to the reasoning trace (Scratchpad)
+            self.reasoning_trace.append(event)
+
+            # 2. Register as active anomaly (keyed by semantic key)
+            self.active_anomalies[event.key] = event
 
         self.anomaly_updated.set()
 
-    async def get_anomaly_flag(self, key: str) -> str | None:
+    async def clear_anomaly(self, key: str) -> None:
         """
-        Retrieve the severity string of an active anomaly flag, or None if inactive.
+        Clears/removes an active anomaly flag based on its semantic key.
         """
         async with self._lock:
-            return self.anomaly_flags.get(key)
+            if key in self.active_anomalies:
+                del self.active_anomalies[key]
+        self.anomaly_updated.set()
+
+    async def get_active_anomaly(self, key: str) -> AnomalyEvent | None:
+        """
+        Retrieve a specific active AnomalyEvent object.
+        """
+        async with self._lock:
+            return self.active_anomalies.get(key)
+
+    async def get_highest_anomaly_severity(self) -> AnomalySeverity | None:
+        """
+        Scans all active anomalies to return the highest current severity level.
+        """
+        max_severity = AnomalySeverity.LOW
+        # FIX 1: Use the Enum object itself as the key
+        max_level = SEVERITY_RANKING[max_severity]
+
+        async with self._lock:
+            for event in self.active_anomalies.values():
+                # FIX 2: Use the Enum object itself as the key
+                event_level = SEVERITY_RANKING.get(event.severity, -1)
+
+                if event_level > max_level:
+                    max_level = event_level
+                    max_severity = event.severity
+
+            return max_severity if self.active_anomalies else None
 
     async def is_anomaly_present(
-        self, key_prefix: str | None = None, severity_min: AnomalySeverity = AnomalySeverity.MEDIUM
+        self, severity_min: AnomalySeverity = AnomalySeverity.MEDIUM
     ) -> bool:
         """
-        Checks if any active anomaly flag meets or exceeds a minimum severity level.
+        Checks if any active anomaly meets or exceeds a minimum severity level.
         This is the critical 'Safety Gate' check for the StepExecutor.
-
-        Args:
-            key_prefix: Optional prefix to filter anomaly keys (e.g., 'system_health').
-            severity_min: The minimum AnomalySeverity required to return True.
-                          Defaults to MEDIUM to trigger a pause on critical issues.
-
-        Returns:
-            True if one or more matching anomaly flags are active at or above severity_min.
         """
-        min_level_str = severity_min.value.lower()
-        min_level = SEVERITY_ORDER.get(min_level_str)
+        # FIX 3: Use the Enum object itself as the key
+        min_level = SEVERITY_RANKING.get(severity_min)
 
-        # This should theoretically never happen if the Enum is used correctly,
-        # but serves as a safety check against improper enum usage.
         if min_level is None:
+            # This should ideally never happen if severity_min is a valid Enum member
             raise ValueError(
                 f"Invalid severity_min: {severity_min}. Must be a valid AnomalySeverity member."
             )
 
         async with self._lock:
-            for key, severity_str in self.anomaly_flags.items():
-                # 1. Filter by key prefix if provided
-                if key_prefix and not key.startswith(key_prefix):
-                    continue
-
-                # 2. Check severity level
-                flag_level = SEVERITY_ORDER.get(severity_str)
+            for event in self.active_anomalies.values():
+                # FIX 4: Use the Enum object itself as the key
+                flag_level = SEVERITY_RANKING.get(event.severity)
 
                 if flag_level is None:
-                    # Log internal error if a severity string stored in the dict is invalid
                     print(
-                        f"ERROR: Blackboard has invalid severity stored for {key}: {severity_str}"
+                        f"ERROR: Blackboard has invalid severity stored for {event.key}: {event.severity}"
                     )
                     continue
 

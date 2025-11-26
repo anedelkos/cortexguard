@@ -217,13 +217,6 @@ tasks:
       - "docker compose -f docker-compose.dev.yaml down -v --remove-orphans"
 
 
-# --- Edge fastapi --------------------------------------------------
-  edge:run:
-    desc: Receive and process sensor stream
-    cmds:
-      - "PYTHONPATH=src fastapi run {{.src_dir}}/edge/api/main.py --host localhost --port 8080 --reload"
-
-
 # --- Edge % simulator containers --------------------------------------------------
   edge-sim:up:
     desc: Build and start Edge + Simulator stack (dev)

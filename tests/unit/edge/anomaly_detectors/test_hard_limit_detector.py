@@ -23,10 +23,10 @@ def snapshot_factory() -> Callable[[dict[str, Any]], FusionSnapshot]:
 
     def _create(sensors: dict[str, Any]) -> FusionSnapshot:
         return FusionSnapshot(
+            id="111",
             timestamp=datetime.now(),
             sensors=sensors,
             derived={},  # Not used by HardLimitDetector
-            intent=None,
         )
 
     return _create

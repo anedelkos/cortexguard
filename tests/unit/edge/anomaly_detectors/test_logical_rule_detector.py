@@ -31,6 +31,7 @@ def mock_snapshot() -> Callable[[bool | None], FusionSnapshot]:
             derived_data[LogicalRuleDetector.KEY_SYSTEM_SUCCESS_STATUS] = success
 
         return FusionSnapshot(
+            id="111",
             timestamp=datetime.now(),
             sensors={},
             derived=derived_data,

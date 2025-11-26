@@ -93,9 +93,7 @@ def main() -> None:
     else:
         blackboard = Blackboard()
         edge_fusion = EdgeFusion(blackboard)
-        receiver = LocalReceiver(
-            verbose=args.verbose, custom_logger=logger, edge_fusion=edge_fusion
-        )
+        receiver = LocalReceiver(verbose=args.verbose, edge_fusion=edge_fusion)
 
     def make_sync_ingest(func: Callable[[RecordT], Any]) -> Callable[[RecordT], None]:
         """

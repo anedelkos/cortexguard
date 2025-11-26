@@ -2,6 +2,7 @@ import asyncio
 from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -59,11 +60,13 @@ def test_update_computes_residuals_uncertainty_and_confidence() -> None:
         return {"a": features["a"] - 2.0, "b": features["b"]}  # expected slightly lower for 'a'
 
     learner = DummyLearner(predict_map=pred_map)
-    estimator = OnlineLearnerStateEstimator(learner)
 
-    snapshot = SimpleNamespace(
-        timestamp=12345, derived={"a": 10.0, "b": 20.0}, intent="intent_test"
-    )
+    blackboard_mock = AsyncMock()
+    blackboard_mock.get_current_step.return_value = SimpleNamespace(description="mock_intent")
+
+    estimator = OnlineLearnerStateEstimator(learner, blackboard=blackboard_mock)
+
+    snapshot = SimpleNamespace(timestamp=12345, derived={"a": 10.0, "b": 20.0})
 
     state: StateEstimate = run_update(estimator, snapshot)
 
@@ -80,7 +83,8 @@ def test_update_computes_residuals_uncertainty_and_confidence() -> None:
     assert state.confidence == pytest.approx(1.0)
 
     assert state.label == "nominal"
-    assert state.source_intent == "intent_test"
+    # Assertion now correctly relies on the blackboard mock's description value
+    assert state.source_intent == "mock_intent"
 
     # ensure learner.update was invoked once and received the features dict
     assert learner.update_calls == 1
@@ -90,7 +94,11 @@ def test_update_computes_residuals_uncertainty_and_confidence() -> None:
 def test_running_uncertainty_and_window_size() -> None:
     # Predictor returns zero expected value so residual == observed value
     learner = DummyLearner(predict_map=lambda features: {k: 0.0 for k in features})
-    estimator = OnlineLearnerStateEstimator(learner, window_size=3)
+
+    blackboard_mock = AsyncMock()
+    blackboard_mock.get_current_step.return_value = SimpleNamespace(description="mock_intent")
+
+    estimator = OnlineLearnerStateEstimator(learner, blackboard=blackboard_mock, window_size=3)
 
     # Override _min_history for testing the initial uncertainty ---
     # The default 10 samples is too high for this test. Set it low (e.g., 1)
@@ -100,7 +108,8 @@ def test_running_uncertainty_and_window_size() -> None:
     # Three updates: residuals for 'x' are 1.0, 2.0, 4.0
     vals: list[float] = [1.0, 2.0, 4.0]
     snapshots: list[SimpleNamespace] = [
-        SimpleNamespace(timestamp=i, derived={"x": v}, intent=None)
+        # Removed intent=None
+        SimpleNamespace(timestamp=i, derived={"x": v})
         for i, v in enumerate(vals, start=1)
     ]
 
@@ -123,7 +132,7 @@ def test_running_uncertainty_and_window_size() -> None:
     assert states[2].uncertainty["x"] == pytest.approx(expected_std3)
 
     # Now push a fourth value; oldest (1.0) should be dropped due to window_size=3
-    fourth_snapshot = SimpleNamespace(timestamp=99, derived={"x": 8.0}, intent=None)
+    fourth_snapshot = SimpleNamespace(timestamp=99, derived={"x": 8.0})  # Removed intent=None
     state4: StateEstimate = run_update(estimator, fourth_snapshot)
 
     # The deque for 'x' should now contain last three residuals: [2.0, 4.0, 8.0]

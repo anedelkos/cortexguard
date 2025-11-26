@@ -33,11 +33,11 @@ class MockStepClassifier(BaseStepClassifier):
     def classify_completion_status(self, step: PlanStep) -> StepStatus:
         r = random.random()  # nosec B311: non-cryptographic randomness acceptable in mock
         if r < self._fail_rate:
-            self._logger.debug(f"[MOCK] Step {step.id}.{step.name} -> FAILED")
+            self._logger.debug(f"[MOCK] Step {step.id}.{step.description} -> FAILED")
             return StepStatus.FAILED
         elif r < self._fail_rate + self._running_rate:
-            self._logger.debug(f"[MOCK] Step {step.id}.{step.name} -> RUNNING")
+            self._logger.debug(f"[MOCK] Step {step.id}.{step.description} -> RUNNING")
             return StepStatus.RUNNING
         else:
-            self._logger.debug(f"[MOCK] Step {step.id}.{step.name} -> COMPLETED")
+            self._logger.debug(f"[MOCK] Step {step.id}.{step.description} -> COMPLETED")
             return StepStatus.COMPLETED

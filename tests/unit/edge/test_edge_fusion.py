@@ -19,7 +19,6 @@ import pytest
 from kitchenwatch.edge.edge_fusion import DEFAULT_ALPHA, EdgeFusion
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
-from kitchenwatch.edge.models.plan import IntentContext
 from kitchenwatch.simulation.models.windowed_fused_record import (
     SensorReading,
     WindowedFusedRecord,
@@ -360,28 +359,6 @@ class TestSnapshotCreation:
         # 1000000000 ns = 1 second = 1970-01-01 00:00:01
         expected_time = datetime.fromtimestamp(1.0)
         assert snapshot.timestamp == expected_time
-
-    @pytest.mark.asyncio
-    async def test_snapshot_with_intent(
-        self, edge_fusion: EdgeFusion, blackboard: Blackboard, sample_record: WindowedFusedRecord
-    ) -> None:
-        """Test that snapshot includes intent from blackboard."""
-        # Set intent on blackboard
-        intent = IntentContext(action="test_action", goal="test_goal", step_id="1")
-        await blackboard.update_intent(intent)
-
-        snapshot = await edge_fusion.process_record(sample_record)
-
-        assert snapshot.intent == "test_action"
-
-    @pytest.mark.asyncio
-    async def test_snapshot_without_intent(
-        self, edge_fusion: EdgeFusion, sample_record: WindowedFusedRecord
-    ) -> None:
-        """Test snapshot when no intent is set."""
-        snapshot = await edge_fusion.process_record(sample_record)
-
-        assert snapshot.intent is None
 
     @pytest.mark.asyncio
     async def test_blackboard_updated(
