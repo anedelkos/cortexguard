@@ -1,9 +1,11 @@
 import asyncio
 import logging
+import uuid
 from typing import Any, cast
 
 from kitchenwatch.core.interfaces.base_detector import BaseDetector
-from kitchenwatch.edge.models.anomaly_severity import AnomalySeverity
+from kitchenwatch.edge.models.anomaly_event import AnomalyEvent
+from kitchenwatch.edge.models.anomaly_severity import SEVERITY_RANKING, AnomalySeverity
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
 
@@ -11,29 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class AnomalyDetector:
-    """
-    Ensemble coordinator for edge anomaly detection.
-
-    Architecture:
-    - Polls Blackboard for latest FusionSnapshots
-    - Distributes snapshots to registered sub-detectors
-    - Aggregates detection results using ensemble voting
-    - Posts anomaly flags back to Blackboard
-
-    Design Rationale:
-    - Ensemble approach combines multiple detection strategies
-    - Async execution allows concurrent detector processing
-    - Pluggable sub-detectors enable easy experimentation
-    - Fail-fast: Individual detector failures don't halt system
-
-    Production Enhancements (not implemented):
-    - Weighted voting based on detector confidence/accuracy
-    - Temporal smoothing to reduce false positives (e.g., 3/5 consecutive)
-    - Adaptive thresholds based on historical data
-    - Circuit breaker for consistently failing detectors
-    - Metrics export to Prometheus/CloudWatch
-    - Detector performance tracking (latency, accuracy)
-    """
+    """Ensemble coordinator for edge anomaly detection."""
 
     def __init__(
         self,
@@ -46,17 +26,14 @@ class AnomalyDetector:
         Args:
             blackboard: Shared state for snapshot retrieval and flag updates
             tick_interval: Polling interval in seconds (default 100ms)
-            custom_logger: Optional logger instance
         """
         self._blackboard = blackboard
         self._tick_interval = tick_interval
-
         self._sub_detectors: list[BaseDetector] = []
         self._loop_running = False
         self._task: asyncio.Task[Any] | None = None
 
-        # State to manage which keys are currently active on the Blackboard.
-        # This is essential for clearing flags that are no longer reported.
+        # State to manage which keys are currently active on the Blackboard for clearing.
         self._active_anomaly_keys: set[str] = set()
 
         # Metrics for observability
@@ -65,170 +42,170 @@ class AnomalyDetector:
         self._detector_failures = 0
 
     def register_detector(self, detector: BaseDetector) -> None:
-        """
-        Register a sub-detector to the ensemble.
-
-        Args:
-            detector: SubDetector instance implementing the detection protocol
-        """
+        """Register a sub-detector to the ensemble."""
         self._sub_detectors.append(detector)
         logger.info(f"Registered sub-detector: {detector.__class__.__name__}")
 
     async def _poll_blackboard(self) -> FusionSnapshot | None:
-        """
-        Fetch latest fused sensor snapshot from blackboard.
-
-        Returns:
-            Latest FusionSnapshot or None if unavailable
-        """
+        """Fetch latest fused sensor snapshot from blackboard."""
         snapshot = await self._blackboard.get_fusion_snapshot()
         if snapshot is None:
             logger.debug("No fusion snapshot available yet")
         return snapshot
 
+    async def _poll_blackboard_intent(self) -> str:
+        """Fetch the current system intent (action string) from the blackboard."""
+        current_step = await self._blackboard.get_current_step()
+        if current_step:
+            return current_step.description
+
+        logger.debug("No active PlanStep or action found. Defaulting to 'Idle'")
+        return "Idle"
+
     async def _run_tick(self) -> None:
-        """
-        Execute one detection cycle.
-
-        Process:
-        1. Poll blackboard for latest snapshot
-        2. Run all sub-detectors concurrently
-        3. Aggregate results using ensemble logic
-        4. Update blackboard anomaly flags
-        """
+        """Execute one detection cycle: fetch snapshot, run detectors, aggregate, and update blackboard."""
         snapshot = await self._poll_blackboard()
+        current_intent = await self._poll_blackboard_intent()
 
-        # 1. Handle no snapshot available.
         if snapshot is None:
-            # We don't increment the counter here, as no work was done.
             return
 
-        # 2. Process the available snapshot.
         try:
-            # Run detectors concurrently for lower latency
+            # Run detectors concurrently
             tasks = [detector.detect(snapshot) for detector in self._sub_detectors]
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            # Filter out exceptions and log errors
-            valid_results: list[dict[str, Any]] = []
+            valid_results: list[tuple[str, dict[str, Any]]] = []
             for i, result in enumerate(results):
-                if isinstance(result, Exception):
-                    detector = self._sub_detectors[i]
+                detector = self._sub_detectors[i]
+                detector_name = detector.__class__.__name__
 
-                    # NOTE: Keeping .error(..., exc_info=) is functionally correct
-                    # but requires the test suite update below.
+                if isinstance(result, Exception):
                     logger.error(
-                        f"Sub-detector {detector.__class__.__name__} failed",
+                        f"Sub-detector {detector_name} failed",
                         exc_info=result,
                     )
                     self._detector_failures += 1
-                else:
-                    valid_results.append(cast(dict[str, Any], result))
+                elif result:
+                    # Store detector name along with its result dictionary
+                    valid_results.append((detector_name, cast(dict[str, Any], result)))
 
-            # Aggregate and post results
             if valid_results:
-                # Returns only currently active anomalies: {key: (severity, True)}
+                # Aggregate results now includes score and detector list
                 active_aggregated_flags = self._aggregate_results(valid_results)
-
                 newly_active_keys = set(active_aggregated_flags.keys())
 
-                # --- Anomaly Clearing Logic ---
-                # Step 3: Clear flags that were active last tick but are NOT active now.
+                # Clear flags that were active last tick but are NOT active now.
                 keys_to_clear = self._active_anomaly_keys - newly_active_keys
                 for key in keys_to_clear:
-                    # Explicitly set is_active=False to clear the flag on the Blackboard
-                    # Severity is irrelevant for clearing, but a placeholder is needed for the signature.
-                    await self._blackboard.set_anomaly_flag(
-                        key, AnomalySeverity.LOW, is_active=False
+                    await self._blackboard.clear_anomaly(key)
+
+                    # Set/Update currently active flags with the complete AnomalyEvent structure
+                for key, (
+                    severity,
+                    score,
+                    contributing_detectors,
+                ) in active_aggregated_flags.items():
+                    # Map old 'description' and 'context' into the new 'metadata' field
+                    metadata = {
+                        "id": snapshot.id,
+                        "current_intent": current_intent,
+                        "description": f"Automated detection of {key} (Severity: {severity.name}, Score: {score:.2f})",
+                    }
+
+                    # Construct the mandatory fields for AnomalyEvent
+                    event = AnomalyEvent(
+                        id=uuid.uuid4().hex,  # MANDATORY: Generate a unique ID
+                        key=key,
+                        timestamp=snapshot.timestamp,
+                        severity=severity,
+                        score=score,  # MANDATORY: Use aggregated score
+                        contributing_detectors=contributing_detectors,  # MANDATORY: Use aggregated list
+                        metadata=metadata,
+                        window=None,  # No window specified for instantaneous detection
                     )
+                    await self._blackboard.set_anomaly(event)
 
-                # Step 4: Set/Update currently active flags
-                for key, (severity, is_active) in active_aggregated_flags.items():
-                    # is_active will always be True here, and we pass the required severity
-                    await self._blackboard.set_anomaly_flag(key, severity, is_active)
-
-                # Step 5: Update the state tracker for the next tick
+                # Update the state tracker for the next tick
                 self._active_anomaly_keys = newly_active_keys
 
-                # Track metrics
                 if newly_active_keys:
                     self._anomalies_detected += 1
                     logger.info(f"Anomalies detected: {list(newly_active_keys)}")
 
         except Exception as e:
-            # Catch any unexpected errors in aggregation or posting
             logger.exception(f"Unexpected error during tick processing: {e}")
 
         finally:
-            # Increment tick counter only after processing work (snapshot was available)
             self._ticks_processed += 1
 
     def _aggregate_results(
-        self, results: list[dict[str, Any]]
-    ) -> dict[str, tuple[AnomalySeverity, bool]]:
+        self, results: list[tuple[str, dict[str, Any]]]
+    ) -> dict[str, tuple[AnomalySeverity, float, list[str]]]:
         """
-        Aggregate sub-detector results into (Severity, is_active=True) flags for currently active anomalies.
-
-        Strategy: Flag as anomalous if ANY detector reports medium/high severity.
-        The severity recorded is the HIGHEST reported severity that triggered the flag.
+        Aggregate sub-detector results. A flag is set if ANY detector reports medium/high severity.
+        Tracks the highest severity, maximum score, and list of contributing detectors for each key.
 
         Args:
-            results: List of detection results from sub-detectors
+            results: List of tuples (detector_name, detector_result_dict).
 
         Returns:
-            Dictionary mapping anomaly keys to a tuple: (AnomalySeverity, bool is_active).
-            Only returns keys that are currently active (is_active=True).
+            Dictionary mapping anomaly keys to (highest severity, max score, contributing detector names).
         """
-        # Map: Anomaly Key -> (Highest Triggering Severity, is_active)
-        aggregated: dict[str, tuple[AnomalySeverity, bool]] = {}
+        # key -> (severity, score, detector_list)
+        aggregated: dict[str, tuple[AnomalySeverity, float, list[str]]] = {}
 
-        # Severity ranking for comparison (HIGH > MEDIUM > LOW)
-        SEVERITY_RANKING = {
-            AnomalySeverity.LOW: 1,
-            AnomalySeverity.MEDIUM: 2,
-            AnomalySeverity.HIGH: 3,
-        }
-
-        for result in results:
+        for detector_name, result in results:
             key = result.get("key", "generic_anomaly")
 
-            # Ensure severity is the AnomalySeverity enum type
-            severity_str = result.get("severity", AnomalySeverity.LOW)
-            # NOTE: Assuming AnomalySeverity can be constructed from a string
-            # and that results['severity'] contains the appropriate string representation.
+            # Validate Score: Default to 0.5 if missing, but cap it [0.0, 1.0]
+            score_input = result.get("score")
             try:
-                severity = AnomalySeverity(severity_str)
-            except ValueError:
-                logger.warning(f"Invalid severity string '{severity_str}' received for key '{key}'")
-                severity = AnomalySeverity.LOW  # Default to LOW on bad data
+                score = float(score_input) if score_input is not None else 0.5
+                score = max(0.0, min(1.0, score))
+            except (ValueError, TypeError):
+                score = 0.5
 
-            # Flag as anomalous if medium or high severity (detectors only report if it IS anomalous)
+            # Handle both string and Enum inputs for severity
+            severity_input = result.get("severity", AnomalySeverity.LOW)
+            try:
+                if isinstance(severity_input, str):
+                    severity = AnomalySeverity(severity_input.lower())
+                else:
+                    severity = severity_input
+            except ValueError:
+                logger.warning(
+                    f"Invalid severity input '{severity_input}' received for key '{key}'"
+                )
+                severity = AnomalySeverity.LOW
+
+            # Flag as anomalous if medium or high severity
             is_anomalous = severity in (AnomalySeverity.MEDIUM, AnomalySeverity.HIGH)
 
-            # Since a detector only reports a result if an anomaly is present,
-            # we only process if the result indicates an actual anomaly.
             if is_anomalous:
-                # Get current aggregated state for this key, default to LOW/False if not seen yet
-                current_severity, current_is_active = aggregated.get(
-                    key, (AnomalySeverity.LOW, False)
+                # Get current aggregated state for this key
+                current_severity, current_score, current_detectors = aggregated.get(
+                    key, (AnomalySeverity.LOW, 0.0, [])
                 )
 
-                # The flag is active: is_active=True
-                new_is_active = True
-
-                # Determine the highest severity seen for this key
+                # 1. Determine the highest severity seen
                 highest_severity = current_severity
-
                 if SEVERITY_RANKING[severity] > SEVERITY_RANKING[current_severity]:
                     highest_severity = severity
 
-                # Only store active flags
-                aggregated[key] = (highest_severity, new_is_active)
+                # 2. Determine the max score seen
+                max_score = max(current_score, score)
+
+                # 3. Collect unique list of contributing detectors
+                updated_detectors = list(set(current_detectors + [detector_name]))
+
+                # Update the aggregated state
+                aggregated[key] = (highest_severity, max_score, updated_detectors)
 
         return aggregated
 
     async def _run_loop(self) -> None:
-        """Main detection loop with graceful error handling."""
+        """Main detection loop."""
         self._loop_running = True
         logger.info(
             f"AnomalyDetector loop started "
@@ -287,12 +264,7 @@ class AnomalyDetector:
         logger.info("AnomalyDetector stopped")
 
     def get_metrics(self) -> dict[str, int | float]:
-        """
-        Get detector metrics for monitoring.
-
-        Returns:
-            Dictionary with operational metrics
-        """
+        """Get detector metrics for monitoring."""
         return {
             "ticks_processed": self._ticks_processed,
             "anomalies_detected": self._anomalies_detected,

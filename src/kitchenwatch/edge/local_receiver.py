@@ -14,17 +14,14 @@ class LocalReceiver(BaseReceiver[Any]):
         self,
         edge_fusion: EdgeFusion,
         verbose: bool = False,
-        custom_logger: logging.Logger | None = None,
     ) -> None:
         """
         Args:
             edge_fusion: Reference to EdgeFusion instance
             verbose: Whether to log full record details
-            custom_logger: Optional logger
         """
         self._edge_fusion: EdgeFusion = edge_fusion
         self._verbose: bool = verbose
-        self._logger: logging.Logger = custom_logger or logger
         self._received_count: int = 0
 
     @property
@@ -38,7 +35,7 @@ class LocalReceiver(BaseReceiver[Any]):
 
         # Logging
         if self._verbose:
-            self._logger.info(f"[LocalReceiver] Received record: {record}")
+            logger.info(f"[LocalReceiver] Received record: {record}")
         else:
             ts = getattr(record, "timestamp_ns", None)
             if ts is None and isinstance(record, dict):
@@ -49,10 +46,10 @@ class LocalReceiver(BaseReceiver[Any]):
             log_line = f"Received record @ {ts}"
             if n_samples:
                 log_line += f" with {n_samples} samples"
-            self._logger.info(log_line)
+            logger.info(log_line)
 
         # Forward record to EdgeFusion
         try:
             await self._edge_fusion.process_record(record)
         except Exception as e:
-            self._logger.exception(f"Failed to process record in EdgeFusion: {e}")
+            logger.exception(f"Failed to process record in EdgeFusion: {e}")

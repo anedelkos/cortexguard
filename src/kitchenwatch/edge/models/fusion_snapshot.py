@@ -13,7 +13,7 @@ class FusionSnapshot(BaseModel):
         derived: Processed or aggregated sensor information, e.g., EMA-smoothed values, risk scores.
     """
 
+    id: str
     timestamp: datetime
     sensors: dict[str, Any] = {}
     derived: dict[str, Any] = {}  # processed / fused result
-    intent: str | None = None  # current action/step from IntentContext

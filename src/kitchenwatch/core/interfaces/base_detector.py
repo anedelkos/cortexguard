@@ -25,7 +25,10 @@ class BaseDetector(Protocol):
                 }
     """
 
-    async def detect(self, snapshot: FusionSnapshot) -> dict[str, Any]:
+    async def detect(
+        self,
+        snapshot: FusionSnapshot,
+    ) -> dict[str, Any]:
         """
         Detect anomalies in the given snapshot.
 

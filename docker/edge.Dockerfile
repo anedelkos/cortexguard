@@ -33,4 +33,4 @@ COPY src ./src
 EXPOSE 8080
 
 # Run the FastAPI app
-CMD ["uvicorn", "kitchenwatch.edge.api.main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uvicorn", "kitchenwatch.edge.runtime:get_api_app", "--host", "0.0.0.0", "--port", "8080"]

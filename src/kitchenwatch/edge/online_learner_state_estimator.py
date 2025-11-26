@@ -4,6 +4,7 @@ from collections import deque
 from statistics import stdev
 
 from kitchenwatch.core.interfaces.base_online_learner import BaseOnlineLearner
+from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
 from kitchenwatch.edge.models.state_estimate import StateEstimate
 
@@ -43,6 +44,7 @@ class OnlineLearnerStateEstimator:
     def __init__(
         self,
         learner: BaseOnlineLearner,
+        blackboard: Blackboard,
         window_size: int = 50,
         sigma_threshold: float = SIGMA_THRESHOLD_NOMINAL,
         min_history: int = MIN_HISTORY_SAMPLES,
@@ -57,6 +59,7 @@ class OnlineLearnerStateEstimator:
             min_history: Minimum samples needed before computing statistics
         """
         self._learner = learner
+        self._blackboard = blackboard
         self._residuals: dict[str, deque[float]] = {}
         self._window_size = window_size
 
@@ -67,6 +70,16 @@ class OnlineLearnerStateEstimator:
         # Metrics for observability
         self._update_count = 0
         self._anomaly_count = 0
+
+    async def _fetch_current_intent(self) -> str:
+        """Fetches the current intent from the Blackboard."""
+        try:
+            current_step = await self._blackboard.get_current_step()
+
+            return current_step.description if current_step else "unknown"
+        except Exception as e:
+            logger.exception(f"Failed to retrieve intent from Blackboard: {e}")
+            return "exception"
 
     async def update(self, snapshot: FusionSnapshot) -> StateEstimate:
         """
@@ -87,13 +100,14 @@ class OnlineLearnerStateEstimator:
             StateEstimate with label, confidence, and diagnostics
         """
         now = snapshot.timestamp
+        current_intent = await self._fetch_current_intent()
 
         # Use EMA-smoothed features to reduce noise
         features = snapshot.derived.copy()
 
         if not features:
             logger.warning("Empty features in snapshot, returning nominal state")
-            return self._create_nominal_state(now, snapshot.intent)
+            return self._create_nominal_state(now, current_intent)
 
         residuals: dict[str, float] = {}
         uncertainty: dict[str, float] = {}
@@ -170,7 +184,7 @@ class OnlineLearnerStateEstimator:
             ttd=None,  # Time to degradation (not implemented)
             ttf=None,  # Time to failure (not implemented)
             flags=flags,
-            source_intent=snapshot.intent,
+            source_intent=current_intent,
         )
 
     def _classify_state(

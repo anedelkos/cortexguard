@@ -3,41 +3,39 @@ Edge Runtime - Composition Root for KitchenWatch Edge Agent
 
 This module serves as the composition root (Dependency Injection container)
 for the edge agent. It instantiates all subsystems and wires them together
-with shared dependencies like the Blackboard singleton.
+with shared dependencies like the Blackboard singleton. It also contains the
+FastAPI factory function used by Uvicorn.
 
 Architectural Pattern: Composition Root
 - Single place where all dependencies are created and wired
 - Makes dependency graph explicit and auditable
 - Enables easier testing (can create isolated runtime instances)
 - Follows Dependency Inversion Principle (DIP)
-
-Production Considerations (not fully implemented):
-- Health checks and monitoring
-- Graceful degradation on subsystem failures
-- Configuration management (env vars, config files)
-- Metrics collection and reporting
-- Distributed tracing integration
 """
 
 import asyncio
 import logging
 import signal
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator  # Added AsyncGenerator for better typing
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import partial
 from typing import Any
 
+from fastapi import FastAPI
+
 from kitchenwatch.common.logging_config import setup_logging
 from kitchenwatch.core.action_registry import ActionRegistry
-
-# Edge Detection Subsystem Imports
 from kitchenwatch.core.interfaces.base_online_learner import BaseOnlineLearner
 from kitchenwatch.core.mocks.mock_controller import MockController
 from kitchenwatch.core.mocks.mock_step_classifier import MockStepClassifier
+from kitchenwatch.edge.api import health
+from kitchenwatch.edge.api.ingestion import get_ingestion_router
 from kitchenwatch.edge.detectors.anomaly_detector import AnomalyDetector
 from kitchenwatch.edge.detectors.numeric import StatisticalImpulseDetector
 from kitchenwatch.edge.detectors.rule_based import HardLimitDetector, LogicalRuleDetector
+from kitchenwatch.edge.edge_fusion import EdgeFusion, VisionEmbedder
+from kitchenwatch.edge.local_receiver import LocalReceiver
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.online_learner_state_estimator import OnlineLearnerStateEstimator
 from kitchenwatch.edge.orchestrator import Orchestrator
@@ -51,11 +49,6 @@ logger = logging.getLogger(__name__)
 class RuntimeConfig:
     """
     Configuration for edge runtime.
-
-    In production, this would be loaded from:
-    - Environment variables (12-factor app)
-    - Config files (YAML, TOML)
-    - Remote config service (AWS AppConfig, GCP Config)
     """
 
     # Orchestrator settings
@@ -87,25 +80,6 @@ class RuntimeConfig:
 class EdgeRuntime:
     """
     Main edge runtime that composes and manages all subsystems.
-
-    Responsibilities:
-    - Create singleton Blackboard and inject into subsystems
-    - Initialize all edge components (Orchestrator, Executor, Detectors, etc.)
-    - Manage subsystem lifecycle (start, stop, health checks)
-    - Handle graceful shutdown on signals
-    - Coordinate error recovery across subsystems
-
-    Usage:
-        async with EdgeRuntime(config) as runtime:
-            await runtime.run_until_stopped()
-
-    or:
-        runtime = EdgeRuntime(config)
-        await runtime.start()
-        try:
-            await runtime.run_until_stopped()
-        finally:
-            await runtime.stop()
     """
 
     def __init__(self, config: RuntimeConfig | None = None):
@@ -130,19 +104,34 @@ class EdgeRuntime:
             default_retry_delay=self.config.executor_retry_delay,
         )
 
-        # --- ANOMALY DETECTION SUBSYSTEM (Ensemble) ---
-        # 1. Instantiate the learning dependency
+        # --- PERCEPTION SUBSYSTEM (Fusion and Learning) ---
+        # 1. Instantiate Vision Embedder
+        self.vision_embedder = VisionEmbedder()
+
+        # 2. Instantiate the learning dependency
         self.online_learner: BaseOnlineLearner = RiverOnlineLearner()
-        # 2. Instantiate the State Estimator (Translates residuals to Z-scores)
-        self.state_estimator = OnlineLearnerStateEstimator(self.online_learner)
-        # 3. Instantiate the Anomaly Detector (The Manager/Coordinator)
+
+        # 3. Instantiate the State Estimator (Translates residuals to Z-scores)
+        self.state_estimator = OnlineLearnerStateEstimator(self.online_learner, self.blackboard)
+
+        # 4. Instantiate Edge Fusion
+        self.edge_fusion = EdgeFusion(
+            blackboard=self.blackboard,
+            state_estimator=self.state_estimator,
+            embedder=self.vision_embedder,
+        )
+
+        # 5. Instantiate Local Receiver (The API ingestion endpoint dependency)
+        self.receiver = LocalReceiver(verbose=False, edge_fusion=self.edge_fusion)
+
+        # --- ANOMALY DETECTION SUBSYSTEM (Ensemble) ---
+        # 1. Instantiate the Anomaly Detector (The Manager/Coordinator)
         self.anomaly_detector = AnomalyDetector(
             blackboard=self.blackboard,
             tick_interval=self.config.anomaly_check_interval,
         )
 
         # ... Register Sub-Detectors ...
-        # 4. Instantiate and Register Sub-Detectors (Tier 0 Safety)
         # S0.3 Impact Detector (Statistical)
         self.statistical_impulse_detector = StatisticalImpulseDetector(
             state_estimator=self.state_estimator,
@@ -166,14 +155,6 @@ class EdgeRuntime:
     async def start(self) -> None:
         """
         Initialize and start all subsystems.
-
-        Startup Order:
-        1. Core infrastructure (Blackboard already created)
-        2. Perception (SensorFusion)
-        3. Reasoning (LLMPlanner, AnomalyDetector)
-        4. Execution (Orchestrator, Executor)
-
-        This order ensures dependencies are ready before dependents start.
         """
         if self._subsystems_started:
             logger.warning("EdgeRuntime already started")
@@ -224,12 +205,6 @@ class EdgeRuntime:
     async def stop(self) -> None:
         """
         Stop all subsystems gracefully.
-
-        Shutdown Order (reverse of startup):
-        1. Execution (Orchestrator, Executor)
-        2. Reasoning (AnomalyDetector, LLMPlanner)
-        3. Perception (SensorFusion)
-        4. Core (Blackboard state persisted if needed)
         """
         if not self._subsystems_started:
             logger.warning("EdgeRuntime not started, nothing to stop")
@@ -271,11 +246,6 @@ class EdgeRuntime:
     async def run_until_stopped(self) -> None:
         """
         Run the edge runtime until stop signal received.
-
-        Blocks until:
-        - SIGINT (Ctrl+C)
-        - SIGTERM (kill)
-        - stop() called programmatically
         """
         if not self._subsystems_started:
             await self.start()
@@ -312,11 +282,6 @@ class EdgeRuntime:
     async def health_check(self) -> dict[str, bool]:
         """
         Check health of all subsystems.
-
-        Returns:
-            Dict mapping subsystem name to health status (True = healthy)
-
-        Production: This would be exposed via HTTP endpoint for monitoring.
         """
         health = {
             "runtime": self._running,
@@ -335,12 +300,6 @@ class EdgeRuntime:
     async def managed(self) -> AsyncIterator["EdgeRuntime"]:
         """
         Context manager for automatic lifecycle management.
-
-        Usage:
-            async with EdgeRuntime(config).managed() as runtime:
-                # runtime is started
-                await runtime.run_until_stopped()
-            # runtime is stopped automatically
         """
         try:
             await self.start()
@@ -351,16 +310,29 @@ class EdgeRuntime:
     async def get_metrics(self) -> dict[str, int | str | None]:
         """
         Get runtime metrics for monitoring.
-
-        Production: Would export to Prometheus, CloudWatch, etc.
         """
+        if not self.blackboard:
+            return {
+                "uptime": "TODO",
+                "plans_executed": "TODO",
+                "anomalies_detected": 0,
+                "failed_plans": 0,
+                "current_plan_id": None,
+            }
+
+        # 1. Get the current plan via its getter
         current_plan = await self.blackboard.get_current_plan()
+
+        # 2. Access the metrics counts under the Blackboard's internal lock.
+        async with self.blackboard._lock:
+            anomaly_count = len(self.blackboard.active_anomalies)
+            failed_plan_count = len(self.blackboard.failed_plans)
 
         return {
             "uptime": "TODO",  # Track start time
             "plans_executed": "TODO",  # Track in orchestrator
-            "anomalies_detected": len(self.blackboard.anomaly_flags),
-            "failed_plans": len(self.blackboard.failed_plans),
+            "anomalies_detected": anomaly_count,
+            "failed_plans": failed_plan_count,
             "current_plan_id": current_plan.plan_id if current_plan else None,
         }
 
@@ -369,19 +341,6 @@ class EdgeRuntime:
 def create_runtime(profile: str = "default", **overrides: Any) -> EdgeRuntime:
     """
     Factory for creating runtime with preset configurations.
-
-    Profiles:
-    - default: Standard edge deployment
-    - development: Verbose logging, lower thresholds
-    - production: Optimized settings, structured logging
-    - simulation: Mock sensors, faster tick rates
-
-    Args:
-        profile: Configuration profile name
-        **overrides: Override specific config values
-
-    Usage:
-        runtime = create_runtime("development", log_level="DEBUG")
     """
     configs: dict[str, RuntimeConfig] = {
         "default": RuntimeConfig(),
@@ -416,25 +375,83 @@ def create_runtime(profile: str = "default", **overrides: Any) -> EdgeRuntime:
     return EdgeRuntime(config)
 
 
-# Main entry point
+# --- FASTAPI INTEGRATION / UVICORN ENTRY POINT ---
+
+
+def get_api_app(profile: str = "default") -> FastAPI:
+    """
+    The main factory function for the FastAPI application.
+
+    This is the entry point used by Uvicorn:
+    `uvicorn kitchenwatch.edge.runtime:get_api_app`
+    """
+    import os
+
+    # Ensure logging is set up before anything else
+    setup_logging()
+
+    # Determine the runtime profile
+    runtime_profile = os.getenv("RUNTIME_PROFILE", profile)
+    logger.info(f"Initializing EdgeRuntime and FastAPI with profile: {runtime_profile}")
+
+    # Create the runtime instance. Its lifecycle is managed by the lifespan context.
+    runtime = create_runtime(profile=runtime_profile)
+
+    # Use the runtime's built-in managed context as the FastAPI lifespan
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # Added return type annotation
+        """FastAPI Lifespan: Calls start/stop on the EdgeRuntime."""
+        async with runtime.managed() as started_runtime:
+            app.state.runtime = started_runtime
+            yield
+
+    app = FastAPI(
+        title="KitchenWatch Edge API",
+        description="Edge ingestion endpoint for fused records from the simulator.",
+        lifespan=lifespan,  # Set the custom lifespan handler
+    )
+
+    # --- Router Wiring and Dependency Injection ---
+
+    # 1. Inject the LocalReceiver instance into the ingestion router factory
+    receiver_instance = runtime.receiver
+    ingestion_router = get_ingestion_router(receiver=receiver_instance)
+
+    # 2. Include the routers
+    app.include_router(health.router)
+    app.include_router(ingestion_router, prefix="/api/v1")
+
+    # 3. Expose Health and Metrics (using the runtime instance created above)
+    @app.get("/healthz")
+    async def get_healthz() -> dict[str, bool]:
+        """Exposes detailed health checks for the EdgeRuntime subsystems."""
+        # Delegating to EdgeRuntime's method which returns dict[str, bool]
+        return await runtime.health_check()
+
+    @app.get("/metrics")
+    async def get_metrics() -> dict[str, int | str | None]:
+        """Exposes key runtime metrics (anomalies, plans, etc.)."""
+        # Delegating to EdgeRuntime's method which returns dict[str, int | str | None]
+        return await runtime.get_metrics()
+
+    logger.info("FastAPI Application configured and wired to EdgeRuntime.")
+    return app
+
+
+# Main entry point for standalone execution (for debugging/non-API use)
 async def main() -> None:
     """
-    Main entry point for edge agent.
-
-    Usage:
-        python -m kitchenwatch.edge.runtime
-
-    or with profile:
-        RUNTIME_PROFILE=development python -m kitchenwatch.edge.runtime
+    Main entry point for edge agent (standalone, non-API use).
     """
     import os
 
     profile = os.getenv("RUNTIME_PROFILE", "default")
-    logger.info(f"Starting EdgeRuntime with profile: {profile}")
+    logger.info(f"Starting EdgeRuntime with profile: {profile} (Standalone Mode)")
 
     async with create_runtime(profile).managed() as runtime:
         await runtime.run_until_stopped()
 
 
 if __name__ == "__main__":
+    # If running directly, default to standalone mode
     asyncio.run(main())

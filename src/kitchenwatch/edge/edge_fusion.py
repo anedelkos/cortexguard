@@ -1,5 +1,6 @@
 import logging
 import statistics
+import uuid
 from collections import defaultdict
 from datetime import datetime
 from typing import Any, cast
@@ -10,7 +11,6 @@ from torchvision import models, transforms
 
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
-from kitchenwatch.edge.models.plan import IntentContext
 from kitchenwatch.edge.online_learner_state_estimator import OnlineLearnerStateEstimator
 from kitchenwatch.simulation.models.windowed_fused_record import WindowedFusedRecord
 
@@ -120,8 +120,6 @@ class EdgeFusion:
         Returns:
             FusionSnapshot with smoothed sensor values and derived features
         """
-        # Fetch current intent context
-        current_intent: IntentContext | None = await self._blackboard.get_intent()
 
         # Process each sample in the window
         for sample in record.sensor_window:
@@ -141,6 +139,7 @@ class EdgeFusion:
 
         # Create snapshot from current EMA state
         snapshot = FusionSnapshot(
+            id=uuid.uuid4().hex,
             timestamp=datetime.fromtimestamp(record.timestamp_ns / 1e9),
             sensors={
                 "raw": record.sensor_window,
@@ -149,16 +148,12 @@ class EdgeFusion:
                 "image_embedding": image_embedding,  # single embedding
             },
             derived=self._ema_state.copy(),  # Smoothed values as derived features
-            intent=current_intent.action if current_intent else None,
         )
 
         self._last_snapshot = snapshot
         await self._blackboard.update_fusion_snapshot(snapshot)
 
-        self._logger.debug(
-            f"Updated snapshot for intent='{snapshot.intent}' "
-            f"(window_size={len(record.sensor_window)})"
-        )
+        self._logger.debug(f"Updated snapshot with (window_size={len(record.sensor_window)})")
 
         if self._state_estimator:
             try:
