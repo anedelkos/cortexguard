@@ -25,8 +25,8 @@ from typing import Any
 from fastapi import FastAPI
 
 from kitchenwatch.common.logging_config import setup_logging
-from kitchenwatch.core.action_registry import ActionRegistry
 from kitchenwatch.core.interfaces.base_online_learner import BaseOnlineLearner
+from kitchenwatch.core.interfaces.base_policy_engine import BasePolicyEngine
 from kitchenwatch.core.mocks.mock_controller import MockController
 from kitchenwatch.core.mocks.mock_step_classifier import MockStepClassifier
 from kitchenwatch.edge.api import health
@@ -37,8 +37,11 @@ from kitchenwatch.edge.detectors.rule_based import HardLimitDetector, LogicalRul
 from kitchenwatch.edge.edge_fusion import EdgeFusion, VisionEmbedder
 from kitchenwatch.edge.local_receiver import LocalReceiver
 from kitchenwatch.edge.models.blackboard import Blackboard
+from kitchenwatch.edge.models.capability_registry import CapabilityRegistry
 from kitchenwatch.edge.online_learner_state_estimator import OnlineLearnerStateEstimator
 from kitchenwatch.edge.orchestrator import Orchestrator
+from kitchenwatch.edge.policy.mistral_policy_engine import MistralLLMPolicyEngine
+from kitchenwatch.edge.policy.policy_agent import PolicyAgent
 from kitchenwatch.edge.river_online_learner import RiverOnlineLearner
 from kitchenwatch.edge.step_executor import StepExecutor
 
@@ -93,15 +96,16 @@ class EdgeRuntime:
         self.orchestrator = Orchestrator(self.blackboard)
         # Create controller & registry
         self.controller = MockController()  # or real robot controller
-        self.action_registry = ActionRegistry(controller=self.controller)
+        self.capability_registry = CapabilityRegistry()
         self.step_classifier = MockStepClassifier()
         # Step executor
         self.executor = StepExecutor(
             blackboard=self.blackboard,
             step_classifier=self.step_classifier,
-            action_registry=self.action_registry,
+            capability_registry=self.capability_registry,
             default_max_retries=self.config.executor_max_retries,
             default_retry_delay=self.config.executor_retry_delay,
+            controller=self.controller,
         )
 
         # --- PERCEPTION SUBSYSTEM (Fusion and Learning) ---
@@ -144,6 +148,19 @@ class EdgeRuntime:
         # S1.1: Repeated system failures, S2.3: Sensor/Blackboard data freeze
         self.logical_rule_detector = LogicalRuleDetector()
         self.anomaly_detector.register_detector(self.logical_rule_detector)
+
+        # --- REASONING SUBSYSTEM (Policy Agent) ---
+        # 1. Instantiate the Policy Engine (LLM)
+        self.policy_engine: BasePolicyEngine = MistralLLMPolicyEngine(
+            use_mock=True  # Use mock for safe/fast edge deployment
+        )
+
+        # 2. Instantiate the Policy Agent (The anomaly-to-policy rules engine)
+        self.policy_agent = PolicyAgent(
+            blackboard=self.blackboard,
+            capability_registry=self.capability_registry,
+            policy_engine=self.policy_engine,
+        )
 
         # Runtime state
         self._running = False
@@ -188,6 +205,8 @@ class EdgeRuntime:
             start_tasks.append(self.executor.start())
         if self.anomaly_detector:
             start_tasks.append(self.anomaly_detector.start())
+        if self.policy_agent:
+            start_tasks.append(self.policy_agent.start())
 
         # Start all subsystems concurrently and check for failures
         results = await asyncio.gather(*start_tasks, return_exceptions=True)
@@ -227,6 +246,8 @@ class EdgeRuntime:
             # 2. Stop Reasoning/Detection layer
             if self.anomaly_detector:
                 stop_tasks.append(self.anomaly_detector.stop())
+            if self.policy_agent:
+                stop_tasks.append(self.policy_agent.stop())
 
             # Wait for graceful shutdown with timeout
             await asyncio.wait_for(

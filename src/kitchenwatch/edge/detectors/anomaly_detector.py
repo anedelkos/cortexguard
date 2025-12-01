@@ -1,13 +1,16 @@
 import asyncio
 import logging
 import uuid
+from datetime import datetime  # Required for timestamp
 from typing import Any, cast
 
 from kitchenwatch.core.interfaces.base_detector import BaseDetector
-from kitchenwatch.edge.models.anomaly_event import AnomalyEvent
-from kitchenwatch.edge.models.anomaly_severity import SEVERITY_RANKING, AnomalySeverity
+from kitchenwatch.edge.models.anomaly_event import SEVERITY_RANKING, AnomalyEvent, AnomalySeverity
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
+from kitchenwatch.edge.models.reasoning_trace_entry import (
+    ReasoningTraceEntry,  # Required for trace logging
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +43,19 @@ class AnomalyDetector:
         self._ticks_processed = 0
         self._anomalies_detected = 0
         self._detector_failures = 0
+
+    async def _post_trace_entry(
+        self, event_type: str, reasoning_text: str, metadata: dict[str, Any]
+    ) -> None:
+        """Helper method to create and post a ReasoningTraceEntry."""
+        entry = ReasoningTraceEntry(
+            timestamp=datetime.now(),
+            source="AnomalyDetector",
+            event_type=event_type,
+            reasoning_text=reasoning_text,
+            metadata=metadata,
+        )
+        await self._blackboard.add_trace_entry(entry)
 
     def register_detector(self, detector: BaseDetector) -> None:
         """Register a sub-detector to the ensemble."""
@@ -100,7 +116,15 @@ class AnomalyDetector:
                 for key in keys_to_clear:
                     await self._blackboard.clear_anomaly(key)
 
-                    # Set/Update currently active flags with the complete AnomalyEvent structure
+                    # --- TRACE LOGGING: Anomaly Cleared ---
+                    await self._post_trace_entry(
+                        event_type="ANOMALY_CLEARED",
+                        reasoning_text=f"Anomaly '{key}' resolved or no longer detected in the environment.",
+                        metadata={"anomaly_key": key},
+                    )
+                    # ------------------------------------
+
+                # Set/Update currently active flags with the complete AnomalyEvent structure
                 for key, (
                     severity,
                     score,
@@ -108,9 +132,10 @@ class AnomalyDetector:
                 ) in active_aggregated_flags.items():
                     # Map old 'description' and 'context' into the new 'metadata' field
                     metadata = {
-                        "id": snapshot.id,
+                        "snapshot_id": snapshot.id,
                         "current_intent": current_intent,
                         "description": f"Automated detection of {key} (Severity: {severity.name}, Score: {score:.2f})",
+                        "contributing_detectors": contributing_detectors,
                     }
 
                     # Construct the mandatory fields for AnomalyEvent
@@ -125,6 +150,20 @@ class AnomalyDetector:
                         window=None,  # No window specified for instantaneous detection
                     )
                     await self._blackboard.set_anomaly(event)
+
+                    # --- TRACE LOGGING: Anomaly Detected ---
+                    if key not in self._active_anomaly_keys:
+                        # Only log trace if it's a *new* anomaly this tick
+                        await self._post_trace_entry(
+                            event_type="ANOMALY_TRIGGERED",
+                            reasoning_text=f"New anomaly '{key}' detected. Severity: {severity.name}. Score: {score:.2f}.",
+                            metadata={
+                                "anomaly_key": key,
+                                "severity": severity.name,
+                                "score": score,
+                            },
+                        )
+                    # ------------------------------------
 
                 # Update the state tracker for the next tick
                 self._active_anomaly_keys = newly_active_keys

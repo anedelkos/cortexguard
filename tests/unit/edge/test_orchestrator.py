@@ -4,7 +4,7 @@ from datetime import datetime
 
 import pytest
 
-from kitchenwatch.edge.models.action import Action
+from kitchenwatch.edge.models.agent_tool_call import AgentToolCall  # Updated import
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.models.goal import GoalContext
 from kitchenwatch.edge.models.plan import Plan, PlanStatus, PlanStep, PlanType, StepStatus
@@ -37,20 +37,25 @@ def make_plan(
         PlanStep(
             id="step_1",
             description="Execute the first test movement and sensor reading.",
-            action=Action(
-                tool_id="mock_tool_1",
-                capability="MOCK_CAPABILITY_A",
-                arguments={"duration": 1.5, "speed": "high"},
+            action=AgentToolCall(  # Replaced Action with AgentToolCall
+                action_name="MOCK_CAPABILITY_A",  # capability changed to function_name
+                arguments={
+                    "tool_id": "mock_tool_1",
+                    "duration": 1.5,
+                    "speed": "high",
+                },  # tool_id moved to arguments
             ),
             status=step_status,
         ),
         PlanStep(
             id="step_2",
             description="Execute the second test measurement with a different tool.",
-            action=Action(
-                tool_id="mock_tool_2",
-                capability="MOCK_CAPABILITY_B",
-                arguments={"sensor_id": "temp_01"},
+            action=AgentToolCall(  # Replaced Action with AgentToolCall
+                action_name="MOCK_CAPABILITY_B",  # capability changed to function_name
+                arguments={
+                    "tool_id": "mock_tool_2",
+                    "sensor_id": "temp_01",
+                },  # tool_id moved to arguments
             ),
             status=step_status,
         ),
@@ -60,6 +65,7 @@ def make_plan(
         goal_id=f"goal_{plan_id}",
         user_prompt="Run a standard two-step test assembly process.",
         priority=priority,
+        intent="Do stuff",
     )
 
     return Plan(

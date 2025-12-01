@@ -8,7 +8,7 @@ import pytest
 from freezegun import freeze_time
 
 from kitchenwatch.edge.detectors.rule_based.logical_rule_detector import LogicalRuleDetector
-from kitchenwatch.edge.models.anomaly_severity import AnomalySeverity
+from kitchenwatch.edge.models.anomaly_event import AnomalySeverity
 from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
 
 

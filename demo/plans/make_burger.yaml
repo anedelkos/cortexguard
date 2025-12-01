@@ -1,76 +1,76 @@
-
 goal_id: "CHZ-BURGER-002"
-created_at: 1705844000 # Unix Timestamp
 status: "PENDING"
-device_id: "RoboChef-Alpha" # The primary cooking robot
+device_id: "RoboChef-Alpha"
 
-# Context: The high-level objective to be achieved.
 context:
-  user_prompt: "Please prepare a medium-rare cheeseburger with toasted bun."
-  goal_id: "CHZ-BURGER-002"
-  priority: 9
+  user_prompt: "Prepare a medium-rare cheeseburger with toasted bun."
 
 steps:
-  # 1. Prep: Toast the bun (using the grill after the patty).
+  # 1. Prep: Slice the bun.
   - step_id: "STEP-BUN-001"
-    description: "Slice the bun and place it on the grill for light toasting."
+    description: "Slice the bun in half horizontally."
+    trace_id: null  # Routine step
     action:
-      tool_id: "UtilityKnife_Station"
-      capability: "SLICE_OBJECT"
-      parameters:
-        object: "BUN"
+      function_name: "SLICE_ITEM"
+      arguments:
+        tool_id: "Knife_Station_A"
+        item_name: "BUN"
         cut_style: "HORIZONTAL"
 
   # 2. Cook: Place the patty on the grill.
+  # (Source location is inferred from Blackboard)
   - step_id: "STEP-PATTY-002"
-    description: "Pick up the raw patty and place it on Grill Slot 1."
+    description: "Move raw beef patty from tray onto Grill Slot 1."
+    trace_id: null
     action:
-      tool_id: "RoboticGripper_A"
-      capability: "PICK_AND_PLACE"
-      parameters:
-        source: "PattyTray_Frozen"
-        target: "GrillSlot_1"
-        object_type: "BEEF_PATTY"
+      function_name: "PLACE_ITEM"
+      arguments:
+        tool_id: "RoboticGripper_A"
+        item_name: "RAW_PATTY"
+        target_location: "Grill_Slot_1"
 
   # 3. Cook: Apply cheese slice.
   - step_id: "STEP-CHEESE-003"
-    description: "Wait for the patty to reach internal temperature of 130F (Medium-Rare) and place cheese."
+    description: "Place cheddar cheese slice onto the patty at Grill Slot 1."
+    trace_id: null
     action:
-      tool_id: "RoboticGripper_A"
-      capability: "PLACE_CHEESE"
-      parameters:
-        target: "GrillSlot_1"
-        cheese_type: "CHEDDAR"
-        # The Edge orchestrator is responsible for managing the grill time/temperature.
+      function_name: "PLACE_ITEM"
+      arguments:
+        tool_id: "RoboticGripper_A"
+        item_name: "CHEDDAR_SLICE"
+        target_location: "Grill_Slot_1"
 
-  # 4. Assemble: Pick up the cooked patty with melted cheese.
+  # 4. Assemble: Pick up the cooked patty.
+  # (Patty is assumed to be ready and located at Grill_Slot_1)
   - step_id: "STEP-ASSEMBLE-004"
-    description: "Lift the finished cheeseburger patty off the grill."
+    description: "Lift the finished cheeseburger patty off the grill and transfer to the assembly area."
+    trace_id: null
     action:
-      tool_id: "RoboticSpatula_B"
-      capability: "TRANSFER_OBJECT"
-      parameters:
-        source: "GrillSlot_1"
-        destination: "Assembly_Plate"
-        object_type: "COOKED_PATTY"
+      function_name: "PLACE_ITEM"
+      arguments:
+        tool_id: "RoboticSpatula_B"
+        item_name: "COOKED_CHEESY_PATTY"
+        target_location: "Assembly_Plate_Area"
 
-  # 5. Assemble: Place patty onto the toasted bun.
+  # 5. Assemble: Stack patty onto the bun.
   - step_id: "STEP-ASSEMBLE-005"
-    description: "Place the cooked patty onto the bottom half of the toasted bun on the assembly plate."
+    description: "Align and stack the patty onto the toasted bun halves."
+    trace_id: null
     action:
-      tool_id: "RoboticArm_Mover"
-      capability: "ALIGN_AND_STACK"
-      parameters:
+      function_name: "ALIGN_AND_STACK"
+      arguments:
+        tool_id: "RoboticArm_Mover"
         bottom_layer: "TOASTED_BUN_BOTTOM"
-        top_layer: "COOKED_PATTY"
-        location: "Assembly_Plate"
+        top_component: "CHEESY_PATTY"
+        location: "Assembly_Plate_Area"
 
-  # 6. Serve: Move the final burger to the service window.
+  # 6. Serve: Deliver the final burger.
   - step_id: "STEP-SERVE-006"
-    description: "Transfer the completed burger to the serving pickup area."
+    description: "Transfer the completed burger to the customer service window."
+    trace_id: null
     action:
-      tool_id: "ServingTray_Arm"
-      capability: "DELIVER_ITEM"
-      parameters:
+      function_name: "DELIVER_ORDER"
+      arguments:
+        tool_id: "ServingTray_Arm"
+        order_id: "CHZ-BURGER-002"
         pickup_area: "ServiceWindow_1"
-        item_name: "Cheeseburger"

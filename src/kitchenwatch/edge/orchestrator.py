@@ -1,13 +1,20 @@
 import asyncio
 import logging
+from datetime import datetime
+from typing import Any
+from uuid import uuid4
 
 from kitchenwatch.edge.models.blackboard import Blackboard
-from kitchenwatch.edge.models.plan import Plan, PlanStatus, StepStatus
+from kitchenwatch.edge.models.goal import GoalContext
+from kitchenwatch.edge.models.plan import Plan, PlanStatus, PlanType, StepStatus
+from kitchenwatch.edge.models.reasoning_trace_entry import ReasoningTraceEntry
+from kitchenwatch.edge.models.remediation_policy import RemediationPolicy
 from kitchenwatch.edge.utils.async_priority_queue import AsyncPriorityQueue
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_TICK_INTERVAL = 0.1
+HIGH_PRIORITY = 0  # Highest priority for urgent remediation plans
 
 
 class Orchestrator:
@@ -23,16 +30,37 @@ class Orchestrator:
 
     def __init__(self, blackboard: Blackboard) -> None:
         self._blackboard = blackboard
+        # The priority queue uses the Plan's context.priority (lower number = higher priority)
         self._plan_queue = AsyncPriorityQueue[Plan]()
         self._current_plan: Plan | None = None
         self._loop_running: bool = False
         self._task: asyncio.Task[None] | None = None
+
+    async def _post_trace_entry(
+        self, event_type: str, reasoning_text: str, metadata: dict[str, Any]
+    ) -> None:
+        """Helper method to create and post a ReasoningTraceEntry."""
+        entry = ReasoningTraceEntry(
+            timestamp=datetime.now(),
+            source="Orchestrator",
+            event_type=event_type,
+            reasoning_text=reasoning_text,
+            metadata=metadata,
+        )
+        await self._blackboard.add_trace_entry(entry)
 
     # ---------------------
     # Plan Queue Methods
     # ---------------------
     async def add_plan(self, plan: Plan) -> None:
         """Add a new plan to the priority queue."""
+        # Only PENDING or PREEMPTED plans should be added to the queue
+        if plan.status not in (PlanStatus.PENDING, PlanStatus.PREEMPTED):
+            logger.warning(
+                f"Attempted to add plan {plan.plan_id} with status {plan.status.name} to queue. Skipping."
+            )
+            return
+
         try:
             await self._plan_queue.put(plan.context.priority, plan)
             logger.debug(f"Plan added: {plan.plan_id} with priority {plan.context.priority}")
@@ -51,32 +79,61 @@ class Orchestrator:
                 await self._clear_current_plan()
                 return
 
+            # Defensive check: Ignore plans found in the queue that are already finished
+            if next_plan.status in (PlanStatus.COMPLETED, PlanStatus.FAILED, PlanStatus.CANCELLED):
+                logger.warning(
+                    f"Plan {next_plan.plan_id} retrieved from queue but is in terminal state ({next_plan.status.name}), discarding."
+                )
+                await self._clear_current_plan()
+                return  # Discard and move on
+
+            # Determine the trace event type
+            event_type = (
+                "PLAN_RESUMED" if next_plan.status == PlanStatus.PREEMPTED else "PLAN_STARTED"
+            )
+
             if next_plan.status == PlanStatus.PENDING:
                 logger.info(f"Starting plan {next_plan.plan_id}")
             elif next_plan.status == PlanStatus.PREEMPTED:
                 logger.info(f"Resuming plan {next_plan.plan_id}")
             else:
                 logger.error(
-                    f"Plan found in unexpected status {next_plan.plan_id}-{next_plan.status}... exiting"
+                    f"Plan found in unexpected status {next_plan.plan_id}-{next_plan.status.name}... discarding"
                 )
                 return
 
             if next_plan.steps:
-                # === CRITICAL CHANGE: Retrieve index from Blackboard's execution state ===
-                # This assumes the Blackboard tracks the index separate from the Plan object.
                 index = await self._blackboard.get_step_index_for_plan(next_plan.plan_id) or 0
 
+                # Ensure index is within bounds for safety
                 index = min(index, len(next_plan.steps) - 1)
                 current_step = next_plan.steps[index]
 
                 next_plan.status = PlanStatus.RUNNING
                 self._current_plan = next_plan
+
                 await self._blackboard.set_current_plan(next_plan)
                 await self._blackboard.set_current_step(current_step)
-                # You would also update the index on the blackboard here if it changed
                 await self._blackboard.set_step_index_for_plan(next_plan.plan_id, index)
+
+                # --- TRACE LOGGING: Plan Started/Resumed ---
+                await self._post_trace_entry(
+                    event_type=event_type,
+                    reasoning_text=f"{'Resuming' if event_type == 'PLAN_RESUMED' else 'Starting'} plan {next_plan.plan_id}. Type: {next_plan.plan_type.name}.",
+                    metadata={
+                        "plan_id": next_plan.plan_id,
+                        "plan_type": next_plan.plan_type.name,
+                        "step_index": index,
+                        "step_id": current_step.id,
+                    },
+                )
+                # ------------------------------------------
+
             else:
-                logger.warning(f"Plan {next_plan.plan_id} has no steps, skipping")
+                logger.warning(
+                    f"Plan {next_plan.plan_id} has no steps, skipping and clearing current state."
+                )
+                await self._clear_current_plan()
 
         except Exception as e:
             logger.exception(f"Failed to start next plan: {e}")
@@ -86,6 +143,7 @@ class Orchestrator:
         if not self._current_plan:
             return None
 
+        # Checks if any plan in the queue has a *lower* priority number (higher priority)
         next_plan = await self._plan_queue.pop_if_priority_lower_than(
             self._current_plan.context.priority
         )
@@ -94,10 +152,72 @@ class Orchestrator:
                 f"Preempting current plan {self._current_plan.plan_id} "
                 f"for higher-priority plan {next_plan.plan_id}"
             )
+            # --- TRACE LOGGING: Plan Preempted ---
+            await self._post_trace_entry(
+                event_type="PLAN_PREEMPTED",
+                reasoning_text=f"Plan {self._current_plan.plan_id} preempted by higher priority plan {next_plan.plan_id}.",
+                metadata={
+                    "preempted_plan_id": self._current_plan.plan_id,
+                    "new_plan_id": next_plan.plan_id,
+                    "new_priority": next_plan.context.priority,
+                },
+            )
+            # ------------------------------------
+            # Pause the current plan and requeue it as PREEMPTED
             await self._pause_current_plan(interrupted=True)
             return next_plan
 
         return None
+
+    async def _handle_remediation_policy(self) -> None:
+        """
+        Processes a RemediationPolicy posted by the PolicyAgent, converts it
+        to a high-priority Plan, and queues it.
+        """
+        policy: RemediationPolicy | None = await self._blackboard.get_remediation_policy()
+
+        if policy:
+            logger.warning(
+                f"Processing Remediation Policy {policy.policy_id} for anomaly: {policy.trigger_event.key}"
+            )
+
+            # --- TRACE LOGGING: Policy Received/Handled ---
+            await self._post_trace_entry(
+                event_type="POLICY_RECEIVED",
+                reasoning_text=f"Remediation Policy {policy.policy_id} received from PolicyAgent for anomaly {policy.trigger_event.key}.",
+                metadata={
+                    "policy_id": policy.policy_id,
+                    "trigger_anomaly_key": policy.trigger_event.key,
+                    "escalation_required": policy.escalation_required,
+                },
+            )
+            # --------------------------------------------
+
+            # Create a goal context with the highest priority and necessary fields
+            remediation_goal = GoalContext(
+                goal_id=str(uuid4()),
+                user_prompt=f"[Auto-generated for Remediation: {policy.trigger_event.key}]",
+                # The intent comes from the anomaly description itself
+                intent=f"Remediate anomaly: {policy.trigger_event.key}",
+                priority=HIGH_PRIORITY,
+            )
+
+            remediation_plan = Plan(
+                plan_id=str(uuid4()),  # Must have a unique ID
+                plan_type=PlanType.REMEDIATION,
+                context=remediation_goal,
+                steps=policy.corrective_steps,
+                status=PlanStatus.PENDING,
+            )
+
+            await self.add_plan(remediation_plan)
+
+            logger.info(
+                f"Queued remediation plan {remediation_plan.plan_id} with priority {HIGH_PRIORITY}."
+            )
+
+            # Critical: Clear the policy from the Blackboard once handled
+            await self._blackboard.clear_remediation_policy()
 
     # ---------------------
     # Main Loop
@@ -112,12 +232,16 @@ class Orchestrator:
                         f"Tick: current plan = {self._current_plan.plan_id if self._current_plan else 'None'}"
                     )
 
+                    # 1. Check for immediate, high-priority remediation actions
+                    await self._handle_remediation_policy()
+
                     # Start a plan if none running
                     if not self._current_plan:
                         await self._start_next_plan()
 
                     # Check preemption and step status
                     if self._current_plan:
+                        # Check preemption again, as remediation may have been added
                         urgent_plan = await self._check_for_preemption()
                         if urgent_plan:
                             await self._start_next_plan(urgent_plan)
@@ -160,6 +284,15 @@ class Orchestrator:
             self._current_plan.status = PlanStatus.COMPLETED
             await self._blackboard.set_current_plan(self._current_plan)
             await self._blackboard.clear_step_index_for_plan(plan_id)
+
+            # --- TRACE LOGGING: Plan Completed (No Steps) ---
+            await self._post_trace_entry(
+                event_type="PLAN_COMPLETED",
+                reasoning_text=f"Plan {plan_id} completed successfully (no steps executed).",
+                metadata={"plan_id": plan_id, "status": PlanStatus.COMPLETED.name},
+            )
+            # ---------------------------------------------
+
             await self._clear_current_plan()
             return
 
@@ -182,6 +315,15 @@ class Orchestrator:
                 # Failure scenario
                 logger.warning(f"Step failed: {current_step.id}. Pausing plan for remediation.")
                 self._current_plan.status = PlanStatus.FAILED
+
+                # --- TRACE LOGGING: Plan Failed ---
+                await self._post_trace_entry(
+                    event_type="PLAN_FAILED",
+                    reasoning_text=f"Plan {plan_id} failed on step {current_step.id} after {current_step.attempts} attempt(s). PolicyAgent triggered.",
+                    metadata={"plan_id": plan_id, "failed_step_id": current_step.id},
+                )
+                # ----------------------------------
+
                 # The index state (current_step_index) remains on the Blackboard for retry
                 await self._pause_current_plan()
 
@@ -199,6 +341,8 @@ class Orchestrator:
                     logger.info(
                         f"Advanced plan {plan_id} to step index {next_index}: {next_step.id}"
                     )
+                    # Note: No need for a trace entry here, as the Executor already logged STEP_COMPLETED.
+
                 else:
                     # --- COMPLETE PLAN ---
                     logger.info(f"Plan completed: {plan_id} successfully")
@@ -206,6 +350,15 @@ class Orchestrator:
                     await self._blackboard.set_current_plan(self._current_plan)
                     # 4. Clear the index state from the Blackboard
                     await self._blackboard.clear_step_index_for_plan(plan_id)
+
+                    # --- TRACE LOGGING: Plan Completed ---
+                    await self._post_trace_entry(
+                        event_type="PLAN_COMPLETED",
+                        reasoning_text=f"Plan {plan_id} completed successfully after executing {len(self._current_plan.steps)} steps.",
+                        metadata={"plan_id": plan_id, "status": PlanStatus.COMPLETED.name},
+                    )
+                    # -----------------------------------
+
                     await self._clear_current_plan()
 
             # If status is None (Step not executed yet) or Running, do nothing and wait for executor
@@ -214,9 +367,8 @@ class Orchestrator:
         except Exception as e:
             logger.exception(f"Error advancing plan {plan_id}: {e}")
             self._current_plan.status = PlanStatus.FAILED
-            await self._blackboard.set_failed_plan(self._current_plan)
-            await self._blackboard.clear_step_index_for_plan(plan_id)
-            await self._clear_current_plan()
+            # Revert to pause logic on critical error
+            await self._pause_current_plan()
 
     async def _pause_current_plan(self, interrupted: bool = False) -> None:
         """Pause the currently running plan and re-queue it by priority."""
@@ -230,7 +382,7 @@ class Orchestrator:
                 logger.info(f"Preempted plan {self._current_plan.plan_id}")
                 await self.add_plan(self._current_plan)
             else:
-                # Plan has failed, place it on blackboard to be remediated
+                # Plan has failed or encountered a critical error, place it on blackboard to be remediated
                 self._current_plan.status = PlanStatus.PAUSED
                 logger.info(f"Paused plan {self._current_plan.plan_id}")
                 await self._blackboard.set_paused_plan(self._current_plan)
