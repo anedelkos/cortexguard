@@ -4,7 +4,7 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
-from .action import Action
+from .agent_tool_call import AgentToolCall
 from .goal import GoalContext
 
 
@@ -33,31 +33,52 @@ class PlanStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     PREEMPTED = "preempted"
+    CANCELLED = "cancelled"
 
 
 class PlanStep(BaseModel):
     """
-    A single sequence of actions to be executed together.
+    A single step in a plan, managing execution state and linking to the LLM's cognition
+    (only when complex reasoning is involved).
     """
 
     id: str = Field(
         default_factory=lambda: str(uuid.uuid4()),
-        description="Unique identifier for this specific step (generated on load if missing).",
+        description="Unique identifier for this specific step.",
     )
+
     description: str = Field(
         description="A natural language explanation of what this step achieves."
     )
 
-    action: Action = Field(description="The atomic command to perform in this step.")
+    # --- COMMAND AND OPTIONAL REASONING LINK ---
+
+    action: AgentToolCall = Field(
+        description="The atomic command (function name + parameters) to perform in this step."
+    )
+
+    # This is the key change: Making the trace ID Optional
+    trace_id: str | None = Field(
+        default=None,
+        description="Optional ID linking this step to the specific ReasoningTrace that generated it. Omitted for routine steps.",
+    )
+
+    # --- EXECUTION STATE ---
 
     status: StepStatus = Field(
         default=StepStatus.PENDING, description="The current execution status of this step."
     )
+
     started_at: datetime | None = Field(
         default=None, description="Timestamp when execution started."
     )
+
     completed_at: datetime | None = Field(
         default=None, description="Timestamp when execution completed."
+    )
+
+    attempts: int = Field(
+        default=0, description="The number of times this step has been attempted."
     )
 
 

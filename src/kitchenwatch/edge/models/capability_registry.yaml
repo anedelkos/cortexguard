@@ -1,0 +1,91 @@
+SLICE_ITEM:
+  description: "Slices a specified food item using an available cutting tool."
+  parameters:
+    type: object
+    properties:
+      item_name: {type: string}
+      tool_id:
+        type: string
+        enum: ["Knife_Station_A", "Laser_Cutter_B"]
+    required: [item_name, tool_id]
+
+GRILL_ITEM:
+  description: "Cooks a food item on a specific grill for a defined duration."
+  parameters:
+    type: object
+    properties:
+      item_name: {type: string}
+      duration_s:
+        type: integer
+      tool_id:
+        type: string
+        enum: ["Grill_Station_1", "Grill_Station_2", "Backup_Grill"]
+    required: [item_name, duration_s, tool_id]
+
+PLACE_ITEM:
+  description: "Picks up an item and places it at a target location."
+  parameters:
+    type: object
+    properties:
+      item_name: {type: string}
+      target_location: {type: string}
+      tool_id:
+        type: string
+        enum: ["RoboticGripper_A", "RoboticGripper_B", "RoboticSpatula_B"]
+    required: [item_name, target_location, tool_id]
+
+ALIGN_AND_STACK:
+  description: "Stacks two components for final assembly."
+  parameters:
+    type: object
+    properties:
+      bottom_layer: {type: string}
+      top_component: {type: string}
+      tool_id:
+        type: string
+        enum: ["RoboticArm_Mover"]
+    required: [bottom_layer, top_component, tool_id]
+
+DELIVER_ORDER:
+  description: "Transfers a completed food item to the final service area."
+  parameters:
+    type: object
+    properties:
+      order_id: {type: string}
+      pickup_area: {type: string}
+      tool_id:
+        type: string
+        enum: ["ServingTray_Arm"]
+    required: [order_id, pickup_area, tool_id]
+
+# --- Anomaly Remediation Capabilities ---
+
+EMERGENCY_STOP:
+  description: "Immediately cuts power to a critical device when an extreme hazard is detected."
+  parameters:
+    type: object
+    properties:
+      device_id:
+        type: string
+    required: [device_id]
+
+RESET_DEVICE:
+  description: "Performs a safe power cycle on a non-critical device to clear transient errors."
+  parameters:
+    type: object
+    properties:
+      device_id:
+        type: string
+    required: [device_id]
+
+SEND_ALERT:
+  description: "Sends a notification to a human supervisor."
+  parameters:
+    type: object
+    properties:
+      recipient:
+        type: string
+        enum: ["supervisor", "log_system"]
+      message:
+        type: string
+    required: [recipient, message]

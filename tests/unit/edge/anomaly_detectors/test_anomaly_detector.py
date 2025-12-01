@@ -8,8 +8,7 @@ import pytest
 
 from kitchenwatch.core.interfaces.base_detector import BaseDetector
 from kitchenwatch.edge.detectors.anomaly_detector import AnomalyDetector
-from kitchenwatch.edge.models.anomaly_event import AnomalyEvent
-from kitchenwatch.edge.models.anomaly_severity import AnomalySeverity
+from kitchenwatch.edge.models.anomaly_event import AnomalyEvent, AnomalySeverity
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
 

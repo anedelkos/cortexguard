@@ -78,10 +78,10 @@ tasks:
 
   # --- Testing -------------------------------------------------------
   test:
-    desc: "Run tests with coverage"
+    desc: "Run FAST & NECESSARY tests (excluding super-slow LLM/Hardware) with coverage."
     cmds:
       - "rm -f .coverage*"
-      - "PYTHONPATH=src {{.uv_run}} pytest -v --cov={{.src_dir}} --cov-report=term-missing {{.test_dir}}"
+      - "PYTHONPATH=src {{.uv_run}} pytest -v -m \"not llm_slow\" --cov={{.src_dir}} --cov-report=term-missing {{.test_dir}}"
 
   test-async:
     desc: "Run async tests only"
@@ -94,9 +94,16 @@ tasks:
       - "PYTHONPATH=src {{.uv_run}} pytest -v {{.test_dir}}/unit --maxfail=1 --disable-warnings --cov={{.src_dir}} --cov-report=term-missing"
 
   test-integration:
-    desc: "Run integration tests only"
+    desc: "Run MODERATE integration tests only (Subset required for 80%+ coverage)"
     cmds:
-      - "PYTHONPATH=src {{.uv_run}} pytest -v {{.test_dir}}/integration --maxfail=1 --disable-warnings --cov={{.src_dir}} --cov-report=term-missing"
+      # This runs all integration tests *except* the super slow ones
+      - "PYTHONPATH=src {{.uv_run}} pytest -v -m \"integration and not llm_slow\" --maxfail=1 --disable-warnings --cov={{.src_dir}} --cov-report=term-missing {{.test_dir}}"
+
+  test-llm-slow:
+    desc: "Run SUPER SLOW LLM/Hardware integration tests only (For CI/Nightly builds)."
+    cmds:
+      # This task is explicitly designed to run the very slow tests.
+      - "RUN_SLOW_LLM_TESTS=True PYTHONPATH=src {{.uv_run}} pytest -v -m 'llm_slow' --maxfail=1 --disable-warnings --cov={{.src_dir}} --cov-report=term-missing {{.test_dir}}"
 
 
   test-e2e:

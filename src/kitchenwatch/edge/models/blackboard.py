@@ -2,11 +2,11 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
-# Assuming these imports are available in your environment
-from kitchenwatch.edge.models.anomaly_event import AnomalyEvent
-from kitchenwatch.edge.models.anomaly_severity import SEVERITY_RANKING, AnomalySeverity
+from kitchenwatch.edge.models.anomaly_event import SEVERITY_RANKING, AnomalyEvent, AnomalySeverity
 from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
 from kitchenwatch.edge.models.plan import Plan, PlanStatus, PlanStep
+from kitchenwatch.edge.models.reasoning_trace_entry import ReasoningTraceEntry
+from kitchenwatch.edge.models.remediation_policy import RemediationPolicy
 from kitchenwatch.edge.models.state_estimate import StateEstimate
 
 
@@ -25,6 +25,8 @@ class Blackboard:
     current_plan: Plan | None = None
     paused_plan: Plan | None = None
 
+    active_remediation_policy: RemediationPolicy | None = None
+
     _plan_step_indices: dict[str, int] = field(default_factory=dict)
 
     # Sensor state
@@ -35,7 +37,7 @@ class Blackboard:
     active_anomalies: dict[str, AnomalyEvent] = field(default_factory=dict)
 
     # The Reasoning Trace (Agent Scratchpad) - Stores a history of all significant events.
-    reasoning_trace: list[AnomalyEvent] = field(default_factory=list)
+    reasoning_trace: list[ReasoningTraceEntry] = field(default_factory=list)
 
     recovery_status: dict[str, str] = field(default_factory=dict)
     safety_flags: dict[str, bool] = field(default_factory=dict)
@@ -52,6 +54,7 @@ class Blackboard:
     latest_state_estimate: StateEstimate | None = None
     state_estimate_updated: asyncio.Event = asyncio.Event()
     anomaly_updated: asyncio.Event = asyncio.Event()
+    remediation_policy_updated: asyncio.Event = asyncio.Event()
 
     # ---------------------
     # Snapshot Methods
@@ -132,18 +135,35 @@ class Blackboard:
                 del self._plan_step_indices[plan_id]
 
     # ---------------------
-    # Anomaly & Recovery Flags (Cleaned to only use AnomalyEvent objects)
+    # Anomaly & Recovery Flags
     # ---------------------
+    async def add_trace_entry(self, entry: ReasoningTraceEntry) -> None:
+        """
+        Adds a generic event entry to the Reasoning Trace (Agent Scratchpad).
+        """
+        async with self._lock:
+            self.reasoning_trace.append(entry)
+
     async def set_anomaly(self, event: AnomalyEvent) -> None:
         """
         Adds a new AnomalyEvent to the Reasoning Trace and registers it
         as an active anomaly.
         """
-        async with self._lock:
-            # 1. Add to the reasoning trace (Scratchpad)
-            self.reasoning_trace.append(event)
+        trace_entry = ReasoningTraceEntry(
+            timestamp=event.timestamp,
+            source=event.key,
+            event_type=f"ANOMALY_{event.severity.name}",
+            reasoning_text=f"Anomaly {event.key} detected. Severity: {event.severity.name}, Score: {event.score:.2f}. Detectors: {', '.join(event.contributing_detectors)}.",
+            metadata={
+                "anomaly_id": event.id,
+                "severity_score": event.score,
+                "contributing_detectors": event.contributing_detectors,
+                "original_metadata": event.metadata,
+            },
+        )
+        await self.add_trace_entry(trace_entry)
 
-            # 2. Register as active anomaly (keyed by semantic key)
+        async with self._lock:
             self.active_anomalies[event.key] = event
 
         self.anomaly_updated.set()
@@ -156,6 +176,12 @@ class Blackboard:
             if key in self.active_anomalies:
                 del self.active_anomalies[key]
         self.anomaly_updated.set()
+
+    async def get_active_anomalies(self) -> dict[str, AnomalyEvent]:
+        """Retrieves all currently active anomaly events."""
+        async with self._lock:
+            # Return a copy to prevent external modification outside the lock
+            return self.active_anomalies.copy()
 
     async def get_active_anomaly(self, key: str) -> AnomalyEvent | None:
         """
@@ -224,6 +250,26 @@ class Blackboard:
             return self.recovery_status.get(key)
 
     # ---------------------
+    # Remediation Policy
+    # ---------------------
+    async def set_remediation_policy(self, policy: RemediationPolicy) -> None:
+        """Sets an active remediation policy."""
+        async with self._lock:
+            self.active_remediation_policy = policy
+        self.remediation_policy_updated.set()
+
+    async def get_remediation_policy(self) -> RemediationPolicy | None:
+        """Retrieves the active remediation policy."""
+        async with self._lock:
+            return self.active_remediation_policy
+
+    async def clear_remediation_policy(self) -> None:
+        """Removes the active remediation policy."""
+        async with self._lock:
+            self.active_remediation_policy = None
+        self.remediation_policy_updated.set()
+
+    # ---------------------
     # Safety Flags
     # ---------------------
     async def set_safety_flag(self, key: str, value: bool) -> None:
@@ -242,13 +288,13 @@ class Blackboard:
             self.latest_state_estimate = estimate
             self.state_estimate_updated.set()
 
-    async def get_state_estimate(self) -> StateEstimate | None:
+    async def get_latest_state_estimate(self) -> StateEstimate | None:
         async with self._lock:
             return self.latest_state_estimate
 
     async def wait_for_state_estimate(self) -> StateEstimate | None:
         await self.state_estimate_updated.wait()
-        return await self.get_state_estimate()
+        return await self.get_latest_state_estimate()
 
     # ---------------------
     # Extensibility
