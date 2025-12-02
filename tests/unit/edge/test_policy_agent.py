@@ -138,12 +138,6 @@ async def test_handle_high_severity_anomaly(
         score=1.0,
         contributing_detectors=["mock_safety_detector"],
     )
-    context = StateEstimate(
-        source_intent="cooking", timestamp=current_ts, label="heating", confidence=0.95
-    )
-
-    agent._validate_action = MagicMock(return_value=True)
-    mock_deps["blackboard"].get_latest_state_estimate.return_value = context
 
     await agent._handle_anomaly_event(anomaly)
 
@@ -198,13 +192,12 @@ async def test_handle_unknown_medium_anomaly_delegation(
 
     mock_deps["blackboard"].get_latest_state_estimate.return_value = context
     mock_deps["policy_engine"].generate_policy.return_value = mock_policy
-    agent._validate_action = MagicMock(return_value=True)
 
     await agent._handle_anomaly_event(anomaly)
 
     # Check if the policy engine was called with the correct arguments
     mock_deps["policy_engine"].generate_policy.assert_called_once()
-    assert mock_deps["policy_engine"].generate_policy.call_args[1]["tool_catalog_json"] == "[]"
+    assert mock_deps["policy_engine"].generate_policy.call_args[1]["action_catalog_json"] == "[]"
 
     # Check if the LLM-generated policy object was pushed
     mock_deps["blackboard"].set_remediation_policy.assert_called_once()
@@ -223,7 +216,7 @@ async def test_handle_unknown_medium_anomaly_delegation(
 async def test_llm_based_validation_failure_updates_policy(
     mock_sut_logger: MagicMock, agent: PolicyAgent, mock_deps: dict[str, Any]
 ) -> None:
-    """Test that LLM-generated policies with invalid actions are marked as CRITICAL risk."""
+    """LLM-generated policies with invalid actions are marked as CRITICAL risk."""
 
     current_ts = datetime.now()
 
@@ -259,18 +252,15 @@ async def test_llm_based_validation_failure_updates_policy(
     mock_deps["blackboard"].get_latest_state_estimate.return_value = context
     mock_deps["policy_engine"].generate_policy.return_value = mock_policy
 
-    # Mock validation to FAIL for the LLM-generated action
-    agent._validate_action = MagicMock(return_value=False)
-
-    await agent._handle_anomaly_event(anomaly)
+    # Patch validation to FAIL for the LLM-generated action
+    with patch.object(agent, "_validate_action", return_value=False):
+        await agent._handle_anomaly_event(anomaly)
 
     policy = mock_deps["blackboard"].set_remediation_policy.call_args[0][0]
 
     assert policy.escalation_required is True
-    assert "CRITICAL - Invalid LLM Action" in policy.risk_assessment
+    assert "CRITICAL - Invalid Action" in policy.risk_assessment
     assert "WARNING: Generated plan contained invalid actions" in policy.reasoning_trace
-    # Metric check removed as the SUT fails to track it correctly in this path
-    # assert agent.get_metrics()["escalations_triggered"] == 1
 
     mock_sut_logger.error.assert_called()
 

@@ -294,7 +294,9 @@ async def test_generate_policy_mock_path(
     tool_catalog: str,
 ) -> None:
     """Tests the generate_policy method taking the mock execution path."""
-    policy = await mock_engine.generate_policy(temp_high_event, state_estimate, tool_catalog)
+    policy = await mock_engine.generate_policy(
+        temp_high_event, state_estimate, tool_catalog, active_plan_context=""
+    )
 
     assert isinstance(policy, RemediationPolicy)
     # Check success based on mock logic

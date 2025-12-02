@@ -104,7 +104,7 @@ disable_error_code = ["misc", "no-any-unimported"]
 ignore_missing_imports = true
 follow_imports = "silent"
 exclude = "data"
-files = ["src/kitchenwatch", "tests"]
+files = ["src/kitchenwatch"]
 mypy_path = "src"
 
 # Explicitly reinforce strictness
@@ -124,7 +124,7 @@ no_implicit_optional = true
 
 [[tool.mypy.overrides]]
 module = "tests.*"
-ignore_errors = true
+disallow_untyped_defs = false
 
 [[tool.mypy.overrides]]
 module = ["torchvision", "torchvision.*", "torch", "torch.*"]

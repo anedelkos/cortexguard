@@ -52,7 +52,7 @@ class MistralLLMPolicyEngine(BasePolicyEngine):
                 bnb_4bit_compute_dtype=torch.bfloat16,  # Recommended compute dtype
             )
 
-            self.tokenizer = AutoTokenizer.from_pretrained(
+            self.tokenizer = AutoTokenizer.from_pretrained(  # type: ignore [no-untyped-call]
                 MODEL_ID, revision="main"
             )  # nosec B615 # type: ignore [no-untyped-call]
             self.model = AutoModelForCausalLM.from_pretrained(  # nosec B615 # type: ignore [no-untyped-call]
@@ -338,7 +338,11 @@ class MistralLLMPolicyEngine(BasePolicyEngine):
         return prompt
 
     async def generate_policy(
-        self, event: AnomalyEvent, context: StateEstimate, action_catalog_json: str
+        self,
+        event: AnomalyEvent,
+        context: StateEstimate,
+        action_catalog_json: str,
+        active_plan_context: str,
     ) -> RemediationPolicy:
         """
         Generates the policy by calling the LLM or using the mock.
