@@ -14,7 +14,11 @@ class BasePolicyEngine(Protocol):
     """
 
     async def generate_policy(
-        self, event: AnomalyEvent, context: StateEstimate, tool_catalog_json: str
+        self,
+        event: AnomalyEvent,
+        context: StateEstimate,
+        action_catalog_json: str,
+        active_plan_context: str,
     ) -> RemediationPolicy:
         """
         Takes a system anomaly event and context and generates a deterministic, prioritized

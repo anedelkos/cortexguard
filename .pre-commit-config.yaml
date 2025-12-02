@@ -23,7 +23,7 @@ repos:
         args: [--fix]   # Automatically fix simple issues when possible
 
       # Optional: run Ruff's built-in code formatter
-      - id: ruff-format
+#      - id: ruff-format
 
   # --------------------------------------------
   # Black — Python code formatter (PEP8 compliant)

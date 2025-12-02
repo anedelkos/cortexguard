@@ -3,27 +3,25 @@ import logging
 from collections import deque
 from collections.abc import Callable
 from datetime import datetime
-from typing import Any, ClassVar, cast
+from typing import Any, ClassVar
+from uuid import uuid4
 
 from kitchenwatch.core.interfaces.base_policy_engine import BasePolicyEngine
 from kitchenwatch.edge.models.agent_tool_call import AgentToolCall
 from kitchenwatch.edge.models.anomaly_event import AnomalyEvent, AnomalySeverity
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.models.capability_registry import CapabilityRegistry
-from kitchenwatch.edge.models.plan import PlanStep, StepStatus
+from kitchenwatch.edge.models.plan import Plan, PlanStep, StepStatus
 from kitchenwatch.edge.models.reasoning_trace_entry import ReasoningTraceEntry
 from kitchenwatch.edge.models.remediation_policy import RemediationPolicy
 from kitchenwatch.edge.models.state_estimate import StateEstimate
 
 logger = logging.getLogger(__name__)
 
-
-# Type alias for rules-based policy generation functions.
-# These handlers return simple tuples which are then assembled into a RemediationPolicy.
-PolicyFunc = Callable[
-    ["PolicyAgent", AnomalyEvent, StateEstimate],
-    tuple[str, list[PlanStep], str, bool],  # (reasoning, steps, risk_assessment, escalation)
-]
+# --- REFACTORED TYPE ALIAS ---
+# Type alias corrected to reflect the arguments passed to the bound method,
+# excluding the implicit 'self' (the PolicyAgent instance).
+PolicyFunc = Callable[[AnomalyEvent, StateEstimate], RemediationPolicy]
 
 
 class PolicyAgent:
@@ -64,8 +62,9 @@ class PolicyAgent:
         self._escalations_triggered = 0
 
         # Policy Dispatch Table: Maps ANOMALY KEY to a specific handler function.
+        # Handlers are now guaranteed to return RemediationPolicy
         self._policy_dispatcher: dict[str, PolicyFunc] = {
-            "overheat_warning": cast(PolicyFunc, self._policy_for_overheat),
+            "overheat_warning": self._policy_for_overheat,
         }
 
         logger.info(f"Policy Agent initialized. LLM Engine: {self._policy_engine.model_name()}")
@@ -83,44 +82,71 @@ class PolicyAgent:
         )
         await self._blackboard.add_trace_entry(entry)
 
-    async def _fetch_context(self) -> StateEstimate | None:
-        """Fetch latest StateEstimate for decision context."""
-        return await self._blackboard.get_latest_state_estimate()
+    async def _fetch_context(self) -> tuple[StateEstimate | None, Plan | None]:
+        """Fetch latest StateEstimate and Active Plan (Working Memory)."""
+        state_estimate = await self._blackboard.get_latest_state_estimate()
+        active_plan = await self._blackboard.get_current_plan()
+        return state_estimate, active_plan
 
     def _validate_action(self, action: AgentToolCall) -> bool:
         """
         Validate that the action's capability (function_name) exists in the
-        CapabilityRegistry by attempting to retrieve its function schema.
+        CapabilityRegistry.
         """
         try:
             self._capability_registry.get_function_schema(action.action_name)
             return True
         except KeyError:
-            logger.error(
-                f"Action validation failed: Capability '{action.action_name}' "
-                f"is not registered in the system's CapabilityRegistry."
-            )
             return False
 
-    def _get_llm_tool_catalog(self) -> str:
+    def _supervise_policy_actions(self, policy: RemediationPolicy) -> bool:
+        """
+        [FORMALIZED SUPERVISOR ROLE]
+        Iterates over all steps in the generated policy and validates their actions.
+        Mutates the policy if invalid actions are found.
+
+        Returns: True if all actions are valid, False otherwise.
+        """
+        validation_successful = True
+
+        for step in policy.corrective_steps:
+            if step.action and not self._validate_action(step.action):
+                tool_id = step.action.arguments.get("tool_id", "N/A")
+                capability = step.action.action_name
+                logger.error(
+                    f"Supervisor Alert: Invalid action '{tool_id}.{capability}' detected in policy {policy.policy_id}"
+                )
+
+                # If validation fails, force escalation and update policy fields
+                policy.escalation_required = True
+                policy.risk_assessment = "CRITICAL - Invalid Action Generated (Validation Failure)"
+                policy.reasoning_trace += (
+                    f" [VALIDATION FAILURE: Capability '{capability}' is unregistered/forbidden.]"
+                    " WARNING: Generated plan contained invalid actions"
+                )
+                validation_successful = False
+
+        return validation_successful
+
+    def _get_llm_action_catalog(self) -> str:
         """
         Fetches the complete list of physical tools and their capability schemas
         from the CapabilityRegistry, formatted as a JSON string for the LLM prompt.
         """
         try:
-            # Uses the correct method 'get_llm_tool_catalog'
             return self._capability_registry.get_llm_tool_catalog()
         except Exception as e:
             logger.error(f"Failed to fetch tool catalog from CapabilityRegistry: {e}")
-            # Return an empty list JSON structure as a safe fallback, ensuring type is 'str'
             return "[]"
+
+    # --- RULES-BASED POLICIES (Now return RemediationPolicy objects) ---
 
     def _generate_critical_safety_policy(
         self, anomaly: AnomalyEvent, context: StateEstimate
-    ) -> tuple[str, list[PlanStep], str, bool]:
+    ) -> RemediationPolicy:
         """
         Generate policy for HIGH severity anomalies (emergency shutdown).
-        These policies are rules-based, non-negotiable, and always preempt.
+        Always returns RemediationPolicy.
         """
         reasoning = (
             f"Critical safety failure detected: {anomaly.key}. "
@@ -148,20 +174,24 @@ class PolicyAgent:
             ),
         ]
 
-        risk_assessment = "LOW - Emergency Halt Only"
-        escalation_required = True
-
-        return reasoning, policy_steps, risk_assessment, escalation_required
+        return RemediationPolicy(
+            policy_id=str(uuid4()),
+            trigger_event=anomaly,
+            reasoning_trace=reasoning,
+            risk_assessment="LOW - Emergency Halt Only",
+            corrective_steps=policy_steps,
+            escalation_required=True,
+            created_at=datetime.now(),
+        )
 
     def _policy_for_overheat(
         self, anomaly: AnomalyEvent, state_estimate: StateEstimate
-    ) -> tuple[str, list[PlanStep], str, bool]:
+    ) -> RemediationPolicy:
         """Specific handler for the 'overheat_warning' anomaly (Rules-Based)."""
+        temp = anomaly.metadata.get("temp", "N/A")
         reasoning = (
-            f"Medium severity overheat detected "
-            f"(Temp: {anomaly.metadata.get('temp', 'N/A')} C). "
-            f"Since the intent was '{state_estimate.source_intent}', we will pause and "
-            f"initiate a cooldown cycle."
+            f"Medium severity overheat detected (Temp: {temp} C). "
+            f"We will pause and initiate a cooldown cycle."
         )
 
         policy_steps = [
@@ -187,46 +217,64 @@ class PolicyAgent:
             ),
         ]
 
-        risk_assessment = "MEDIUM - Requires Active Management"
-        escalation = False
+        return RemediationPolicy(
+            policy_id=str(uuid4()),
+            trigger_event=anomaly,
+            reasoning_trace=reasoning,
+            risk_assessment="MEDIUM - Requires Active Management",
+            corrective_steps=policy_steps,
+            escalation_required=False,
+            created_at=datetime.now(),
+        )
 
-        return reasoning, policy_steps, risk_assessment, escalation
+    # --- LLM DELEGATION ---
 
     async def _generate_unknown_medium_policy(
-        self, anomaly: AnomalyEvent, context: StateEstimate
+        self, anomaly: AnomalyEvent, context: StateEstimate, active_plan: Plan | None
     ) -> RemediationPolicy:
         """
-        Handler for unknown MEDIUM severity anomalies, delegating plan generation
-        entirely to the injected policy engine (LLM).
+        Delegates to LLM for unknown medium severity anomalies, providing
+        the current active plan as 'Working Memory' context.
         """
         logger.info(
             f"Delegating unknown MEDIUM policy generation for anomaly {anomaly.key} "
             f"to LLM Engine: {self._policy_engine.model_name()}"
         )
 
-        # 1. Fetch the authoritative tool catalog from the CapabilityRegistry
-        tool_catalog_json = self._get_llm_tool_catalog()
+        # 1. Fetch the authoritative tool catalog
+        action_catalog_json = self._get_llm_action_catalog()
 
-        # 2. Pass the catalog along with the anomaly and state to the Policy Engine
+        # 2. Pass Working Memory (Active Plan) to the Policy Engine for context
+        # Defensive check for 'current_step_id' which was reported as a missing attribute.
+        current_step_id = getattr(active_plan, "current_step_id", "Unknown")
+
+        active_plan_context = (
+            f"Active Plan ID: {active_plan.plan_id}, Current Step: {current_step_id}"
+            if active_plan
+            else "No active plan currently running."
+        )
+
+        # 3. Generate the policy
         policy = await self._policy_engine.generate_policy(
             event=anomaly,
             context=context,
-            tool_catalog_json=tool_catalog_json,
+            # Arguments passed to LLM engine must match the required signature (LSP)
+            action_catalog_json=action_catalog_json,
+            active_plan_context=active_plan_context,
         )
 
         return policy
 
+    # --- MAIN DISPATCHER ---
+
     async def _dispatch_policy_generation(
-        self, anomaly: AnomalyEvent, context: StateEstimate
-    ) -> RemediationPolicy | tuple[str, list[PlanStep], str, bool]:
+        self, anomaly: AnomalyEvent, context: StateEstimate, active_plan: Plan | None
+    ) -> RemediationPolicy | None:
         """
         Dispatches the anomaly to the correct policy generation function.
-
-        Returns:
-            Either a complete RemediationPolicy (if generated by LLM) or
-            a tuple for a rules-based policy.
+        Guarantees a return of RemediationPolicy or None.
         """
-        # 1. Highest Priority: Critical Safety Shutdown (Rules-Based, Non-Negotiable)
+        # 1. Highest Priority: Critical Safety Shutdown (Rules-Based)
         if anomaly.severity == AnomalySeverity.HIGH:
             return self._generate_critical_safety_policy(anomaly, context)
 
@@ -234,19 +282,21 @@ class PolicyAgent:
         handler = self._policy_dispatcher.get(anomaly.key)
 
         if handler:
-            return handler(self, anomaly, context)
+            # Type checker now accepts this call because PolicyFunc no longer
+            # includes the implicit 'self'
+            return handler(anomaly, context)
 
         # 3. Default Medium: Unknown Anomaly (LLM-Assisted Plan)
         if anomaly.severity == AnomalySeverity.MEDIUM:
-            # For LLM-assisted plans, we return the fully constructed RemediationPolicy object
-            return await self._generate_unknown_medium_policy(anomaly, context)
+            # We pass the active_plan here to close the Working Memory gap
+            return await self._generate_unknown_medium_policy(anomaly, context, active_plan)
 
         # 4. Low Priority: Ignored
-        return "", [], "LOW - Ignored", False  # Returns the tuple format for ignored policies
+        return None
 
     async def _handle_anomaly_event(self, anomaly: AnomalyEvent) -> None:
         """
-        Generate remediation policy for an anomaly event using the dispatcher.
+        Orchestrate policy generation, validation, and publishing.
         """
         if anomaly.id in self._processed_anomalies:
             return
@@ -254,7 +304,8 @@ class PolicyAgent:
         self._processed_anomalies.append(anomaly.id)
         self._anomalies_processed += 1
 
-        context = await self._fetch_context()
+        # 1. Fetch Context (State Estimate + Working Memory / Active Plan)
+        context, active_plan = await self._fetch_context()
 
         if not context:
             logger.warning(
@@ -262,92 +313,47 @@ class PolicyAgent:
             )
             return
 
+        # Defensive access for active_plan_id logging
+        active_plan_id = (
+            active_plan.plan_id if active_plan and hasattr(active_plan, "plan_id") else "None"
+        )
         logger.info(
             f"Policy Agent triggered by anomaly '{anomaly.key}' "
-            f"(Severity: {anomaly.severity.name}). Current Intent: {context.source_intent}"
+            f"(Severity: {anomaly.severity.name}). Active Plan: {active_plan_id}"
         )
 
-        policy_result = await self._dispatch_policy_generation(anomaly, context)
+        # 2. Generate Policy (Standardized Output: RemediationPolicy | None)
+        policy = await self._dispatch_policy_generation(anomaly, context, active_plan)
 
-        policy_source = "Rules"
-
-        # Handle rules-based policy generation (returns a tuple)
-        if isinstance(policy_result, tuple):
-            reasoning, policy_steps, risk_assessment, escalation = policy_result
-
-            if not policy_steps:
-                return  # Low priority/Ignored
-
-            # Validate actions before creating policy (Safety Gate)
-            for step in policy_steps:
-                # Actions are now AgentToolCall objects
-                if step.action and not self._validate_action(step.action):
-                    tool_id = step.action.arguments.get("tool_id", "N/A")
-                    capability = step.action.action_name
-                    logger.error(
-                        f"Action validation failed in policy generation for: {tool_id}.{capability}"
-                    )
-                    escalation = True
-                    validation_successful = False
-
-            # Create policy from rules-based components
-            policy = RemediationPolicy(
-                trigger_event=anomaly,
-                reasoning_trace=reasoning,
-                risk_assessment=risk_assessment,
-                corrective_steps=policy_steps,
-                escalation_required=escalation,
-            )
-
-        # Handle LLM-based policy generation (returns a RemediationPolicy object)
-        elif isinstance(policy_result, RemediationPolicy):
-            policy = policy_result
-            policy_steps = policy.corrective_steps
-            escalation = policy.escalation_required
-            policy_source = "LLM"  # Set source for trace logging
-
-            # Re-validate LLM-generated actions as a final safety measure
-            validation_successful = True
-            for step in policy_steps:
-                # LLM-generated steps should also use AgentToolCall
-                if isinstance(step.action, AgentToolCall) and not self._validate_action(
-                    step.action
-                ):
-                    tool_id = step.action.arguments.get("tool_id", "N/A")
-                    capability = step.action.action_name
-                    logger.error(f"LLM-generated Action validation failed: {tool_id}.{capability}")
-                    # If LLM produces invalid action, we must escalate
-                    policy.escalation_required = True
-                    validation_successful = False
-
-            # If validation failed, log and update reasoning/risk on the object
-            if not validation_successful:
-                policy.reasoning_trace += (
-                    " WARNING: Generated plan contained invalid actions; required full review."
-                )
-                policy.risk_assessment = "CRITICAL - Invalid LLM Action"
-
-        else:
-            logger.error(f"Policy generation returned unexpected type: {type(policy_result)}")
+        if not policy:
+            logger.info(f"No policy generated for anomaly {anomaly.key} (likely LOW severity).")
             return
 
-        # Push policy to orchestrator via blackboard
+        policy_source = "LLM" if policy.policy_id.startswith("llm-") else "Rules"
+
+        # 3. Supervisor Step: Validate Actions (Safety Gate)
+        # This checks the policy regardless of source (Rules or LLM)
+        self._supervise_policy_actions(policy)
+
+        # 4. Publish to Blackboard
         await self._blackboard.set_remediation_policy(policy)
         self._policies_generated += 1
+        escalation = policy.escalation_required  # Read final escalation state
 
         if escalation:
             self._escalations_triggered += 1
 
+        # 5. Log to Trace
         await self._post_trace_entry(
             source="PolicyAgent",
             event_type="POLICY_GENERATED",
-            reasoning_text=f"Remediation Policy {policy.policy_id} generated by {policy_source}. Escalation: {policy.escalation_required}. Steps: {len(policy.corrective_steps)}.",
+            reasoning_text=f"Remediation Policy {policy.policy_id} generated by {policy_source}. Escalation: {escalation}. Steps: {len(policy.corrective_steps)}.",
             metadata={
                 "policy_id": policy.policy_id,
                 "anomaly_id": anomaly.id,
                 "source": policy_source,
                 "risk_assessment": policy.risk_assessment,
-                "escalation_required": policy.escalation_required,
+                "escalation_required": escalation,
                 "full_reasoning_trace": policy.reasoning_trace,
                 "corrective_actions": [
                     {

@@ -244,6 +244,7 @@ def test_real_llm_schema_validation(
             anomaly_event_fixture,
             state_estimate_fixture,
             action_catalog_json=action_catalog_json_fixture,
+            active_plan_context="",
         )
     )
 
@@ -315,6 +316,7 @@ def test_real_llm_cooling_policy(
             anomaly_event_fixture,
             state_estimate_fixture,
             action_catalog_json=action_catalog_with_cooling_action_fixture,
+            active_plan_context="",
         )
     )
 
@@ -370,6 +372,7 @@ def test_real_llm_emergency_stop_fallback(
             anomaly_event_fixture,
             state_estimate_fixture,
             action_catalog_json=action_catalog_json_fixture,
+            active_plan_context="",
         )
     )
 
@@ -420,6 +423,7 @@ def test_real_llm_actuator_target_grounding(
             anomaly_event_fixture,
             state_estimate_fixture,
             action_catalog_json=action_catalog_with_cooling_action_fixture,
+            active_plan_context="",
         )
     )
 
