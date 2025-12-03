@@ -16,6 +16,18 @@ class FunctionSchema(BaseModel):
         ...,
         description="The JSON Schema definition for the function's arguments (properties, required).",
     )
+    risk_level: str = Field(
+        "LOW",
+        description="The operational risk associated with using this tool (e.g., LOW, MEDIUM, HIGH, E-STOP). This helps the LLM choose safer paths.",
+    )
+    pre_conditions: list[str] = Field(
+        default_factory=list,
+        description="List of simple environmental state conditions that must be true before calling this tool (e.g., 'Power is ON', 'Arm is HOME').",
+    )
+    post_effects: list[str] = Field(
+        default_factory=list,
+        description="List of state changes expected after successful execution (e.g., 'Item is now sliced', 'Device is powered off').",
+    )
 
 
 class CapabilityRegistry(BaseModel):
@@ -51,6 +63,9 @@ class CapabilityRegistry(BaseModel):
                     "name": name,
                     "description": schema.description,
                     "parameters": schema.parameters,
+                    "risk_level": schema.risk_level,
+                    "pre_conditions": schema.pre_conditions,
+                    "post_effects": schema.post_effects,
                 }
             )
         return json.dumps(schemas, indent=2)

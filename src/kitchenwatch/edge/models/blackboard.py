@@ -5,7 +5,7 @@ from typing import Any
 from kitchenwatch.edge.models.anomaly_event import SEVERITY_RANKING, AnomalyEvent, AnomalySeverity
 from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
 from kitchenwatch.edge.models.plan import Plan, PlanStatus, PlanStep
-from kitchenwatch.edge.models.reasoning_trace_entry import ReasoningTraceEntry
+from kitchenwatch.edge.models.reasoning_trace_entry import ReasoningTraceEntry, TraceSeverity
 from kitchenwatch.edge.models.remediation_policy import RemediationPolicy
 from kitchenwatch.edge.models.state_estimate import StateEstimate
 
@@ -149,17 +149,31 @@ class Blackboard:
         Adds a new AnomalyEvent to the Reasoning Trace and registers it
         as an active anomaly.
         """
+        trace_sev = (
+            TraceSeverity.CRITICAL
+            if event.severity == AnomalySeverity.HIGH
+            else (
+                TraceSeverity.HIGH
+                if event.severity == AnomalySeverity.MEDIUM
+                else TraceSeverity.WARN
+            )
+        )
+
         trace_entry = ReasoningTraceEntry(
             timestamp=event.timestamp,
             source=event.key,
             event_type=f"ANOMALY_{event.severity.name}",
-            reasoning_text=f"Anomaly {event.key} detected. Severity: {event.severity.name}, Score: {event.score:.2f}. Detectors: {', '.join(event.contributing_detectors)}.",
+            reasoning_text=(
+                f"Anomaly {event.key} detected. Severity: {event.severity.name}, "
+                f"Score: {event.score:.2f}. Detectors: {', '.join(event.contributing_detectors)}."
+            ),
             metadata={
                 "anomaly_id": event.id,
                 "severity_score": event.score,
                 "contributing_detectors": event.contributing_detectors,
                 "original_metadata": event.metadata,
             },
+            severity=trace_sev,
         )
         await self.add_trace_entry(trace_entry)
 

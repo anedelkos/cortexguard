@@ -1,35 +1,52 @@
-from datetime import datetime
+import datetime
+from enum import StrEnum
 from typing import Any
+from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
 
+class TraceSeverity(StrEnum):
+    INFO = "INFO"
+    WARN = "WARN"
+    HIGH = "HIGH"
+    CRITICAL = "CRITICAL"
+
+
 class ReasoningTraceEntry(BaseModel):
-    """
-    An immutable, timestamped record of an event or state change on the system's Blackboard.
-    Used by Executors and Detectors to inform the Planner (LLM) of system status.
-    """
-
-    timestamp: datetime = Field(
-        default_factory=datetime.now, description="The exact time the event was recorded."
+    id: str = Field(default_factory=lambda: f"trace-{uuid4().hex[:8]}")
+    timestamp: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+    source: str = Field(..., description="Module that generated the entry")
+    event_type: str = Field(..., description="High-level event identifier")
+    reasoning_text: str = Field(..., description="Human-readable summary of the event")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Compact structured details")
+    refs: dict[str, str] = Field(
+        default_factory=dict, description="Cross references like scene_id, step_id"
     )
-
-    source: str = Field(
-        ...,
-        description="The module that generated the entry (e.g., 'AnomalyDetector', 'StepExecutor', 'VisionSystem').",
+    duration_ms: int | None = Field(
+        default=None, description="Elapsed time for the action in milliseconds"
     )
+    severity: TraceSeverity = Field(TraceSeverity.INFO, description="Trace priority/severity")
 
-    event_type: str = Field(
-        ...,
-        description="A high-level type identifier for the event (e.g., 'ANOMALY_TRIGGERED', 'STEP_COMPLETED', 'NEW_GOAL').",
-    )
-
-    reasoning_text: str = Field(
-        ...,
-        description="A brief, human-readable summary of the event (e.g., 'Grill_1 temperature sensor out of range').",
-    )
-
-    metadata: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Structured data relevant to the event (e.g., device_id, severity level, step_id).",
-    )
+    model_config = {
+        "extra": "forbid",
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "id": "trace-1a2b3c4d",
+                    "timestamp": "2025-12-03T15:12:34.567Z",
+                    "source": "OnlineLearnerStateEstimator",
+                    "event_type": "STATE_ESTIMATE_COMPUTED",
+                    "severity": "INFO",
+                    "reasoning_text": "State estimate computed: transient_disturbance",
+                    "metadata": {
+                        "label": "transient_disturbance",
+                        "confidence": 0.42,
+                        "max_z": 4.2,
+                    },
+                    "refs": {"scene_id": "sg-9f8e7d6c", "state_estimate_id": "se-1234"},
+                    "duration_ms": 12,
+                }
+            ]
+        },
+    }
