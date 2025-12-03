@@ -1,5 +1,5 @@
 SLICE_ITEM:
-  description: "Slices a specified food item using an available cutting tool."
+  description: "Slices a specified food item using an available cutting tool. Output is ready for cooking."
   parameters:
     type: object
     properties:
@@ -8,9 +8,16 @@ SLICE_ITEM:
         type: string
         enum: ["Knife_Station_A", "Laser_Cutter_B"]
     required: [item_name, tool_id]
+  risk_level: LOW
+  pre_conditions:
+    - "Target item is stationary"
+    - "Cutting tool is powered on"
+  post_effects:
+    - "Item is now sliced"
+    - "Item is in the 'sliced' state"
 
 GRILL_ITEM:
-  description: "Cooks a food item on a specific grill for a defined duration."
+  description: "Cooks a food item on a specific grill for a defined duration to reach a 'cooked' state."
   parameters:
     type: object
     properties:
@@ -21,9 +28,16 @@ GRILL_ITEM:
         type: string
         enum: ["Grill_Station_1", "Grill_Station_2", "Backup_Grill"]
     required: [item_name, duration_s, tool_id]
+  risk_level: MEDIUM # Cooking involves heat and time, slight risk of burning/error
+  pre_conditions:
+    - "Grill is preheated"
+    - "Target item is placed on the grill"
+  post_effects:
+    - "Item is now cooked"
+    - "Item temperature has reached target"
 
 PLACE_ITEM:
-  description: "Picks up an item and places it at a target location."
+  description: "Picks up an item and places it at a target location, such as a preparation station or assembly point."
   parameters:
     type: object
     properties:
@@ -33,9 +47,16 @@ PLACE_ITEM:
         type: string
         enum: ["RoboticGripper_A", "RoboticGripper_B", "RoboticSpatula_B"]
     required: [item_name, target_location, tool_id]
+  risk_level: LOW
+  pre_conditions:
+    - "Item is reachable by the gripper"
+    - "Target location is clear"
+  post_effects:
+    - "Item is moved to target_location"
+    - "Gripper is returned to home position"
 
 ALIGN_AND_STACK:
-  description: "Stacks two components for final assembly."
+  description: "Stacks two components for final assembly, primarily used for complex plating."
   parameters:
     type: object
     properties:
@@ -45,9 +66,16 @@ ALIGN_AND_STACK:
         type: string
         enum: ["RoboticArm_Mover"]
     required: [bottom_layer, top_component, tool_id]
+  risk_level: LOW
+  pre_conditions:
+    - "Both components are ready and accessible"
+    - "Arm has clear path"
+  post_effects:
+    - "Components are stacked"
+    - "Final product state is 'assembled'"
 
 DELIVER_ORDER:
-  description: "Transfers a completed food item to the final service area."
+  description: "Transfers a completed food item to the final service area. This is the final step in a recipe."
   parameters:
     type: object
     properties:
@@ -57,29 +85,51 @@ DELIVER_ORDER:
         type: string
         enum: ["ServingTray_Arm"]
     required: [order_id, pickup_area, tool_id]
+  risk_level: MEDIUM # Item is moving off the line; failure requires immediate human intervention.
+  pre_conditions:
+    - "Order is verified as complete"
+    - "Serving tray is available"
+  post_effects:
+    - "Order is delivered"
+    - "Order status is 'complete'"
+
 
 # --- Anomaly Remediation Capabilities ---
 
 EMERGENCY_STOP:
-  description: "Immediately cuts power to a critical device when an extreme hazard is detected."
+  description: "Immediately cuts power to a critical device when an extreme hazard (e.g., fire, collision) is detected. Use only as a last resort."
   parameters:
     type: object
     properties:
       device_id:
         type: string
     required: [device_id]
+  risk_level: E-STOP # Highest risk level, implies high consequence action
+  pre_conditions:
+    - "Anomaly severity is CRITICAL"
+    - "No other low-risk remediation available"
+  post_effects:
+    - "Specified device is OFF"
+    - "All operations are halted"
 
 RESET_DEVICE:
-  description: "Performs a safe power cycle on a non-critical device to clear transient errors."
+  description: "Performs a safe power cycle on a non-critical device to clear transient errors (e.g., sensor malfunction). Cannot be used on active heating devices."
   parameters:
     type: object
     properties:
       device_id:
         type: string
     required: [device_id]
+  risk_level: MEDIUM # Device will be briefly unavailable, potentially interrupting a recipe.
+  pre_conditions:
+    - "Device is NOT an active heater/grill"
+    - "Anomaly severity is LOW or TRANSIENT"
+  post_effects:
+    - "Device is rebooted and in NOMINAL state"
+    - "Transient error is cleared"
 
 SEND_ALERT:
-  description: "Sends a notification to a human supervisor."
+  description: "Sends a notification to a human supervisor, providing context about a system anomaly that the agent cannot resolve."
   parameters:
     type: object
     properties:
@@ -89,3 +139,10 @@ SEND_ALERT:
       message:
         type: string
     required: [recipient, message]
+  risk_level: LOW
+  pre_conditions:
+    - "Anomaly detected"
+    - "Self-remediation failed or is unavailable"
+  post_effects:
+    - "Human supervisor is notified"
+    - "Anomaly is logged"

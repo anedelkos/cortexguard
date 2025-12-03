@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from kitchenwatch.core.interfaces.base_controller import BaseController
@@ -10,7 +10,8 @@ from kitchenwatch.edge.models.anomaly_event import AnomalySeverity
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.models.capability_registry import CapabilityRegistry
 from kitchenwatch.edge.models.plan import PlanStep, StepStatus
-from kitchenwatch.edge.models.reasoning_trace_entry import ReasoningTraceEntry
+from kitchenwatch.edge.models.reasoning_trace_entry import TraceSeverity
+from kitchenwatch.edge.utils.tracing import BaseTraceSink, TraceSink
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +33,14 @@ class StepExecutor(BaseExecutor):
         step_classifier: BaseStepClassifier,
         capability_registry: CapabilityRegistry,
         controller: BaseController,
+        trace_sink: BaseTraceSink | None = None,
         default_max_retries: int = DEFAULT_MAX_PLAN_FAILURES,
         default_retry_delay: float = DEFAULT_RETRY_DELAY,
     ) -> None:
         self._blackboard = blackboard
+        self._trace_sink: BaseTraceSink = (
+            trace_sink if trace_sink is not None else TraceSink(blackboard=self._blackboard)
+        )
         self._step_classifier = step_classifier
         self._capability_registry = capability_registry
         self._controller = controller
@@ -70,42 +75,82 @@ class StepExecutor(BaseExecutor):
         self._paused = False
 
     async def _execute_direct_call(self, function_name: str, arguments: dict[str, Any]) -> bool:
-        # 1. Validate the command against the registry schema (Enforces enum/required fields)
+        # 1. Validate the command against the registry schema (offload if validator is blocking)
         try:
-            self._capability_registry.validate_call(function_name, arguments)
+            await asyncio.to_thread(
+                self._capability_registry.validate_call, function_name, arguments
+            )
         except Exception as e:
-            await self._post_trace_entry(
-                source="StepExecutor",
+            await self._trace_sink.post_trace_entry(
+                source=self,
                 event_type="VALIDATION_FAILED",
                 reasoning_text=f"Command for {function_name} invalid: {e}",
-                metadata={"function": function_name},
+                metadata={"function": function_name, "error": type(e).__name__},
+                severity=TraceSeverity.HIGH,
             )
             return False
 
-        # 2. Execute the function
+        # 2. Prepare attempt correlation and post attempt trace
+        from uuid import uuid4
+
+        attempt_id = f"attempt-{uuid4().hex[:8]}"
+        await self._trace_sink.post_trace_entry(
+            source=self,
+            event_type="ACTION_ATTEMPT",
+            reasoning_text=f"Executing action '{function_name}'",
+            metadata={"function": function_name, "arguments": arguments},
+            refs={"attempt_id": attempt_id},
+        )
+
+        # 3. Execute and handle success, cancellation, and failures with traces
+        start = datetime.now(UTC)
         try:
             await self._controller.execute(function_name, arguments)
-            return True
-        except Exception as e:
-            await self._post_trace_entry(
-                source="StepExecutor",
-                event_type="EXECUTION_FAILED",
-                reasoning_text=f"Controller failed on {function_name}: {e}",
-                metadata={"function": function_name},
-            )
-            return False
 
-    async def _post_trace_entry(
-        self, source: str, event_type: str, reasoning_text: str, metadata: dict[str, Any]
-    ) -> None:
-        entry = ReasoningTraceEntry(
-            timestamp=datetime.now(),
-            source=source,
-            event_type=event_type,
-            reasoning_text=reasoning_text,
-            metadata=metadata,
-        )
-        await self._blackboard.add_trace_entry(entry)
+            duration_ms = int((datetime.now(UTC) - start).total_seconds() * 1000)
+            await self._trace_sink.post_trace_entry(
+                source=self,
+                event_type="ACTION_RESULT",
+                reasoning_text=f"Action '{function_name}' succeeded",
+                metadata={"function": function_name},
+                refs={"attempt_id": attempt_id},
+                duration_ms=duration_ms,
+            )
+            return True
+
+        except asyncio.CancelledError:
+            # Schedule a best-effort cancellation trace and re-raise to preserve cancellation semantics
+            duration_ms = int((datetime.now(UTC) - start).total_seconds() * 1000)
+            try:
+                asyncio.create_task(
+                    self._trace_sink.post_trace_entry(
+                        source=self,
+                        event_type="ACTION_CANCELLED",
+                        reasoning_text=f"Action '{function_name}' cancelled",
+                        metadata={"function": function_name},
+                        refs={"attempt_id": attempt_id},
+                        duration_ms=duration_ms,
+                    )
+                )
+            except Exception:
+                logger.debug("Failed to schedule cancellation trace", exc_info=True)
+            raise
+
+        except Exception as e:
+            duration_ms = int((datetime.now(UTC) - start).total_seconds() * 1000)
+            try:
+                await self._trace_sink.post_trace_entry(
+                    source=self,
+                    event_type="EXECUTION_FAILED",
+                    reasoning_text=f"Controller failed on {function_name}: {e}",
+                    metadata={"function": function_name, "error": type(e).__name__},
+                    refs={"attempt_id": attempt_id},
+                    duration_ms=duration_ms,
+                    severity=TraceSeverity.HIGH,
+                )
+            except Exception:
+                logger.debug("Failed to post execution failure trace", exc_info=True)
+            return False
 
     async def execute_step(self, step: PlanStep) -> None:
         if step.status != StepStatus.PENDING:
@@ -140,9 +185,9 @@ class StepExecutor(BaseExecutor):
 
             if completion_status == StepStatus.COMPLETED:
                 step.status = StepStatus.COMPLETED
-                step.completed_at = datetime.now()
-                await self._post_trace_entry(
-                    source="StepExecutor",
+                step.completed_at = datetime.now(UTC)
+                await self._trace_sink.post_trace_entry(
+                    source=self,
                     event_type="STEP_COMPLETED",
                     reasoning_text=f"Step {step.id} successfully completed.",
                     metadata={"step_id": step.id},
@@ -155,9 +200,9 @@ class StepExecutor(BaseExecutor):
                 continue
             else:
                 step.status = StepStatus.FAILED
-                step.completed_at = datetime.now()
-                await self._post_trace_entry(
-                    source="StepExecutor",
+                step.completed_at = datetime.now(UTC)
+                await self._trace_sink.post_trace_entry(
+                    source=self,
                     event_type="STEP_FAILED",
                     reasoning_text=f"Step {step.id} permanently failed.",
                     metadata={"step_id": step.id},

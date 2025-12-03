@@ -71,6 +71,23 @@ class OnlineLearnerStateEstimator:
         self._update_count = 0
         self._anomaly_count = 0
 
+    def _z_to_symbol(self, z: float) -> str:
+        """
+        Classifies a Z-score into a human-readable symbolic state (Layer 2).
+
+        This aligns with the proposed Google-style architecture, providing the LLM
+        with categorical context.
+        """
+        if z < -3.0:
+            return "critical_low"
+        if z < -1.5:
+            return "low"
+        if z < 1.5:
+            return "nominal"
+        if z < 3.0:
+            return "high"
+        return "critical_high"
+
     async def _fetch_current_intent(self) -> str:
         """Fetches the current intent from the Blackboard."""
         try:
@@ -166,11 +183,18 @@ class OnlineLearnerStateEstimator:
             z_scores=z_scores,
         )
 
+        # 6. Calculate Symbolic State
+        symbolic_system_state: dict[str, str] = {}
+        for key, z_score in z_scores.items():
+            # Only track features with enough history
+            if z_score != 0.0:
+                symbolic_system_state[f"{key}_state"] = self._z_to_symbol(z_score)
+
         # Track anomalies
         if label != "nominal":
             self._anomaly_count += 1
 
-        # 6. Calculate confidence (inverse of normalized Z-score)
+        # 7. Calculate confidence (inverse of normalized Z-score)
         # z=0 → confidence=1.0 (perfect match)
         # z=threshold → confidence=0.0 (anomaly boundary)
         confidence = self._calculate_confidence(max_z_score)
@@ -185,6 +209,7 @@ class OnlineLearnerStateEstimator:
             ttf=None,  # Time to failure (not implemented)
             flags=flags,
             source_intent=current_intent,
+            symbolic_system_state=symbolic_system_state,
         )
 
     def _classify_state(
@@ -263,6 +288,7 @@ class OnlineLearnerStateEstimator:
             ttf=None,
             flags={"max_z": 0.0, "empty_features": True},
             source_intent=intent,
+            symbolic_system_state={},
         )
 
     def get_metrics(self) -> dict[str, int | float]:

@@ -1,31 +1,32 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class StateEstimate(BaseModel):
     """
-    Semantic state estimate produced by the state estimator.
-
-    Attributes:
-        timestamp: When the estimate was produced.
-        label: High-level state (e.g., "heating", "grasping", "slipping").
-        confidence: 0..1 estimate of label correctness.
-        residuals: Currently observed deviations per sensor (placeholder if no expected yet).
-        uncertainty: Optional per-signal or overall uncertainty (can be None for now).
-        ttd: Time-to-done for current action (optional).
-        ttf: Time-to-failure for current action (optional).
-        flags: Dict for anomaly or condition flags (vision degraded, impact, etc.).
-        source_intent: The action or step that produced this state (from FusionSnapshot.intent).
+    Minimal state estimate structure based on core state estimation outputs.
     """
 
-    timestamp: datetime
-    label: str
-    confidence: float
-    residuals: dict[str, float] = {}
-    uncertainty: dict[str, float] | None = None
-    ttd: float | None = None
-    ttf: float | None = None
-    flags: dict[str, Any] = {}
-    source_intent: str | None = None
+    timestamp: datetime = Field(..., description="Timestamp of the estimate generation.")
+    label: str = Field(..., description="High-level state label (e.g., 'nominal', 'slipping').")
+    confidence: float = Field(..., description="Confidence score (0.0 to 1.0).")
+    residuals: dict[str, float] = Field(
+        default_factory=dict, description="Observed deviations per sensor."
+    )
+    uncertainty: dict[str, float] | None = Field(
+        default=None, description="Optional per-signal uncertainty."
+    )
+    ttd: float | None = Field(default=None, description="Time-to-done for current activity.")
+    ttf: float | None = Field(default=None, description="Time-to-failure for current activity.")
+    flags: dict[str, Any] = Field(default_factory=dict, description="Anomaly or condition flags.")
+
+    # Context and Diagnostics fields used in your previous nominal state function
+    source_intent: str | None = Field(
+        default=None, description="The simple intent or context of the action being executed."
+    )
+    symbolic_system_state: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Low-level diagnostic state (e.g., CPU, memory, motor load).",
+    )

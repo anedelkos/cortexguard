@@ -1,15 +1,14 @@
 import asyncio
 import logging
-from datetime import datetime
-from typing import Any
 from uuid import uuid4
 
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.models.goal import GoalContext
 from kitchenwatch.edge.models.plan import Plan, PlanStatus, PlanType, StepStatus
-from kitchenwatch.edge.models.reasoning_trace_entry import ReasoningTraceEntry
+from kitchenwatch.edge.models.reasoning_trace_entry import TraceSeverity
 from kitchenwatch.edge.models.remediation_policy import RemediationPolicy
 from kitchenwatch.edge.utils.async_priority_queue import AsyncPriorityQueue
+from kitchenwatch.edge.utils.tracing import BaseTraceSink, TraceSink
 
 logger = logging.getLogger(__name__)
 
@@ -28,26 +27,20 @@ class Orchestrator:
     - Advance, pause, or resume plans based on blackboard state
     """
 
-    def __init__(self, blackboard: Blackboard) -> None:
+    def __init__(
+        self,
+        blackboard: Blackboard,
+        trace_sink: BaseTraceSink | None = None,
+    ) -> None:
         self._blackboard = blackboard
+        self._trace_sink: BaseTraceSink = (
+            trace_sink if trace_sink is not None else TraceSink(blackboard=self._blackboard)
+        )
         # The priority queue uses the Plan's context.priority (lower number = higher priority)
         self._plan_queue = AsyncPriorityQueue[Plan]()
         self._current_plan: Plan | None = None
         self._loop_running: bool = False
         self._task: asyncio.Task[None] | None = None
-
-    async def _post_trace_entry(
-        self, event_type: str, reasoning_text: str, metadata: dict[str, Any]
-    ) -> None:
-        """Helper method to create and post a ReasoningTraceEntry."""
-        entry = ReasoningTraceEntry(
-            timestamp=datetime.now(),
-            source="Orchestrator",
-            event_type=event_type,
-            reasoning_text=reasoning_text,
-            metadata=metadata,
-        )
-        await self._blackboard.add_trace_entry(entry)
 
     # ---------------------
     # Plan Queue Methods
@@ -64,6 +57,13 @@ class Orchestrator:
         try:
             await self._plan_queue.put(plan.context.priority, plan)
             logger.debug(f"Plan added: {plan.plan_id} with priority {plan.context.priority}")
+
+            await self._trace_sink.post_trace_entry(
+                source=self,
+                event_type="PLAN_QUEUED",
+                reasoning_text=f"Plan queued {plan.plan_id}",
+                metadata={"plan_id": plan.plan_id, "priority": plan.context.priority},
+            )
         except Exception as e:
             logger.exception(f"Failed to add plan {getattr(plan, 'plan_id', '?')}: {e}")
 
@@ -116,8 +116,8 @@ class Orchestrator:
                 await self._blackboard.set_current_step(current_step)
                 await self._blackboard.set_step_index_for_plan(next_plan.plan_id, index)
 
-                # --- TRACE LOGGING: Plan Started/Resumed ---
-                await self._post_trace_entry(
+                await self._trace_sink.post_trace_entry(
+                    source=self,
                     event_type=event_type,
                     reasoning_text=f"{'Resuming' if event_type == 'PLAN_RESUMED' else 'Starting'} plan {next_plan.plan_id}. Type: {next_plan.plan_type.name}.",
                     metadata={
@@ -152,8 +152,8 @@ class Orchestrator:
                 f"Preempting current plan {self._current_plan.plan_id} "
                 f"for higher-priority plan {next_plan.plan_id}"
             )
-            # --- TRACE LOGGING: Plan Preempted ---
-            await self._post_trace_entry(
+            await self._trace_sink.post_trace_entry(
+                source=self,
                 event_type="PLAN_PREEMPTED",
                 reasoning_text=f"Plan {self._current_plan.plan_id} preempted by higher priority plan {next_plan.plan_id}.",
                 metadata={
@@ -162,7 +162,6 @@ class Orchestrator:
                     "new_priority": next_plan.context.priority,
                 },
             )
-            # ------------------------------------
             # Pause the current plan and requeue it as PREEMPTED
             await self._pause_current_plan(interrupted=True)
             return next_plan
@@ -181,8 +180,8 @@ class Orchestrator:
                 f"Processing Remediation Policy {policy.policy_id} for anomaly: {policy.trigger_event.key}"
             )
 
-            # --- TRACE LOGGING: Policy Received/Handled ---
-            await self._post_trace_entry(
+            await self._trace_sink.post_trace_entry(
+                source=self,
                 event_type="POLICY_RECEIVED",
                 reasoning_text=f"Remediation Policy {policy.policy_id} received from PolicyAgent for anomaly {policy.trigger_event.key}.",
                 metadata={
@@ -211,6 +210,13 @@ class Orchestrator:
             )
 
             await self.add_plan(remediation_plan)
+            await self._trace_sink.post_trace_entry(
+                source=self,
+                event_type="REMEDIATION_QUEUED",
+                reasoning_text=f"Remediation plan queued for anomaly {policy.trigger_event.key}",
+                metadata={"policy_id": policy.policy_id, "plan_id": remediation_plan.plan_id},
+                severity=TraceSeverity.WARN,
+            )
 
             logger.info(
                 f"Queued remediation plan {remediation_plan.plan_id} with priority {HIGH_PRIORITY}."
@@ -286,7 +292,8 @@ class Orchestrator:
             await self._blackboard.clear_step_index_for_plan(plan_id)
 
             # --- TRACE LOGGING: Plan Completed (No Steps) ---
-            await self._post_trace_entry(
+            await self._trace_sink.post_trace_entry(
+                source=self,
                 event_type="PLAN_COMPLETED",
                 reasoning_text=f"Plan {plan_id} completed successfully (no steps executed).",
                 metadata={"plan_id": plan_id, "status": PlanStatus.COMPLETED.name},
@@ -316,13 +323,12 @@ class Orchestrator:
                 logger.warning(f"Step failed: {current_step.id}. Pausing plan for remediation.")
                 self._current_plan.status = PlanStatus.FAILED
 
-                # --- TRACE LOGGING: Plan Failed ---
-                await self._post_trace_entry(
+                await self._trace_sink.post_trace_entry(
+                    source=self,
                     event_type="PLAN_FAILED",
                     reasoning_text=f"Plan {plan_id} failed on step {current_step.id} after {current_step.attempts} attempt(s). PolicyAgent triggered.",
                     metadata={"plan_id": plan_id, "failed_step_id": current_step.id},
                 )
-                # ----------------------------------
 
                 # The index state (current_step_index) remains on the Blackboard for retry
                 await self._pause_current_plan()
@@ -338,10 +344,20 @@ class Orchestrator:
 
                     next_step = self._current_plan.steps[next_index]
                     await self._blackboard.set_current_step(next_step)
+                    await self._trace_sink.post_trace_entry(
+                        source=self,
+                        event_type="STEP_ADVANCED",
+                        reasoning_text=f"Advanced plan {plan_id} from {current_step_index} to {next_index}",
+                        metadata={
+                            "plan_id": plan_id,
+                            "from_index": current_step_index,
+                            "to_index": next_index,
+                            "step_id": next_step.id,
+                        },
+                    )
                     logger.info(
                         f"Advanced plan {plan_id} to step index {next_index}: {next_step.id}"
                     )
-                    # Note: No need for a trace entry here, as the Executor already logged STEP_COMPLETED.
 
                 else:
                     # --- COMPLETE PLAN ---
@@ -351,13 +367,12 @@ class Orchestrator:
                     # 4. Clear the index state from the Blackboard
                     await self._blackboard.clear_step_index_for_plan(plan_id)
 
-                    # --- TRACE LOGGING: Plan Completed ---
-                    await self._post_trace_entry(
+                    await self._trace_sink.post_trace_entry(
+                        source=self,
                         event_type="PLAN_COMPLETED",
                         reasoning_text=f"Plan {plan_id} completed successfully after executing {len(self._current_plan.steps)} steps.",
                         metadata={"plan_id": plan_id, "status": PlanStatus.COMPLETED.name},
                     )
-                    # -----------------------------------
 
                     await self._clear_current_plan()
 
@@ -407,6 +422,12 @@ class Orchestrator:
         self._loop_running = True
         self._task = asyncio.create_task(self._run_loop(tick_interval))
         logger.info("Orchestrator started.")
+        await self._trace_sink.post_trace_entry(
+            source=self,
+            event_type="ORCHESTRATOR_STARTED",
+            reasoning_text="Orchestrator started",
+            metadata={"process_id": str(uuid4()), "tick_interval": tick_interval},
+        )
 
     async def stop(self) -> None:
         """Stop orchestrator loop and persist state."""
