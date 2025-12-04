@@ -77,15 +77,53 @@ class StepExecutor(BaseExecutor):
     async def _execute_direct_call(self, function_name: str, arguments: dict[str, Any]) -> bool:
         # 1. Validate the command against the registry schema (offload if validator is blocking)
         try:
-            await asyncio.to_thread(
+            # validate_call returns (bool, RiskLevel) in our registry
+            validate_result = await asyncio.to_thread(
                 self._capability_registry.validate_call, function_name, arguments
             )
         except Exception as e:
             await self._trace_sink.post_trace_entry(
                 source=self,
                 event_type="VALIDATION_FAILED",
-                reasoning_text=f"Command for {function_name} invalid: {e}",
+                reasoning_text=f"Validation raised exception for {function_name}: {e}",
                 metadata={"function": function_name, "error": type(e).__name__},
+                severity=TraceSeverity.HIGH,
+            )
+            return False
+
+        # Defensive handling for older implementations that might return None
+        if validate_result is None:
+            await self._trace_sink.post_trace_entry(
+                source=self,
+                event_type="VALIDATION_FAILED",
+                reasoning_text=f"Validation API returned no result for {function_name}; denying execution.",
+                metadata={"function": function_name},
+                severity=TraceSeverity.HIGH,
+            )
+            return False
+
+        # Expect (valid: bool, risk: RiskLevel)
+        try:
+            valid, risk = validate_result
+        except Exception:
+            await self._trace_sink.post_trace_entry(
+                source=self,
+                event_type="VALIDATION_FAILED",
+                reasoning_text=f"Validation returned unexpected shape for {function_name}; denying execution.",
+                metadata={"function": function_name, "raw_result": str(validate_result)},
+                severity=TraceSeverity.HIGH,
+            )
+            return False
+
+        # Deny execution for invalid or high-risk calls
+        if not valid or getattr(risk, "name", str(risk)).upper() == "HIGH":
+            await self._trace_sink.post_trace_entry(
+                source=self,
+                event_type="VALIDATION_FAILED",
+                reasoning_text=(
+                    f"Command for {function_name} invalid: valid={valid}, risk={getattr(risk, 'name', str(risk))}"
+                ),
+                metadata={"function": function_name, "arguments": arguments, "risk": str(risk)},
                 severity=TraceSeverity.HIGH,
             )
             return False

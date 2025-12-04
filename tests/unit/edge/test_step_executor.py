@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from kitchenwatch.edge.models.blackboard import Blackboard
+from kitchenwatch.edge.models.capability_registry import RiskLevel
 from kitchenwatch.edge.models.plan import PlanStep, StepStatus
 from kitchenwatch.edge.step_executor import StepExecutor
 
@@ -26,7 +27,7 @@ def mock_controller() -> AsyncMock:
 @pytest.fixture
 def mock_capability_registry() -> MagicMock:
     registry = MagicMock(spec=CapabilityRegistryProtocol)
-    registry.validate_call.return_value = None
+    registry.validate_call.return_value = (True, RiskLevel.LOW)
     return registry
 
 
