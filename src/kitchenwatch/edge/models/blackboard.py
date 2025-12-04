@@ -7,6 +7,7 @@ from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
 from kitchenwatch.edge.models.plan import Plan, PlanStatus, PlanStep
 from kitchenwatch.edge.models.reasoning_trace_entry import ReasoningTraceEntry, TraceSeverity
 from kitchenwatch.edge.models.remediation_policy import RemediationPolicy
+from kitchenwatch.edge.models.scene_graph import SceneGraph
 from kitchenwatch.edge.models.state_estimate import StateEstimate
 
 
@@ -309,6 +310,18 @@ class Blackboard:
     async def wait_for_state_estimate(self) -> StateEstimate | None:
         await self.state_estimate_updated.wait()
         return await self.get_latest_state_estimate()
+
+    # ---------------------
+    # Scene graph
+    # ---------------------
+    async def set_scene_graph(self, graph: SceneGraph) -> None:
+        """Store the latest scene graph for consumers."""
+        async with self._lock:
+            self._scene_graph = graph
+
+    async def get_scene_graph(self) -> SceneGraph | None:
+        async with self._lock:
+            return self._scene_graph
 
     # ---------------------
     # Extensibility

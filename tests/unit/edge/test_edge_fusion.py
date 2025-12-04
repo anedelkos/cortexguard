@@ -12,9 +12,12 @@ Tests cover:
 import logging
 from collections.abc import Generator
 from datetime import datetime
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+import torch
+from PIL import Image
 
 from kitchenwatch.edge.edge_fusion import DEFAULT_ALPHA, EdgeFusion
 from kitchenwatch.edge.models.blackboard import Blackboard
@@ -564,3 +567,176 @@ def reset_logging() -> Generator[None, None, None]:
     """Reset logging between tests."""
     logging.getLogger("kitchenwatch").handlers = []
     yield
+
+
+@pytest.mark.asyncio
+async def test_tensor_embedding_serialized_to_list(edge_fusion, blackboard, monkeypatch):
+    tensor = torch.tensor([0.1, 0.2, 0.3])
+
+    class DummyEmbedder:
+        def embed(self, img):  # type: ignore[override]
+            # ensure we received a PIL Image in the happy path
+            assert isinstance(img, Image.Image)
+            return tensor
+
+    edge_fusion.embedder = DummyEmbedder()
+
+    # Patch PIL.Image.open to return a tiny in-memory image so embedder gets an Image
+    monkeypatch.setattr("PIL.Image.open", lambda path: Image.new("RGB", (1, 1)))
+
+    record = WindowedFusedRecord(
+        timestamp_ns=1_000_000_000,
+        rgb_path="/tmp/nonexistent.jpg",  # path can be non-existent because we patched Image.open
+        depth_path=None,
+        window_size_s=0.1,
+        n_samples=1,
+        sensor_window=[SensorReading(timestamp_ns=1_000_000_000, force_x=1.0)],
+    )
+
+    snapshot = await edge_fusion.process_record(record)
+    assert isinstance(snapshot.sensors["image_embedding"], list)
+    assert snapshot.sensors["image_embedding"] == tensor.cpu().numpy().tolist()
+
+
+@pytest.mark.asyncio
+async def test_embedder_exception_does_not_crash(edge_fusion, blackboard):
+    class BadEmbedder:
+        def embed(self, img):
+            raise RuntimeError("embedder boom")
+
+    edge_fusion.embedder = BadEmbedder()
+    record = WindowedFusedRecord(
+        timestamp_ns=1_000_000_000,
+        rgb_path="/tmp/test.jpg",
+        depth_path=None,
+        window_size_s=0.1,
+        n_samples=1,
+        sensor_window=[SensorReading(timestamp_ns=1_000_000_000, force_x=1.0)],
+    )
+
+    snapshot = await edge_fusion.process_record(record)
+    # embedder failure should be handled and image_embedding should be None
+    assert snapshot.sensors["image_embedding"] is None
+
+
+# 3) Blackboard.set_scene_graph invocation
+@pytest.mark.asyncio
+async def test_set_scene_graph_called(edge_fusion, blackboard, monkeypatch):
+    called: dict[str, Any] = {}
+
+    async def fake_set_scene_graph(graph):
+        called["graph"] = graph
+
+    # Inject fake method onto the blackboard used by the fixture
+    edge_fusion._blackboard.set_scene_graph = fake_set_scene_graph  # type: ignore[attr-defined]
+
+    record = WindowedFusedRecord(
+        timestamp_ns=1_000_000_000,
+        rgb_path="",  # empty string is valid; field is required
+        depth_path=None,
+        window_size_s=0.1,
+        n_samples=1,
+        sensor_window=[SensorReading(timestamp_ns=1_000_000_000, force_x=1.0)],
+    )
+
+    await edge_fusion.process_record(record)
+    assert "graph" in called
+    graph = called["graph"]
+    # basic sanity checks on the SceneGraph object
+    assert hasattr(graph, "objects")
+    assert hasattr(graph, "relationships")
+
+
+@pytest.mark.asyncio
+async def test_state_estimator_update_and_exception(edge_fusion, blackboard):
+    called: dict[str, Any] = {}
+
+    class GoodEstimator:
+        async def update(self, snapshot):
+            return {"state": "ok"}
+
+    class BadEstimator:
+        async def update(self, snapshot):
+            raise RuntimeError("estimator fail")
+
+    async def fake_update_state_estimate(est):
+        called["est"] = est
+
+    # success case
+    edge_fusion._state_estimator = GoodEstimator()
+    edge_fusion._blackboard.update_state_estimate = fake_update_state_estimate  # type: ignore[attr-defined]
+    record = WindowedFusedRecord(
+        timestamp_ns=1_000_000_000,
+        rgb_path="",
+        depth_path=None,
+        window_size_s=0.1,
+        n_samples=1,
+        sensor_window=[SensorReading(timestamp_ns=1_000_000_000, force_x=1.0)],
+    )
+    await edge_fusion.process_record(record)
+    assert called.get("est") == {"state": "ok"}
+
+    # failure case: should not raise
+    edge_fusion._state_estimator = BadEstimator()
+
+    # ensure update_state_estimate still exists and is a no-op for this test
+    async def noop_update_state_estimate(_):  # type: ignore[unused-def]
+        return None
+
+    edge_fusion._blackboard.update_state_estimate = noop_update_state_estimate  # type: ignore[attr-defined]
+    await edge_fusion.process_record(record)  # should complete without raising
+
+
+@pytest.mark.asyncio
+async def test_scene_graph_built_and_summary_in_snapshot(edge_fusion, blackboard, monkeypatch):
+    # Fake vision inference to return two nearby objects
+    def fake_vision(record, embedding):
+        return (
+            [
+                {
+                    "id": "obj_a",
+                    "label": "hand",
+                    "distance_m": 0.2,
+                    "confidence": 0.9,
+                    "bbox": [0.1, 0.1, 0.2, 0.2],
+                },
+                {
+                    "id": "obj_b",
+                    "label": "knife",
+                    "distance_m": 0.25,
+                    "confidence": 0.95,
+                    "bbox": [0.15, 0.12, 0.25, 0.22],
+                },
+            ],
+            None,
+        )
+
+    monkeypatch.setattr("kitchenwatch.edge.edge_fusion._mock_vision_inference", fake_vision)
+
+    called: dict[str, Any] = {}
+
+    async def fake_set_scene_graph(graph):
+        called["graph"] = graph
+
+    edge_fusion._blackboard.set_scene_graph = fake_set_scene_graph  # type: ignore[attr-defined]
+
+    record = WindowedFusedRecord(
+        timestamp_ns=1_000_000_000,
+        rgb_path="",
+        depth_path=None,
+        window_size_s=0.1,
+        n_samples=1,
+        sensor_window=[SensorReading(timestamp_ns=1_000_000_000, force_x=1.0)],
+    )
+
+    snapshot = await edge_fusion.process_record(record)
+    # snapshot should include the lightweight summary
+    assert snapshot.sensors["scene_graph_summary"] == [
+        {"id": "obj_a", "label": "hand"},
+        {"id": "obj_b", "label": "knife"},
+    ]
+
+    # the published SceneGraph should contain a 'near' relationship
+    assert "graph" in called
+    relationships = getattr(called["graph"], "relationships", [])
+    assert any(getattr(r, "relationship", "") == "near" for r in relationships)

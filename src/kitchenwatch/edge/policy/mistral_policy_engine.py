@@ -237,7 +237,11 @@ class MistralLLMPolicyEngine(BasePolicyEngine):
             )
 
     def _format_prompt(
-        self, event: AnomalyEvent, context: StateEstimate, action_catalog_json: str
+        self,
+        event: AnomalyEvent,
+        context: StateEstimate,
+        action_catalog_json: str,
+        vision_context: str | None = None,
     ) -> str:
         """
         Formats the remediation agent prompt with strict rules,
@@ -343,6 +347,7 @@ class MistralLLMPolicyEngine(BasePolicyEngine):
         context: StateEstimate,
         action_catalog_json: str,
         active_plan_context: str,
+        vision_context: str | None = None,
     ) -> RemediationPolicy:
         """
         Generates the policy by calling the LLM or using the mock.
@@ -350,7 +355,7 @@ class MistralLLMPolicyEngine(BasePolicyEngine):
         to prevent blocking the asyncio loop.
         """
         # Pass the action_catalog_json to the prompt formatter
-        prompt = self._format_prompt(event, context, action_catalog_json)
+        prompt = self._format_prompt(event, context, action_catalog_json, vision_context)
 
         if self._use_mock:
             # Pass the action_catalog_json to the mock implementation

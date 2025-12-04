@@ -19,6 +19,7 @@ class BasePolicyEngine(Protocol):
         context: StateEstimate,
         action_catalog_json: str,
         active_plan_context: str,
+        vision_context: str,
     ) -> RemediationPolicy:
         """
         Takes a system anomaly event and context and generates a deterministic, prioritized

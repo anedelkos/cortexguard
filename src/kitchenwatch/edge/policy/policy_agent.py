@@ -11,6 +11,7 @@ from kitchenwatch.edge.models.agent_tool_call import AgentToolCall
 from kitchenwatch.edge.models.anomaly_event import AnomalyEvent, AnomalySeverity
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.models.capability_registry import CapabilityRegistry
+from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
 from kitchenwatch.edge.models.plan import Plan, PlanStep, StepStatus
 from kitchenwatch.edge.models.remediation_policy import RemediationPolicy
 from kitchenwatch.edge.models.state_estimate import StateEstimate
@@ -72,6 +73,53 @@ class PolicyAgent:
         }
 
         logger.info(f"Policy Agent initialized. LLM Engine: {self._policy_engine.model_name()}")
+
+    def _scene_graph_summary_to_prompt(self, summary: list[dict[str, Any]]) -> str:
+        if not summary:
+            return "No scene graph summary available."
+        lines = []
+        for item in summary[:10]:
+            obj_id = item.get("id", "unknown")
+            label = item.get("label", "unknown")
+            lines.append(f"- {obj_id}: {label}")
+        return "Scene objects:\n" + "\n".join(lines)
+
+    def _scene_graph_to_compact_prompt(self, sg: Any, max_objects: int = 20) -> str:
+        """
+        Convert a full SceneGraph into a compact, capped prompt fragment.
+        sg is expected to have 'objects' and 'relationships' attributes.
+        """
+        if not sg:
+            return "No scene graph available."
+
+        objs = getattr(sg, "objects", []) or []
+        rels = getattr(sg, "relationships", []) or []
+
+        lines: list[str] = []
+        # Objects: include id, label, and a small set of numeric props (distance/confidence)
+        for o in objs[:max_objects]:
+            obj_id = getattr(o, "id", "unknown")
+            label = getattr(o, "label", "unknown")
+            props = getattr(o, "properties", {}) or {}
+            dist = props.get("distance_m")
+            conf = props.get("confidence")
+            dist_str = f"{float(dist):.2f}m" if isinstance(dist, (int, float)) else "N/A"
+            conf_str = f"{float(conf):.2f}" if isinstance(conf, (int, float)) else "N/A"
+            lines.append(f"- {obj_id}: {label}; distance={dist_str}; conf={conf_str}")
+
+        # Relationships: include simple triples
+        for r in rels[:max_objects]:
+            src = getattr(r, "source_id", "unknown")
+            rel = getattr(r, "relationship", "unknown")
+            tgt = getattr(r, "target_id", "unknown")
+            lines.append(f"- REL: {src} {rel} {tgt}")
+
+        if len(objs) > max_objects:
+            lines.append(f"... and {len(objs) - max_objects} more objects omitted")
+
+        return (
+            "SceneGraph facts:\n" + "\n".join(lines) if lines else "No scene graph facts available."
+        )
 
     async def _fetch_context(self) -> tuple[StateEstimate | None, Plan | None]:
         """Fetch latest StateEstimate and Active Plan (Working Memory)."""
@@ -221,7 +269,11 @@ class PolicyAgent:
     # --- LLM DELEGATION ---
 
     async def _generate_unknown_medium_policy(
-        self, anomaly: AnomalyEvent, context: StateEstimate, active_plan: Plan | None
+        self,
+        anomaly: AnomalyEvent,
+        context: StateEstimate,
+        active_plan: Plan | None,
+        snapshot: FusionSnapshot | None = None,
     ) -> RemediationPolicy:
         """
         Delegates to LLM for unknown medium severity anomalies, providing
@@ -254,28 +306,81 @@ class PolicyAgent:
             metadata={"model": self._policy_engine.model_name()},
             refs={"anomaly_id": anomaly.id},
         )
-        policy = await self._policy_engine.generate_policy(
-            event=anomaly,
-            context=context,
-            # Arguments passed to LLM engine must match the required signature (LSP)
-            action_catalog_json=action_catalog_json,
-            active_plan_context=active_plan_context,
-        )
-        duration_ms = int((datetime.now() - start).total_seconds() * 1000)
-        await self._trace_sink.post_trace_entry(
-            source=self,
-            event_type="POLICY_LLM_RESPONSE",
-            reasoning_text="LLM policy response",
-            metadata={"duration_ms": duration_ms},
-            refs={"anomaly_id": anomaly.id},
-        )
+
+        if snapshot and snapshot.sensors.get("scene_graph_summary"):
+            vision_context = self._scene_graph_summary_to_prompt(
+                snapshot.sensors["scene_graph_summary"]
+            )
+        else:
+            sg = await self._blackboard.get_scene_graph()
+            vision_context = (
+                self._scene_graph_to_compact_prompt(sg) if sg else "No vision context available."
+            )
+
+        try:
+            policy = await self._policy_engine.generate_policy(
+                event=anomaly,
+                context=context,
+                # Arguments passed to LLM engine must match the required signature (LSP)
+                action_catalog_json=action_catalog_json,
+                active_plan_context=active_plan_context,
+                vision_context=vision_context,
+            )
+            duration_ms = int((datetime.now() - start).total_seconds() * 1000)
+            await self._trace_sink.post_trace_entry(
+                source=self,
+                event_type="POLICY_LLM_RESPONSE",
+                reasoning_text="LLM policy response",
+                metadata={"duration_ms": duration_ms},
+                refs={"anomaly_id": anomaly.id},
+            )
+        except Exception as e:
+            # Log and trace the LLM failure, then return a conservative fail-safe policy
+            logger.exception("LLM policy generation failed: %s", e)
+            await self._trace_sink.post_trace_entry(
+                source=self,
+                event_type="POLICY_LLM_ERROR",
+                reasoning_text="LLM policy generation failed; returning fail-safe policy",
+                metadata={"error": str(e)},
+                refs={"anomaly_id": anomaly.id},
+            )
+
+            # Construct a deterministic fail-safe RemediationPolicy
+            fail_reason = (
+                "CRITICAL PARSING/LLM FAILURE: Unable to generate policy from LLM. "
+                "Issuing fail-safe emergency remediation to preserve system safety."
+            )
+            fail_steps = [
+                PlanStep(
+                    id="1",
+                    description="Perform emergency shutdown of hazardous actuators.",
+                    status=StepStatus.PENDING,
+                    action=AgentToolCall(
+                        action_name="EMERGENCY_SHUTDOWN",
+                        arguments={"tool_id": self.REMEDIATION_TOOL_ID},
+                    ),
+                )
+            ]
+            policy = RemediationPolicy(
+                policy_id=str(uuid4()),
+                trigger_event=anomaly,
+                reasoning_trace=fail_reason,
+                risk_assessment="HIGH - System safety cannot be guaranteed.",
+                corrective_steps=fail_steps,
+                escalation_required=True,
+                created_at=datetime.now(),
+            )
 
         return policy
 
     # --- MAIN DISPATCHER ---
 
     async def _dispatch_policy_generation(
-        self, anomaly: AnomalyEvent, context: StateEstimate, active_plan: Plan | None
+        self,
+        anomaly: AnomalyEvent,
+        context: StateEstimate,
+        active_plan: Plan | None,
+        snapshot: FusionSnapshot | None,
     ) -> RemediationPolicy | None:
         """
         Dispatches the anomaly to the correct policy generation function.
@@ -296,7 +401,9 @@ class PolicyAgent:
         # 3. Default Medium: Unknown Anomaly (LLM-Assisted Plan)
         if anomaly.severity == AnomalySeverity.MEDIUM:
             # We pass the active_plan here to close the Working Memory gap
-            return await self._generate_unknown_medium_policy(anomaly, context, active_plan)
+            return await self._generate_unknown_medium_policy(
+                anomaly, context, active_plan, snapshot
+            )
 
         # 4. Low Priority: Ignored
         return None
@@ -330,7 +437,8 @@ class PolicyAgent:
         )
 
         # 2. Generate Policy (Standardized Output: RemediationPolicy | None)
-        policy = await self._dispatch_policy_generation(anomaly, context, active_plan)
+        snapshot = await self._blackboard.get_fusion_snapshot()
+        policy = await self._dispatch_policy_generation(anomaly, context, active_plan, snapshot)
 
         if not policy:
             logger.info(f"No policy generated for anomaly {anomaly.key} (likely LOW severity).")
