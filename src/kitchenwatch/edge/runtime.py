@@ -16,7 +16,7 @@ Architectural Pattern: Composition Root
 import asyncio
 import logging
 import signal
-from collections.abc import AsyncIterator  # Added AsyncGenerator for better typing
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import partial
@@ -34,6 +34,10 @@ from kitchenwatch.edge.api.ingestion import get_ingestion_router
 from kitchenwatch.edge.detectors.anomaly_detector import AnomalyDetector
 from kitchenwatch.edge.detectors.numeric import StatisticalImpulseDetector
 from kitchenwatch.edge.detectors.rule_based import HardLimitDetector, LogicalRuleDetector
+from kitchenwatch.edge.detectors.vision.vision_safety_detector import (
+    VisionSafetyDetector,
+    VisionSafetyDetectorConfig,
+)
 from kitchenwatch.edge.edge_fusion import EdgeFusion, VisionEmbedder
 from kitchenwatch.edge.local_receiver import LocalReceiver
 from kitchenwatch.edge.models.blackboard import Blackboard
@@ -148,6 +152,12 @@ class EdgeRuntime:
         # S1.1: Repeated system failures, S2.3: Sensor/Blackboard data freeze
         self.logical_rule_detector = LogicalRuleDetector()
         self.anomaly_detector.register_detector(self.logical_rule_detector)
+
+        # S1.x Vision reflex detector (human proximity, occlusion)
+        self.vision_safety_detector = VisionSafetyDetector(
+            VisionSafetyDetectorConfig(safety_radius_m=0.5, min_confidence=0.6)
+        )
+        self.anomaly_detector.register_detector(self.vision_safety_detector)
 
         # --- REASONING SUBSYSTEM (Policy Agent) ---
         # 1. Instantiate the Policy Engine (LLM)

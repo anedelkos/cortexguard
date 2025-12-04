@@ -45,6 +45,48 @@ class VisionEmbedder:
         return emb.cpu()
 
 
+def _mock_vision_inference(
+    record: WindowedFusedRecord, image_embedding: Any
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    """
+    Fast demo stub that synthesizes vision_objects and vision_occlusion.
+    - Produces one 'person' at a pseudo-random distance derived from a numeric field in the window.
+    - Produces an occlusion hint when many objects or a synthetic condition is met.
+    Replace with real model inference later.
+    """
+    # Simple deterministic heuristic: use a numeric field from the first sample if present
+    distance_m = float("inf")
+    confidence = 0.0
+    try:
+        first = record.sensor_window[0]
+        # try to use a numeric field if available (e.g., 'force' or 'distance_raw')
+        for _k, v in first.model_dump().items():
+            if isinstance(v, (int, float)):
+                distance_m = max(0.05, float(v) / 10.0)  # scale to meters for demo
+                confidence = 0.8
+                break
+    except Exception:
+        distance_m = 1.0
+        confidence = 0.5
+
+    vision_objects = [
+        {
+            "label": "person",
+            "distance_m": distance_m,
+            "confidence": confidence,
+            "bbox_id": "demo-bbox-1",
+            "camera_id": "demo-cam",
+        }
+    ]
+
+    # Simple occlusion heuristic: if window size is small or embedding is None, no occlusion
+    occlusion = None
+    if len(record.sensor_window) > 5 and confidence < 0.6:
+        occlusion = {"area_pct": 70.0, "duration_s": 4.0}
+
+    return vision_objects, occlusion
+
+
 class EdgeFusion:
     """
     Online sensor fusion using Exponential Moving Average (EMA).
@@ -137,6 +179,18 @@ class EdgeFusion:
             except Exception as e:
                 self._logger.warning(f"Failed to embed image {record.rgb_path}: {e}")
 
+        serialized_embedding: Any
+        if image_embedding is None:
+            serialized_embedding = None
+        elif isinstance(image_embedding, torch.Tensor):
+            # move to CPU and convert to plain Python list for safe serialization/storage
+            serialized_embedding = image_embedding.cpu().numpy().tolist()
+        else:
+            # fallback: keep as-is (could be already a list/None/other)
+            serialized_embedding = image_embedding
+
+        vision_objects, vision_occlusion = _mock_vision_inference(record, image_embedding)
+
         # Create snapshot from current EMA state
         snapshot = FusionSnapshot(
             id=uuid.uuid4().hex,
@@ -145,7 +199,9 @@ class EdgeFusion:
                 "raw": record.sensor_window,
                 "ema_smoothed": self._ema_state.copy(),
                 "window_stats": self._compute_window_stats(record.sensor_window),
-                "image_embedding": image_embedding,  # single embedding
+                "image_embedding": serialized_embedding,
+                "vision_objects": vision_objects,
+                "vision_occlusion": vision_occlusion,
             },
             derived=self._ema_state.copy(),  # Smoothed values as derived features
         )
