@@ -1,7 +1,9 @@
 import json
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
+import jsonschema
 from pydantic import BaseModel, Field
 
 
@@ -28,6 +30,12 @@ class FunctionSchema(BaseModel):
         default_factory=list,
         description="List of state changes expected after successful execution (e.g., 'Item is now sliced', 'Device is powered off').",
     )
+
+
+class RiskLevel(Enum):
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
 
 
 class CapabilityRegistry(BaseModel):
@@ -70,12 +78,43 @@ class CapabilityRegistry(BaseModel):
             )
         return json.dumps(schemas, indent=2)
 
-    def validate_call(self, function_name: str, arguments: dict[str, Any]) -> None:
+    def validate_call(
+        self, function_name: str, arguments: dict[str, Any]
+    ) -> tuple[bool, RiskLevel]:
         """
         Validates the arguments of a function call against the registered tool schema.
-        Raises an error (e.g., ValueError or TypeError) if validation fails.
+
+        Returns:
+            (valid: bool, risk: RiskLevel)
+
+        Behavior:
+        - If the function is not registered, raises KeyError.
+        - If JSON Schema validation fails, returns (False, RiskLevel.HIGH).
+        - On success, returns (True, RiskLevel parsed from the FunctionSchema.risk_level).
         """
-        pass
+        schema = self.get_function_schema(function_name)
+
+        # Defensive: ensure arguments is a dict
+        if arguments is None:
+            arguments = {}
+
+        try:
+            # jsonschema.validate will raise jsonschema.ValidationError on mismatch
+            jsonschema.validate(instance=arguments, schema=schema.parameters)
+        except jsonschema.ValidationError:
+            # Malformed or missing required fields -> treat as high risk / invalid
+            return False, RiskLevel.HIGH
+        except Exception:
+            # Any unexpected validation error -> conservative denial
+            return False, RiskLevel.HIGH
+
+        # Map configured risk_level string to RiskLevel enum (default to LOW)
+        try:
+            risk = RiskLevel[schema.risk_level.upper()]
+        except Exception:
+            risk = RiskLevel.LOW
+
+        return True, risk
 
     @classmethod
     def load_from_yaml(cls, config_path: Path | None = None) -> "CapabilityRegistry":

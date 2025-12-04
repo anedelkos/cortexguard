@@ -12,7 +12,7 @@ from kitchenwatch.core.interfaces.base_step_classifier import BaseStepClassifier
 from kitchenwatch.edge.models.agent_tool_call import AgentToolCall
 from kitchenwatch.edge.models.anomaly_event import AnomalyEvent, AnomalySeverity
 from kitchenwatch.edge.models.blackboard import Blackboard
-from kitchenwatch.edge.models.capability_registry import CapabilityRegistry
+from kitchenwatch.edge.models.capability_registry import CapabilityRegistry, RiskLevel
 from kitchenwatch.edge.models.goal import GoalContext
 from kitchenwatch.edge.models.plan import Plan, PlanStatus, PlanStep, PlanType, StepStatus
 from kitchenwatch.edge.step_executor import StepExecutor
@@ -152,10 +152,16 @@ class MockValidatingRegistry(CapabilityRegistry):
         super().__init__(**data)
         self._validation_fail_function = validation_fail_function
 
-    def validate_call(self, function_name: str, arguments: dict[str, Any]) -> None:
+    def validate_call(
+        self, function_name: str, arguments: dict[str, Any]
+    ) -> tuple[bool, RiskLevel]:
+        # Simulate a schema validation failure for the configured function
         if function_name == self._validation_fail_function:
-            raise ValueError(f"Simulated schema validation failure for {function_name}")
-        super().validate_call(function_name, arguments)
+            # Return a conservative denial with HIGH risk
+            return False, RiskLevel.HIGH
+
+        # Otherwise delegate to the real implementation and return its result
+        return super().validate_call(function_name, arguments)
 
 
 def _create_plan_from_yaml(plan_yaml_content: str) -> Plan:
