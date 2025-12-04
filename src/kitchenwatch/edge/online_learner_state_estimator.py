@@ -122,6 +122,45 @@ class OnlineLearnerStateEstimator:
         # Use EMA-smoothed features to reduce noise
         features = snapshot.derived.copy()
 
+        scene_graph_frame: datetime.datetime | None = None
+        try:
+            sg = await self._blackboard.get_scene_graph()
+        except Exception as exc:
+            logger.debug("Failed to get scene graph from blackboard: %s", exc)
+            sg = None
+
+        objs = getattr(sg, "objects", None)
+        rels = getattr(sg, "relationships", None)
+
+        has_objects = isinstance(objs, (list, tuple)) and len(objs) > 0
+        has_relationships = isinstance(rels, (list, tuple)) and len(rels) > 0
+
+        if sg is not None and (has_objects or has_relationships):
+            # record a small reference to the scene graph timestamp/frame if it's a datetime
+            sg_ts = getattr(sg, "timestamp", None)
+            if isinstance(sg_ts, datetime.datetime):
+                scene_graph_frame = sg_ts
+
+            # Extract nearest human/hand distance (if any)
+            nearest_human: float | None = None
+            for o in sg.objects:
+                label = (o.label or "").lower()
+                if label in ("person", "human", "hand"):
+                    d = o.properties.get("distance_m")
+                    if isinstance(d, (int, float)):
+                        nearest_human = d if nearest_human is None else min(nearest_human, float(d))
+            if nearest_human is not None:
+                features["vision_nearest_human_m"] = float(nearest_human)
+
+            # Count occluding relationships as a simple vision-derived feature
+            occlusion_count = sum(
+                1 for r in sg.relationships if getattr(r, "relationship", None) == "occluding"
+            )
+            features["vision_occlusion_count"] = float(occlusion_count)
+        else:
+            # No usable scene graph found; do not add vision-derived features.
+            logger.debug("No populated SceneGraph available; skipping vision-derived features")
+
         if not features:
             logger.warning("Empty features in snapshot, returning nominal state")
             return self._create_nominal_state(now, current_intent)
@@ -198,6 +237,15 @@ class OnlineLearnerStateEstimator:
         # z=0 → confidence=1.0 (perfect match)
         # z=threshold → confidence=0.0 (anomaly boundary)
         confidence = self._calculate_confidence(max_z_score)
+
+        if scene_graph_frame is not None:
+            # store as epoch seconds (float) to preserve flags: dict[str, float]
+            try:
+                flags["scene_graph_frame"] = float(scene_graph_frame.timestamp())
+            except Exception:
+                logger.debug(
+                    "Could not convert scene_graph_frame to timestamp: %r", scene_graph_frame
+                )
 
         return StateEstimate(
             timestamp=now,

@@ -1,4 +1,5 @@
 from datetime import datetime
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -9,12 +10,11 @@ from kitchenwatch.edge.models.agent_tool_call import AgentToolCall
 from kitchenwatch.edge.models.anomaly_event import AnomalyEvent, AnomalySeverity
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.models.capability_registry import CapabilityRegistry
+from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
 from kitchenwatch.edge.models.plan import PlanStep, StepStatus
 from kitchenwatch.edge.models.remediation_policy import RemediationPolicy
 from kitchenwatch.edge.models.state_estimate import StateEstimate
 from kitchenwatch.edge.policy.policy_agent import PolicyAgent
-
-# --- Pytest Fixtures ---
 
 
 @pytest.fixture
@@ -312,3 +312,219 @@ async def test_run_loop_stops_on_high_severity(
             mock_sut_logger.warning.assert_any_call(
                 "HIGH severity anomaly processed, allowing Orchestrator to react"
             )
+
+
+@pytest.mark.asyncio
+async def test_generate_policy_uses_snapshot_summary(monkeypatch, mock_deps):
+
+    engine = mock_deps["policy_engine"]
+    agent = PolicyAgent(**mock_deps)
+
+    # Build a minimal snapshot with scene_graph_summary
+    snapshot = FusionSnapshot(
+        id="s1",
+        timestamp=datetime.now(),
+        sensors={"scene_graph_summary": [{"id": "o1", "label": "knife"}]},
+        derived={},
+    )
+    anomaly = AnomalyEvent(
+        id="X",
+        key="unknown",
+        severity=AnomalySeverity.MEDIUM,
+        timestamp=datetime.now(),
+        metadata={},
+        score=0.5,
+        contributing_detectors=[],
+    )
+    state = StateEstimate(
+        timestamp=datetime.now(),
+        label="nominal",
+        confidence=1.0,
+        residuals={},
+        flags={},
+        source_intent="idle",
+    )
+
+    # Make policy_engine.generate_policy return a dummy RemediationPolicy
+    engine.generate_policy.return_value = RemediationPolicy(
+        trigger_event=anomaly,
+        policy_id="llm-1",
+        reasoning_trace="",
+        risk_assessment="TBD",
+        corrective_steps=[],
+        escalation_required=False,
+    )
+
+    # Act
+    await agent._generate_unknown_medium_policy(anomaly, state, active_plan=None, snapshot=snapshot)
+
+    # Assert
+    engine.generate_policy.assert_awaited_once()
+    called_kwargs = engine.generate_policy.call_args[1]
+    assert "vision_context" in called_kwargs
+    assert "knife" in called_kwargs["vision_context"]
+
+
+@pytest.mark.asyncio
+async def test_generate_policy_falls_back_to_full_scene_graph(monkeypatch, mock_deps):
+    blackboard = mock_deps["blackboard"]
+    engine = mock_deps["policy_engine"]
+    agent = PolicyAgent(**mock_deps)
+
+    # Prepare a full SceneGraph object (simple namespace or model)
+    sg = SimpleNamespace(
+        objects=[
+            SimpleNamespace(
+                id="o1", label="hand", properties={"distance_m": 0.3, "confidence": 0.9}
+            )
+        ],
+        relationships=[],
+    )
+    blackboard.get_scene_graph.return_value = sg
+
+    anomaly = AnomalyEvent(
+        id="Y",
+        key="unknown",
+        severity=AnomalySeverity.MEDIUM,
+        timestamp=datetime.now(),
+        metadata={},
+        score=0.5,
+        contributing_detectors=[],
+    )
+    state = StateEstimate(
+        timestamp=datetime.now(),
+        label="nominal",
+        confidence=1.0,
+        residuals={},
+        flags={},
+        source_intent="idle",
+    )
+
+    engine.generate_policy.return_value = RemediationPolicy(
+        trigger_event=anomaly,
+        policy_id="llm-2",
+        reasoning_trace="",
+        risk_assessment="TBD",
+        corrective_steps=[],
+        escalation_required=False,
+    )
+
+    await agent._generate_unknown_medium_policy(anomaly, state, active_plan=None, snapshot=None)
+
+    engine.generate_policy.assert_awaited_once()
+    called_kwargs = engine.generate_policy.call_args[1]
+    assert "vision_context" in called_kwargs
+    assert "hand" in called_kwargs["vision_context"]
+    blackboard.get_scene_graph.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_supervisor_invalid_action_forces_escalation(monkeypatch, mock_deps):
+    agent = PolicyAgent(**mock_deps)
+    anomaly = AnomalyEvent(
+        id="Z",
+        key="unknown",
+        severity=AnomalySeverity.MEDIUM,
+        timestamp=datetime.now(),
+        metadata={},
+        score=0.5,
+        contributing_detectors=[],
+    )
+
+    # Create a policy with an invalid action
+    bad_policy = RemediationPolicy(
+        trigger_event=anomaly,
+        policy_id="p-bad",
+        reasoning_trace="llm",
+        risk_assessment="LOW",
+        corrective_steps=[
+            PlanStep(
+                id="1",
+                description="bad",
+                status=StepStatus.PENDING,
+                action=AgentToolCall(action_name="nonexistent", arguments={}),
+            )
+        ],
+        escalation_required=False,
+    )
+
+    # Patch validation to return False
+    monkeypatch.setattr(agent, "_validate_action", lambda action: False)
+
+    # Run supervisor
+    ok = agent._supervise_policy_actions(bad_policy)
+
+    assert ok is False
+    assert bad_policy.escalation_required is True
+    assert (
+        "VALIDATION FAILURE" in bad_policy.reasoning_trace
+        or "Invalid Action" in bad_policy.risk_assessment
+    )
+
+
+@pytest.mark.asyncio
+async def test_policy_engine_error_handling(monkeypatch, mock_deps):
+    agent = PolicyAgent(**mock_deps)
+    engine = mock_deps["policy_engine"]
+    anomaly = AnomalyEvent(
+        id="E1",
+        key="unknown",
+        severity=AnomalySeverity.MEDIUM,
+        timestamp=datetime.now(),
+        metadata={},
+        score=0.5,
+        contributing_detectors=[],
+    )
+    state = StateEstimate(
+        timestamp=datetime.now(),
+        label="nominal",
+        confidence=1.0,
+        residuals={},
+        flags={},
+        source_intent="idle",
+    )
+
+    # Make engine.generate_policy raise
+    engine.generate_policy.side_effect = RuntimeError("LLM failure")
+
+    # Patch trace sink to capture entries
+    await agent._generate_unknown_medium_policy(anomaly, state, active_plan=None, snapshot=None)
+
+    # After failure, ensure fallback behavior: engine raised but agent should not crash.
+    # If your implementation creates a fail-safe policy, assert it was published or returned.
+    # For example, if generate_policy is wrapped and returns a fail-safe RemediationPolicy:
+    # assert isinstance(result_policy, RemediationPolicy)
+
+
+@pytest.mark.asyncio
+async def test_run_loop_processes_and_breaks_on_high(monkeypatch, mock_deps):
+    agent = PolicyAgent(**mock_deps)
+    high = AnomalyEvent(
+        id="H1",
+        key="h",
+        severity=AnomalySeverity.HIGH,
+        timestamp=datetime.now(),
+        metadata={},
+        score=1.0,
+        contributing_detectors=[],
+    )
+    mock_deps["blackboard"].get_active_anomalies.return_value = {high.id: high}
+    mock_deps["blackboard"].get_latest_state_estimate.return_value = StateEstimate(
+        timestamp=datetime.now(),
+        label="idle",
+        confidence=1.0,
+        residuals={},
+        flags={},
+        source_intent="idle",
+    )
+
+    # Patch handler to be an AsyncMock so we can assert calls
+    with patch.object(agent, "_handle_anomaly_event", new=AsyncMock()) as mock_handler:
+
+        async def stop_sleep(delay):
+            agent._loop_running = False
+
+        with patch("asyncio.sleep", side_effect=stop_sleep):
+            agent._loop_running = True
+            await agent._run_loop(0.01)
+            assert mock_handler.call_count == 1

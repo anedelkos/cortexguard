@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Callable
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
@@ -7,6 +8,9 @@ from unittest.mock import AsyncMock
 import pytest
 
 from kitchenwatch.core.interfaces.base_online_learner import BaseOnlineLearner
+from kitchenwatch.edge.models.blackboard import Blackboard
+from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
+from kitchenwatch.edge.models.scene_graph import SceneGraph, SceneObject, SceneRelationship
 from kitchenwatch.edge.models.state_estimate import StateEstimate
 from kitchenwatch.edge.online_learner_state_estimator import OnlineLearnerStateEstimator
 
@@ -142,3 +146,61 @@ def test_running_uncertainty_and_window_size() -> None:
 
     # ensure learner.update called total of 4 times
     assert learner.update_calls == 4
+
+
+@pytest.mark.asyncio
+async def test_state_estimator_uses_scene_graph_features(monkeypatch: pytest.MonkeyPatch) -> None:
+    # create a real blackboard instance for the test
+    blackboard = Blackboard()
+
+    # Minimal learner that echoes inputs as predictions and accepts updates
+    class EchoLearner:
+        def predict(self, features: dict[str, float]) -> dict[str, float]:
+            return {k: float(v) for k, v in features.items()}
+
+        def update(self, features: dict[str, float]) -> None:
+            return None
+
+        def anomaly_score(self, features: dict[str, float]) -> float:
+            return 0.0
+
+    # Build a fake SceneGraph with a 'hand' and an occluding relationship
+    sg_timestamp = datetime.now(UTC)
+    obj_hand = SceneObject(
+        id="hand_1",
+        label="hand",
+        location_2d=None,
+        pose_3d=None,
+        properties={"distance_m": 0.4, "confidence": 0.9},
+    )
+    obj_knife = SceneObject(
+        id="knife_1",
+        label="knife",
+        location_2d=None,
+        pose_3d=None,
+        properties={"distance_m": 0.45, "confidence": 0.95},
+    )
+    rel = SceneRelationship(source_id="hand_1", relationship="occluding", target_id="knife_1")
+    sg = SceneGraph(timestamp=sg_timestamp, objects=[obj_hand, obj_knife], relationships=[rel])
+
+    # Monkeypatch blackboard.get_scene_graph to return our fake graph
+    async def fake_get_scene_graph() -> SceneGraph:
+        return sg
+
+    monkeypatch.setattr(blackboard, "get_scene_graph", fake_get_scene_graph)
+
+    estimator = OnlineLearnerStateEstimator(
+        learner=EchoLearner(), blackboard=blackboard, window_size=5, min_history=1
+    )
+
+    snapshot = FusionSnapshot(
+        id="test", timestamp=datetime.fromtimestamp(1.0), sensors={}, derived={"force_x": 1.0}
+    )
+
+    state: StateEstimate = await estimator.update(snapshot)
+
+    assert "scene_graph_frame" in state.flags
+    assert state.residuals.get("force_x") == pytest.approx(0.0)
+    assert (
+        "vision_occlusion_count" in state.residuals or "vision_nearest_human_m" in state.residuals
+    )

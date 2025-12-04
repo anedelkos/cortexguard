@@ -1,9 +1,13 @@
+from __future__ import annotations
+
 import logging
 import statistics
 import uuid
 from collections import defaultdict
+from collections.abc import Iterable
 from datetime import datetime
 from typing import Any, cast
+from zoneinfo import ZoneInfo
 
 import torch
 from PIL import Image
@@ -11,6 +15,7 @@ from torchvision import models, transforms
 
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
+from kitchenwatch.edge.models.scene_graph import SceneGraph, SceneObject, SceneRelationship
 from kitchenwatch.edge.online_learner_state_estimator import OnlineLearnerStateEstimator
 from kitchenwatch.simulation.models.windowed_fused_record import WindowedFusedRecord
 
@@ -85,6 +90,88 @@ def _mock_vision_inference(
         occlusion = {"area_pct": 70.0, "duration_s": 4.0}
 
     return vision_objects, occlusion
+
+
+def _to_scene_object(v: dict[str, Any], ema_state: dict[str, float]) -> SceneObject:
+    """Convert a vision detection dict into a SceneObject."""
+    obj_id = v.get("bbox_id") or v.get("id") or uuid.uuid4().hex
+    props: dict[str, Any] = {}
+
+    if (dm := v.get("distance_m")) is not None:
+        try:
+            props["distance_m"] = float(dm)
+        except Exception:
+            props["distance_m"] = None
+
+    props["confidence"] = float(v.get("confidence", 0.0))
+
+    ema_key = f"{v.get('label')}_distance"
+    if ema_key in ema_state:
+        props["distance_ema"] = ema_state[ema_key]
+
+    return SceneObject(
+        id=str(obj_id),
+        label=str(v.get("label", "unknown")),
+        location_2d=v.get("bbox"),
+        pose_3d=None,
+        properties=props,
+    )
+
+
+def _is_near(a: SceneObject, b: SceneObject, threshold_m: float = 0.5) -> bool:
+    """Proximity heuristic using distance_m or bbox overlap (normalized coords)."""
+    da = a.properties.get("distance_m")
+    db = b.properties.get("distance_m")
+    if isinstance(da, (int, float)) and isinstance(db, (int, float)):
+        return abs(da - db) <= threshold_m or da <= threshold_m or db <= threshold_m
+
+    bbox_a = a.location_2d
+    bbox_b = b.location_2d
+    if bbox_a and bbox_b and len(bbox_a) == 4 and len(bbox_b) == 4:
+        ax1, ay1, ax2, ay2 = bbox_a
+        bx1, by1, bx2, by2 = bbox_b
+        inter_w = max(0.0, min(ax2, bx2) - max(ax1, bx1))
+        inter_h = max(0.0, min(ay2, by2) - max(ay1, by1))
+        inter_area = inter_w * inter_h
+        area_a = max(0.0, (ax2 - ax1) * (ay2 - ay1))
+        if area_a > 0 and (inter_area / area_a) > 0.1:
+            return True
+
+    return False
+
+
+def _build_scene_graph_from_vision(
+    timestamp: datetime,
+    vision_objects: Iterable[dict[str, Any]],
+    ema_state: dict[str, float],
+) -> SceneGraph:
+    """Build a SceneGraph from vision_objects and EMA hints."""
+    objs: list[SceneObject] = []
+    rels: list[SceneRelationship] = []
+
+    for v in vision_objects:
+        try:
+            objs.append(_to_scene_object(v, ema_state))
+        except Exception:
+            logger.debug("Skipping malformed vision object: %r", v)
+
+    for i, a in enumerate(objs):
+        for j, b in enumerate(objs):
+            if i == j:
+                continue
+            if _is_near(a, b):
+                rels.append(SceneRelationship(source_id=a.id, relationship="near", target_id=b.id))
+
+            if (
+                a.properties.get("confidence", 0.0) < 0.5
+                and b.properties.get("confidence", 0.0) > 0.7
+            ):
+                if a.location_2d and b.location_2d:
+                    rels.append(
+                        SceneRelationship(source_id=a.id, relationship="occluding", target_id=b.id)
+                    )
+
+    return SceneGraph(timestamp=timestamp, objects=objs, relationships=rels)
 
 
 class EdgeFusion:
@@ -190,6 +277,16 @@ class EdgeFusion:
             serialized_embedding = image_embedding
 
         vision_objects, vision_occlusion = _mock_vision_inference(record, image_embedding)
+        # build timezone-aware scene graph and publish to blackboard if available
+        sg_timestamp = datetime.fromtimestamp(record.timestamp_ns / 1e9, tz=ZoneInfo("UTC"))
+        scene_graph = _build_scene_graph_from_vision(
+            sg_timestamp, vision_objects or [], self._ema_state
+        )
+
+        try:
+            await self._blackboard.set_scene_graph(scene_graph)  # type: ignore[attr-defined]
+        except AttributeError:
+            logger.debug("Blackboard.set_scene_graph not available; skipping scene graph publish")
 
         # Create snapshot from current EMA state
         snapshot = FusionSnapshot(
@@ -202,6 +299,9 @@ class EdgeFusion:
                 "image_embedding": serialized_embedding,
                 "vision_objects": vision_objects,
                 "vision_occlusion": vision_occlusion,
+                "scene_graph_summary": [
+                    {"id": o.id, "label": o.label} for o in scene_graph.objects
+                ],
             },
             derived=self._ema_state.copy(),  # Smoothed values as derived features
         )
