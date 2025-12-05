@@ -191,6 +191,19 @@ class StepExecutor(BaseExecutor):
             return False
 
     async def execute_step(self, step: PlanStep) -> None:
+        # 0. Safety check: respect Arbiter flags
+        if await self._blackboard.get_safety_flag("emergency_stop"):
+            logger.warning("Execution aborted: emergency_stop flag set")
+            step.status = StepStatus.FAILED
+            await self._trace_sink.post_trace_entry(
+                source=self,
+                event_type="EXECUTION_ABORTED",
+                reasoning_text="Step aborted due to emergency_stop flag",
+                metadata={"step_id": step.id},
+                severity=TraceSeverity.CRITICAL,
+            )
+            return
+
         if step.status != StepStatus.PENDING:
             return
 
@@ -208,6 +221,19 @@ class StepExecutor(BaseExecutor):
         arguments = step.action.arguments
 
         for attempt in range(1, max_attempts + 1):
+            # Safety check before each attempt
+            if await self._blackboard.get_safety_flag("emergency_stop"):
+                logger.warning("Execution aborted mid-step: emergency_stop flag set")
+                step.status = StepStatus.FAILED
+                await self._trace_sink.post_trace_entry(
+                    source=self,
+                    event_type="EXECUTION_ABORTED",
+                    reasoning_text="Step aborted mid-execution due to emergency_stop flag",
+                    metadata={"step_id": step.id, "attempt": attempt},
+                    severity=TraceSeverity.CRITICAL,
+                )
+                return
+
             step.status = StepStatus.RUNNING
             step.attempts = attempt
 
@@ -249,6 +275,18 @@ class StepExecutor(BaseExecutor):
 
     async def _executor_loop(self) -> None:
         while self._loop_running:
+            if await self._blackboard.get_safety_flag("emergency_stop"):
+                logger.warning("Executor loop halted: emergency_stop flag set")
+                await self._trace_sink.post_trace_entry(
+                    source=self,
+                    event_type="EXECUTOR_HALTED",
+                    reasoning_text="Executor loop halted due to emergency_stop flag",
+                    metadata={},
+                    severity=TraceSeverity.CRITICAL,
+                )
+                await asyncio.sleep(EXECUTOR_IDLE_INTERVAL)
+                continue
+
             if self._paused:
                 await asyncio.sleep(EXECUTOR_IDLE_INTERVAL)
                 continue

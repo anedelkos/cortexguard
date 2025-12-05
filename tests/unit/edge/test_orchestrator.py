@@ -1,14 +1,20 @@
 import asyncio
 from collections.abc import Generator
-from datetime import datetime
+from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 
-from kitchenwatch.edge.models.agent_tool_call import AgentToolCall  # Updated import
+from kitchenwatch.core.interfaces.base_controller import BaseController
+from kitchenwatch.edge.arbiter import Arbiter
+from kitchenwatch.edge.models.agent_tool_call import AgentToolCall
 from kitchenwatch.edge.models.blackboard import Blackboard
+from kitchenwatch.edge.models.capability_registry import CapabilityRegistry
 from kitchenwatch.edge.models.goal import GoalContext
 from kitchenwatch.edge.models.plan import Plan, PlanStatus, PlanStep, PlanType, StepStatus
+from kitchenwatch.edge.models.state_estimate import StateEstimate
 from kitchenwatch.edge.orchestrator import Orchestrator
+from kitchenwatch.edge.safety_agent import SafetyAgent
 
 
 @pytest.fixture
@@ -23,9 +29,21 @@ def blackboard() -> Blackboard:
     return Blackboard()
 
 
+class DummyController(BaseController):
+    async def execute(self, name: str, args: dict[str, Any]) -> None:
+        return
+
+    async def emergency_stop(self) -> None:
+        return
+
+
 @pytest.fixture
 def orchestrator(blackboard: Blackboard) -> Orchestrator:
-    return Orchestrator(blackboard)
+    controller = DummyController()
+    capability_registry = CapabilityRegistry()
+    arbiter = Arbiter(blackboard, capability_registry, controller)
+    safety_agent = SafetyAgent(blackboard)
+    return Orchestrator(blackboard, arbiter, safety_agent)
 
 
 def make_plan(
@@ -161,6 +179,16 @@ async def test_advance_plan_pauses_after_failed_step(
 async def test_run_loop_starts_and_completes_plan(
     orchestrator: Orchestrator, blackboard: Blackboard
 ) -> None:
+    # Seed a nominal state estimate so the loop doesn’t skip
+    await blackboard.update_state_estimate(
+        StateEstimate(
+            timestamp=datetime.now(UTC),
+            label="test",
+            confidence=1.0,
+            symbolic_system_state={},
+        )
+    )
+
     plan = make_plan("plan_006")
     await orchestrator.add_plan(plan)
 

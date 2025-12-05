@@ -271,7 +271,7 @@ class Arbiter:
             self._append_and_publish(entry)
 
             try:
-                asyncio.create_task(self._blackboard.set_safety_flag("emergency_stop", True))
+                await asyncio.create_task(self._blackboard.set_safety_flag("emergency_stop", True))
             except Exception as exc:
                 logger.debug("Failed to schedule emergency_stop safety flag", exc_info=exc)
 

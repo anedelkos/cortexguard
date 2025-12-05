@@ -2,11 +2,13 @@ import asyncio
 import logging
 from uuid import uuid4
 
+from kitchenwatch.edge.arbiter import Arbiter
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.models.goal import GoalContext
 from kitchenwatch.edge.models.plan import Plan, PlanStatus, PlanType, StepStatus
 from kitchenwatch.edge.models.reasoning_trace_entry import TraceSeverity
 from kitchenwatch.edge.models.remediation_policy import RemediationPolicy
+from kitchenwatch.edge.safety_agent import SafetyAgent
 from kitchenwatch.edge.utils.async_priority_queue import AsyncPriorityQueue
 from kitchenwatch.edge.utils.tracing import BaseTraceSink, TraceSink
 
@@ -30,9 +32,13 @@ class Orchestrator:
     def __init__(
         self,
         blackboard: Blackboard,
+        arbiter: Arbiter,
+        safety_agent: SafetyAgent,
         trace_sink: BaseTraceSink | None = None,
     ) -> None:
         self._blackboard = blackboard
+        self._arbiter = arbiter
+        self._safety_agent = safety_agent
         self._trace_sink: BaseTraceSink = (
             trace_sink if trace_sink is not None else TraceSink(blackboard=self._blackboard)
         )
@@ -238,7 +244,23 @@ class Orchestrator:
                         f"Tick: current plan = {self._current_plan.plan_id if self._current_plan else 'None'}"
                     )
 
-                    # 1. Check for immediate, high-priority remediation actions
+                    # 0. Pull latest state estimate from blackboard
+                    state_estimate = await self._blackboard.get_latest_state_estimate()
+                    if state_estimate is None:
+                        await asyncio.sleep(tick_interval)
+                        continue
+
+                    # 1. Run safety check before any plan/step logic
+                    safety_cmd = await self._safety_agent.execute_safety_check(state_estimate)
+                    if safety_cmd.action != "NOMINAL":
+                        await self._arbiter.emergency_stop(
+                            reason=safety_cmd.reason or "hazard detected"
+                        )
+                        # Skip executing steps until next tick
+                        await asyncio.sleep(tick_interval)
+                        continue
+
+                    # 2. Check for immediate, high-priority remediation actions
                     await self._handle_remediation_policy()
 
                     # Start a plan if none running

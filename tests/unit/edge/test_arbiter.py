@@ -138,3 +138,114 @@ async def test_emergency_stop_calls_controller_and_sets_flag():
     controller.emergency_stop.assert_awaited_once()
     cast(Any, bb).set_safety_flag.assert_awaited_with("emergency_stop", True)
     cast(Any, bb).add_trace_entry.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_request_action_validation_raises_exception():
+    bb = Blackboard()
+    cast(Any, bb).set_safety_flag = AsyncMock()
+    cast(Any, bb).add_trace_entry = AsyncMock()
+
+    cap = MagicMock(spec=CapabilityRegistry)
+    cap.get_function_schema.return_value = {"parameters": {"type": "object"}}
+    cap.validate_call.side_effect = ValueError("bad args")
+
+    controller = AsyncMock(spec=BaseController)
+    controller.execute = AsyncMock()
+
+    arbiter = Arbiter(bb, cap, controller)
+    action = AgentToolCall(action_name="fn", arguments={})
+
+    result = await arbiter.request_action("tester", action)
+    await asyncio.sleep(0)
+
+    assert result is False
+    controller.execute.assert_not_awaited()
+    cast(Any, bb).add_trace_entry.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_request_action_validation_returns_none():
+    bb = Blackboard()
+    cast(Any, bb).set_safety_flag = AsyncMock()
+    cast(Any, bb).add_trace_entry = AsyncMock()
+
+    cap = MagicMock(spec=CapabilityRegistry)
+    cap.get_function_schema.return_value = {"parameters": {"type": "object"}}
+    cap.validate_call.return_value = None
+
+    controller = AsyncMock(spec=BaseController)
+
+    arbiter = Arbiter(bb, cap, controller)
+    action = AgentToolCall(action_name="fn", arguments={})
+
+    result = await arbiter.request_action("tester", action)
+    await asyncio.sleep(0)
+
+    assert result is False
+    controller.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_request_action_high_risk_denied():
+    bb = Blackboard()
+    cast(Any, bb).set_safety_flag = AsyncMock()
+    cast(Any, bb).add_trace_entry = AsyncMock()
+
+    cap = MagicMock(spec=CapabilityRegistry)
+    cap.get_function_schema.return_value = {"parameters": {"type": "object"}}
+    cap.validate_call.return_value = (True, RiskLevel.HIGH)
+
+    controller = AsyncMock(spec=BaseController)
+
+    arbiter = Arbiter(bb, cap, controller)
+    action = AgentToolCall(action_name="fn", arguments={})
+
+    result = await arbiter.request_action("tester", action)
+    await asyncio.sleep(0)
+
+    assert result is False
+    controller.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_request_action_controller_execution_fails():
+    bb = Blackboard()
+    cast(Any, bb).set_safety_flag = AsyncMock()
+    cast(Any, bb).add_trace_entry = AsyncMock()
+
+    cap = MagicMock(spec=CapabilityRegistry)
+    cap.get_function_schema.return_value = {"parameters": {"type": "object"}}
+    cap.validate_call.return_value = (True, RiskLevel.LOW)
+
+    controller = AsyncMock(spec=BaseController)
+    controller.execute.side_effect = RuntimeError("boom")
+
+    arbiter = Arbiter(bb, cap, controller)
+    action = AgentToolCall(action_name="fn", arguments={})
+
+    result = await arbiter.request_action("tester", action)
+    await asyncio.sleep(0)
+
+    assert result is False
+    controller.execute.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_emergency_stop_falls_back_to_execute():
+    bb = Blackboard()
+    cast(Any, bb).set_safety_flag = AsyncMock()
+    cast(Any, bb).add_trace_entry = AsyncMock()
+
+    cap = MagicMock(spec=CapabilityRegistry)
+
+    controller = AsyncMock(spec=BaseController)
+    del controller.emergency_stop  # remove emergency_stop
+    controller.execute = AsyncMock()
+
+    arbiter = Arbiter(bb, cap, controller)
+
+    await arbiter.emergency_stop("reason")
+    await asyncio.sleep(0)
+
+    controller.execute.assert_awaited_once_with("EMERGENCY_STOP", {})
