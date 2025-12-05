@@ -57,6 +57,8 @@ class Blackboard:
     anomaly_updated: asyncio.Event = asyncio.Event()
     remediation_policy_updated: asyncio.Event = asyncio.Event()
 
+    _scene_graph: SceneGraph | None = None
+
     # ---------------------
     # Snapshot Methods
     # ---------------------
@@ -210,12 +212,10 @@ class Blackboard:
         Scans all active anomalies to return the highest current severity level.
         """
         max_severity = AnomalySeverity.LOW
-        # FIX 1: Use the Enum object itself as the key
         max_level = SEVERITY_RANKING[max_severity]
 
         async with self._lock:
             for event in self.active_anomalies.values():
-                # FIX 2: Use the Enum object itself as the key
                 event_level = SEVERITY_RANKING.get(event.severity, -1)
 
                 if event_level > max_level:

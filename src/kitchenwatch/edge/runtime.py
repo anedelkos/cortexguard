@@ -31,6 +31,7 @@ from kitchenwatch.core.mocks.mock_controller import MockController
 from kitchenwatch.core.mocks.mock_step_classifier import MockStepClassifier
 from kitchenwatch.edge.api import health
 from kitchenwatch.edge.api.ingestion import get_ingestion_router
+from kitchenwatch.edge.arbiter import Arbiter
 from kitchenwatch.edge.detectors.anomaly_detector import AnomalyDetector
 from kitchenwatch.edge.detectors.numeric import StatisticalImpulseDetector
 from kitchenwatch.edge.detectors.rule_based import HardLimitDetector, LogicalRuleDetector
@@ -47,6 +48,7 @@ from kitchenwatch.edge.orchestrator import Orchestrator
 from kitchenwatch.edge.policy.mistral_policy_engine import MistralLLMPolicyEngine
 from kitchenwatch.edge.policy.policy_agent import PolicyAgent
 from kitchenwatch.edge.river_online_learner import RiverOnlineLearner
+from kitchenwatch.edge.safety_agent import SafetyAgent
 from kitchenwatch.edge.step_executor import StepExecutor
 
 logger = logging.getLogger(__name__)
@@ -97,11 +99,23 @@ class EdgeRuntime:
         self.blackboard = Blackboard()
 
         # --- CORE AGENT SUBSYSTEMS ---
-        self.orchestrator = Orchestrator(self.blackboard)
         # Create controller & registry
         self.controller = MockController()  # or real robot controller
         self.capability_registry = CapabilityRegistry()
         self.step_classifier = MockStepClassifier()
+
+        self.arbiter = Arbiter(
+            blackboard=self.blackboard,
+            capability_registry=self.capability_registry,
+            controller=self.controller,
+        )
+        self.safety_agent = SafetyAgent(self.blackboard)
+        self.orchestrator = Orchestrator(
+            blackboard=self.blackboard,
+            arbiter=self.arbiter,
+            safety_agent=self.safety_agent,
+        )
+
         # Step executor
         self.executor = StepExecutor(
             blackboard=self.blackboard,

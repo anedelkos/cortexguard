@@ -1,8 +1,10 @@
-from typing import Any, Protocol, cast
+import asyncio
+from typing import Any, Protocol
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from kitchenwatch.edge.models.agent_tool_call import AgentToolCall
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.models.capability_registry import RiskLevel
 from kitchenwatch.edge.models.plan import PlanStep, StepStatus
@@ -44,9 +46,15 @@ class MockStepClassifier:
 @pytest.fixture
 def mock_blackboard() -> AsyncMock:
     bb = AsyncMock(spec=Blackboard)
-    bb.is_anomaly_present.return_value = False
-    bb.get_current_step.return_value = None
-    bb.add_trace_entry.return_value = None
+
+    # Coroutine methods must be AsyncMock with boolean return values
+    bb.is_anomaly_present = AsyncMock(return_value=False)
+    bb.get_safety_flag = AsyncMock(return_value=False)
+
+    # Other methods that are awaited but don't return meaningful values can be plain AsyncMock
+    bb.get_current_step = AsyncMock(return_value=None)
+    bb.add_trace_entry = AsyncMock(return_value=None)
+
     return bb
 
 
@@ -59,13 +67,9 @@ def make_plan_step(
     return PlanStep(
         id=id,
         description="Test step description",
-        action=cast(
-            Any,
-            {
-                "action_name": action_name,
-                "arguments": arguments or {"x": 10, "y": 20},
-                "status": "PENDING",
-            },
+        action=AgentToolCall(
+            action_name=action_name,
+            arguments=arguments or {"x": 10, "y": 20},
         ),
         status=status,
     )
@@ -226,3 +230,109 @@ async def test_execute_step_validation_failure(
 
     final_trace = trace_calls[-1][0][0]
     assert final_trace.event_type == "STEP_FAILED"
+
+
+@pytest.mark.asyncio
+async def test_execute_step_aborted_by_emergency_stop(
+    mock_blackboard: AsyncMock,
+    mock_capability_registry: MagicMock,
+    mock_controller: AsyncMock,
+) -> None:
+    step = make_plan_step()
+    classifier = MockStepClassifier()
+
+    # Simulate emergency stop flag set
+    mock_blackboard.get_safety_flag = AsyncMock(return_value=True)
+
+    executor = StepExecutor(mock_blackboard, classifier, mock_capability_registry, mock_controller)
+
+    await executor.execute_step(step)
+
+    assert step.status == StepStatus.FAILED
+    # No controller calls should happen
+    mock_controller.execute.assert_not_called()
+    # Trace entry should indicate aborted execution
+    trace_calls = mock_blackboard.add_trace_entry.call_args_list
+    assert any(call[0][0].event_type == "EXECUTION_ABORTED" for call in trace_calls)
+
+
+@pytest.mark.asyncio
+async def test_execute_step_validation_returns_unexpected_shape(
+    mock_blackboard: AsyncMock,
+    mock_capability_registry: MagicMock,
+    mock_controller: AsyncMock,
+) -> None:
+    step = make_plan_step()
+    classifier = MockStepClassifier()
+
+    # Return a wrong shape
+    mock_capability_registry.validate_call.return_value = "not_a_tuple"
+
+    executor = StepExecutor(mock_blackboard, classifier, mock_capability_registry, mock_controller)
+
+    await executor.execute_step(step)
+
+    assert step.status == StepStatus.FAILED
+    mock_controller.execute.assert_not_called()
+    trace_calls = mock_blackboard.add_trace_entry.call_args_list
+    assert any(call[0][0].event_type == "VALIDATION_FAILED" for call in trace_calls)
+
+
+@pytest.mark.asyncio
+async def test_execute_step_controller_failure(
+    mock_blackboard: AsyncMock,
+    mock_capability_registry: MagicMock,
+    mock_controller: AsyncMock,
+) -> None:
+    step = make_plan_step()
+    classifier = MockStepClassifier()
+
+    mock_controller.execute.side_effect = RuntimeError("Controller error")
+
+    executor = StepExecutor(mock_blackboard, classifier, mock_capability_registry, mock_controller)
+
+    await executor.execute_step(step)
+
+    assert step.status == StepStatus.FAILED
+    trace_calls = mock_blackboard.add_trace_entry.call_args_list
+    assert any(call[0][0].event_type == "EXECUTION_FAILED" for call in trace_calls)
+
+
+@pytest.mark.asyncio
+async def test_execute_step_skips_non_pending_step(
+    mock_blackboard: AsyncMock,
+    mock_capability_registry: MagicMock,
+    mock_controller: AsyncMock,
+) -> None:
+    step = make_plan_step(status=StepStatus.COMPLETED)
+    classifier = MockStepClassifier()
+
+    executor = StepExecutor(mock_blackboard, classifier, mock_capability_registry, mock_controller)
+
+    await executor.execute_step(step)
+
+    # Should remain unchanged
+    assert step.status == StepStatus.COMPLETED
+    mock_controller.execute.assert_not_called()
+    mock_capability_registry.validate_call.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_executor_loop_halts_on_emergency_stop(
+    mock_blackboard: AsyncMock,
+    mock_capability_registry: MagicMock,
+    mock_controller: AsyncMock,
+) -> None:
+    classifier = MockStepClassifier()
+    executor = StepExecutor(mock_blackboard, classifier, mock_capability_registry, mock_controller)
+
+    mock_blackboard.get_safety_flag = AsyncMock(return_value=True)
+
+    executor._loop_running = True
+    task = asyncio.create_task(executor._executor_loop())
+    await asyncio.sleep(0.1)
+    executor._loop_running = False
+    await task
+
+    trace_calls = mock_blackboard.add_trace_entry.call_args_list
+    assert any(call[0][0].event_type == "EXECUTOR_HALTED" for call in trace_calls)
