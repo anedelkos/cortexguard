@@ -1,7 +1,6 @@
 from datetime import datetime
-from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from kitchenwatch.edge.models.anomaly_event import AnomalyEvent, AnomalyReplay
 
@@ -16,16 +15,23 @@ class SystemHealth(BaseModel):
 
 
 class MaydayPacket(BaseModel):
-    """
-    Compact, prioritized packet sent from Edge to Cloud upon critical incident (HIGH/CRITICAL).
-    This serves as the formal contract for the Cloud Agent's input.
-    """
-
+    trace_id: str
+    schema_version: str = "1.0"
     device_id: str
     timestamp: datetime
-    anomalies: list[AnomalyEvent]
+
+    anomalies: list[AnomalyEvent] = Field(default_factory=list)
     current_plan_id: str | None = None
     current_step: str | None = None
-    last_actions: list[Any] = []  # List of recent step intents & statuses (ActionHistory)
+    last_actions: list[dict[str, object]] = Field(default_factory=list)
     health: SystemHealth
-    replay_data: AnomalyReplay | None = None  # Optional small compressed window
+
+    state_estimate: dict[str, object] | None = None
+    scene_graph_compact: dict[str, object] | None = None
+    reasoning_trace: list[str] = Field(default_factory=list)
+
+    # Compact, not raw models (use model_dump())
+    remediation_policy: dict[str, object] | None = None
+    current_plan_compact: dict[str, object] | None = None
+
+    replay_data: AnomalyReplay | None = None

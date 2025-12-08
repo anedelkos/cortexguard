@@ -8,6 +8,12 @@ from .agent_tool_call import AgentToolCall
 from .goal import GoalContext
 
 
+class PlanSource(str, Enum):
+    EDGE_POLICY = "edge_policy"  # from RemediationPolicy
+    CLOUD_AGENT = "cloud_agent"  # from GCP planner
+    USER_INTENT = "user_intent"  # recipe plans
+
+
 class PlanType(str, Enum):
     """The type of plan, indicating its source or purpose."""
 
@@ -98,6 +104,10 @@ class Plan(BaseModel):
     status: PlanStatus = Field(
         default=PlanStatus.PENDING, description="The overall execution status of the plan."
     )
+
+    # provenance
+    source: PlanSource = Field(default=PlanSource.USER_INTENT)
+    trace_id: str | None = Field(default=None)  # ties back to Mayday/escalation or reasoning
 
     # Optional fields for tracking execution
     created_at: datetime = Field(default_factory=datetime.now)
