@@ -7,21 +7,20 @@ from typing import Any, ClassVar
 from uuid import uuid4
 
 from kitchenwatch.core.interfaces.base_policy_engine import BasePolicyEngine
+from kitchenwatch.edge.mayday_agent import MaydayAgent
 from kitchenwatch.edge.models.agent_tool_call import AgentToolCall
 from kitchenwatch.edge.models.anomaly_event import AnomalyEvent, AnomalySeverity
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.models.capability_registry import CapabilityRegistry
 from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
-from kitchenwatch.edge.models.plan import Plan, PlanStep, StepStatus
+from kitchenwatch.edge.models.mayday_packet import SystemHealth
+from kitchenwatch.edge.models.plan import Plan, PlanSource, PlanStep, StepStatus
 from kitchenwatch.edge.models.remediation_policy import RemediationPolicy
 from kitchenwatch.edge.models.state_estimate import StateEstimate
 from kitchenwatch.edge.utils.tracing import BaseTraceSink, TraceSink
 
 logger = logging.getLogger(__name__)
 
-# --- REFACTORED TYPE ALIAS ---
-# Type alias corrected to reflect the arguments passed to the bound method,
-# excluding the implicit 'self' (the PolicyAgent instance).
 PolicyFunc = Callable[[AnomalyEvent, StateEstimate], RemediationPolicy]
 
 
@@ -47,6 +46,7 @@ class PolicyAgent:
         capability_registry: CapabilityRegistry,
         policy_engine: BasePolicyEngine,
         trace_sink: BaseTraceSink | None = None,
+        mayday_agent: MaydayAgent | None = None,
     ) -> None:
         """Initialize Policy Agent."""
         self._blackboard = blackboard
@@ -55,6 +55,7 @@ class PolicyAgent:
         )
         self._capability_registry = capability_registry
         self._policy_engine = policy_engine
+        self._mayday_agent = mayday_agent
 
         self._loop_running: bool = False
         self._task: asyncio.Task[Any] | None = None
@@ -486,6 +487,57 @@ class PolicyAgent:
             f"Source: {policy_source}. "
             f"Escalation: {escalation}"
         )
+
+        if escalation and self._mayday_agent is not None:
+            try:
+                # Build a compact health snapshot (implement or fetch from your health monitor)
+                health = SystemHealth(
+                    cpu_load_pct=None,
+                    net_rtt_ms=None,
+                    packet_loss_pct=None,
+                    disk_pressure_pct=None,
+                )
+
+                # Build the MaydayPacket from the policy + blackboard context
+                packet = await self._mayday_agent.build_packet_from_policy(
+                    policy=policy,
+                    blackboard=self._blackboard,
+                    health=health,
+                    trace_id=policy.policy_id,
+                )
+
+                cloud_plan = await self._mayday_agent.send_escalation(packet)
+
+                if cloud_plan:
+                    cloud_plan.source = PlanSource.CLOUD_AGENT
+                    cloud_plan.trace_id = packet.trace_id
+
+                    await self._blackboard.set_current_plan(cloud_plan)
+
+                    await self._trace_sink.post_trace_entry(
+                        source=self,
+                        event_type="CLOUD_PLAN_RECEIVED",
+                        reasoning_text=f"Cloud remediation plan received for policy {policy.policy_id}",
+                        metadata={"policy_id": policy.policy_id, "plan_id": cloud_plan.plan_id},
+                    )
+                else:
+                    await self._trace_sink.post_trace_entry(
+                        source=self,
+                        event_type="CLOUD_NO_PLAN",
+                        reasoning_text=f"Cloud returned no plan for policy {policy.policy_id}; falling back to local remediation.",
+                        metadata={"policy_id": policy.policy_id},
+                    )
+
+            except Exception as exc:
+                logger.exception(
+                    "Mayday escalation failed for policy %s: %s", policy.policy_id, exc
+                )
+                await self._trace_sink.post_trace_entry(
+                    source=self,
+                    event_type="MAYDAY_ERROR",
+                    reasoning_text="Failed to send Mayday escalation; falling back to local remediation",
+                    metadata={"policy_id": policy.policy_id, "error": str(exc)},
+                )
 
     async def _run_loop(self, tick_interval: float) -> None:
         """Main Policy Agent loop: polls blackboard for active anomalies."""

@@ -43,3 +43,25 @@ class SceneGraph(BaseModel):
 
     def to_dict(self) -> dict[str, Any]:
         return self.model_dump()
+
+    def to_compact_dict(self, max_objects: int = 20, redact: bool = True) -> dict[str, object]:
+        """
+        Return a compact, privacy-aware dict suitable for telemetry and Mayday packets.
+        Truncates object lists, drops heavy fields, and optionally redacts PII.
+        """
+        # shallow dump then prune
+        data = self.model_dump()
+        objects = data.get("objects", []) or []
+        data["objects"] = objects[:max_objects]
+
+        # drop heavy fields if present
+        for obj in data["objects"]:
+            obj.pop("raw_features", None)
+            obj.pop("image_crop", None)
+
+        if redact:
+            for obj in data["objects"]:
+                if "owner" in obj:
+                    obj["owner"] = "<redacted>"
+
+        return data

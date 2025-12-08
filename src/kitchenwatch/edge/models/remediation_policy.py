@@ -4,7 +4,8 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from kitchenwatch.edge.models.anomaly_event import AnomalyEvent
-from kitchenwatch.edge.models.plan import PlanStep
+from kitchenwatch.edge.models.goal import GoalContext
+from kitchenwatch.edge.models.plan import Plan, PlanSource, PlanStep, PlanType
 
 
 class RemediationPolicy(BaseModel):
@@ -51,3 +52,19 @@ class RemediationPolicy(BaseModel):
     def to_plan_steps(self) -> list[PlanStep]:
         """Convenience method to retrieve the steps ready for injection into the executor queue."""
         return self.corrective_steps
+
+    def to_plan(
+        self,
+        goal: GoalContext,
+        trace_id: str | None = None,
+        created_at: datetime | None = None,
+    ) -> Plan:
+        created_at = created_at or datetime.now()
+        return Plan(
+            context=goal,
+            plan_type=PlanType.REMEDIATION,
+            steps=self.to_plan_steps(),
+            source=PlanSource.EDGE_POLICY,
+            trace_id=trace_id or self.policy_id,
+            created_at=created_at,
+        )
