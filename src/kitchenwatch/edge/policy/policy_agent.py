@@ -45,8 +45,8 @@ class PolicyAgent:
         blackboard: Blackboard,
         capability_registry: CapabilityRegistry,
         policy_engine: BasePolicyEngine,
+        mayday_agent: MaydayAgent,
         trace_sink: BaseTraceSink | None = None,
-        mayday_agent: MaydayAgent | None = None,
     ) -> None:
         """Initialize Policy Agent."""
         self._blackboard = blackboard
@@ -139,34 +139,82 @@ class PolicyAgent:
         except KeyError:
             return False
 
-    def _supervise_policy_actions(self, policy: RemediationPolicy) -> bool:
+    def _validate_policy_actions(
+        self, policy: RemediationPolicy, *, remove_invalid_steps: bool = True
+    ) -> tuple[bool, dict[str, Any]]:
         """
-        [FORMALIZED SUPERVISOR ROLE]
-        Iterates over all steps in the generated policy and validates their actions.
-        Mutates the policy if invalid actions are found.
+        Validate all actions in a remediation policy.
 
-        Returns: True if all actions are valid, False otherwise.
+        Returns (is_valid, details) where details contains lists of invalid step indices
+        and a short message suitable for traces/logging.
+
+        - If remove_invalid_steps is True, invalid corrective steps are removed from the policy.
         """
-        validation_successful = True
+        invalid_indices: list[int] = []
+        invalid_descriptions: list[str] = []
 
-        for step in policy.corrective_steps:
-            if step.action and not self._validate_action(step.action):
-                tool_id = step.action.arguments.get("tool_id", "N/A")
-                capability = step.action.action_name
+        for idx, step in enumerate(list(policy.corrective_steps)):
+            action = getattr(step, "action", None)
+            if not action:
+                continue
+
+            try:
+                valid = self._validate_action(action)
+            except Exception as exc:
+                valid = False
+                logger.exception(
+                    "Exception while validating action for policy %s step %d: %s",
+                    policy.policy_id,
+                    idx,
+                    exc,
+                )
+
+            if not valid:
+                tool_id = action.arguments.get("tool_id", "N/A")
+                capability = action.action_name
+                invalid_indices.append(idx)
+                invalid_descriptions.append(f"{tool_id}.{capability}")
                 logger.error(
-                    f"Supervisor Alert: Invalid action '{tool_id}.{capability}' detected in policy {policy.policy_id}"
+                    "Supervisor Alert: Invalid action '%s.%s' detected in policy %s (step %d)",
+                    tool_id,
+                    capability,
+                    policy.policy_id,
+                    idx,
                 )
 
-                # If validation fails, force escalation and update policy fields
-                policy.escalation_required = True
-                policy.risk_assessment = "CRITICAL - Invalid Action Generated (Validation Failure)"
-                policy.reasoning_trace += (
-                    f" [VALIDATION FAILURE: Capability '{capability}' is unregistered/forbidden.]"
-                    " WARNING: Generated plan contained invalid actions"
-                )
-                validation_successful = False
+        if not invalid_indices:
+            return True, {"message": "all_actions_valid"}
 
-        return validation_successful
+        # Mutate policy once: mark escalation, update risk and reasoning trace
+        policy.escalation_required = True
+        policy.risk_assessment = "CRITICAL - Invalid Action Generated (Validation Failure)"
+        policy.reasoning_trace = (
+            (policy.reasoning_trace or "")
+            + " [VALIDATION FAILURE: Invalid actions detected: "
+            + ", ".join(invalid_descriptions)
+            + "]"
+        )
+
+        # Optionally remove or neutralize invalid steps
+        if remove_invalid_steps:
+            # Remove by index in reverse order to keep indices valid
+            for idx in sorted(invalid_indices, reverse=True):
+                try:
+                    policy.corrective_steps.pop(idx)
+                except Exception:
+                    logger.exception(
+                        "Failed to remove invalid corrective step %d from policy %s",
+                        idx,
+                        policy.policy_id,
+                    )
+
+        details = {
+            "invalid_indices": invalid_indices,
+            "invalid_actions": invalid_descriptions,
+            "removed_invalid_steps": remove_invalid_steps,
+        }
+
+        return False, details
 
     def _get_llm_action_catalog(self) -> str:
         """
@@ -374,6 +422,31 @@ class PolicyAgent:
 
         return policy
 
+    def _policy_for_value_freeze(
+        self, anomaly: AnomalyEvent, state_estimate: StateEstimate
+    ) -> RemediationPolicy:
+        policy = RemediationPolicy(
+            policy_id=str(uuid4()),
+            trigger_event=anomaly,
+            reasoning_trace="Sensor freeze detected; reducing system speed to 50%.",
+            risk_assessment="LOW",
+            corrective_steps=[
+                PlanStep(
+                    id="1",
+                    description="Reduce system speed to 50% due to sensor freeze.",
+                    status=StepStatus.PENDING,
+                    action=AgentToolCall(
+                        action_name="set_speed_limit",
+                        arguments={"tool_id": self.REMEDIATION_TOOL_ID, "speed_factor": 0.5},
+                    ),
+                )
+            ],
+            escalation_required=False,
+            created_at=datetime.now(),
+        )
+
+        return policy
+
     # --- MAIN DISPATCHER ---
 
     async def _dispatch_policy_generation(
@@ -391,7 +464,11 @@ class PolicyAgent:
         if anomaly.severity == AnomalySeverity.HIGH:
             return self._generate_critical_safety_policy(anomaly, context)
 
-        # 2. Medium Priority: Specific Known Remediation (Rules-Based)
+        # 2. S2.3 Value Freeze → degraded mode policy
+        if anomaly.key.endswith("_value_freeze"):
+            return self._policy_for_value_freeze(anomaly, context)
+
+        # 3. Medium Priority: Specific Known Remediation (Rules-Based)
         handler = self._policy_dispatcher.get(anomaly.key)
 
         if handler:
@@ -408,6 +485,81 @@ class PolicyAgent:
 
         # 4. Low Priority: Ignored
         return None
+
+    async def _escalate_to_mayday_agent(self, policy: RemediationPolicy) -> None:
+        try:
+            # Build a compact health snapshot (implement or fetch from your health monitor)
+            health = SystemHealth(
+                cpu_load_pct=None,
+                net_rtt_ms=None,
+                packet_loss_pct=None,
+                disk_pressure_pct=None,
+            )
+
+            # Build the MaydayPacket from the policy + blackboard context
+            packet = await self._mayday_agent.build_packet_from_policy(
+                policy=policy,
+                blackboard=self._blackboard,
+                health=health,
+                trace_id=policy.policy_id,
+            )
+
+            cloud_plan = await self._mayday_agent.send_escalation(packet)
+
+            if cloud_plan:
+                cloud_plan.source = PlanSource.CLOUD_AGENT
+                cloud_plan.trace_id = packet.trace_id
+
+                await self._blackboard.set_current_plan(cloud_plan)
+
+                await self._trace_sink.post_trace_entry(
+                    source=self,
+                    event_type="CLOUD_PLAN_RECEIVED",
+                    reasoning_text=f"Cloud remediation plan received for policy {policy.policy_id}",
+                    metadata={"policy_id": policy.policy_id, "plan_id": cloud_plan.plan_id},
+                )
+            else:
+                await self._trace_sink.post_trace_entry(
+                    source=self,
+                    event_type="CLOUD_NO_PLAN",
+                    reasoning_text=f"Cloud returned no plan for policy {policy.policy_id}; falling back to local remediation.",
+                    metadata={"policy_id": policy.policy_id},
+                )
+
+        except Exception as exc:
+            logger.exception("Mayday escalation failed for policy %s: %s", policy.policy_id, exc)
+            await self._trace_sink.post_trace_entry(
+                source=self,
+                event_type="MAYDAY_ERROR",
+                reasoning_text="Failed to send Mayday escalation; falling back to local remediation",
+                metadata={"policy_id": policy.policy_id, "error": str(exc)},
+            )
+
+    def _build_safe_fallback_policy(self, anomaly: AnomalyEvent) -> RemediationPolicy:
+        """
+        Build a minimal, safe remediation policy: pause system, notify operator.
+        Adapt to your RemediationPolicy constructor.
+        """
+
+        pause_action = AgentToolCall(
+            action_name="pause_system", arguments={"reason": "policy_validation_failed"}
+        )
+        notify_action = AgentToolCall(
+            action_name="notify_operator", arguments={"anomaly_id": anomaly.id}
+        )
+        steps = [
+            PlanStep(action=pause_action, description="Pause system for safety"),
+            PlanStep(action=notify_action, description="Notify operator for manual review"),
+        ]
+        policy_id = f"fallback-{anomaly.id}"
+        return RemediationPolicy(
+            policy_id=policy_id,
+            corrective_steps=steps,
+            escalation_required=True,
+            risk_assessment="fallback",
+            reasoning_trace="fallback generated due to policy validation failure",
+            trigger_event=anomaly,
+        )
 
     async def _handle_anomaly_event(self, anomaly: AnomalyEvent) -> None:
         """
@@ -449,20 +601,33 @@ class PolicyAgent:
 
         # 3. Supervisor Step: Validate Actions (Safety Gate)
         # This checks the policy regardless of source (Rules or LLM)
-        self._supervise_policy_actions(policy)
+        is_valid_policy, details = self._validate_policy_actions(policy, remove_invalid_steps=True)
+        if not is_valid_policy:
+            await self._trace_sink.post_trace_entry(
+                source=self,
+                event_type="POLICY_VALIDATION_FAILED",
+                reasoning_text=f"Policy {policy.policy_id} failed supervisor validation.",
+                metadata={"policy_id": policy.policy_id, "anomaly_id": anomaly.id, **details},
+            )
+            fallback = self._build_safe_fallback_policy(anomaly)
+            fallback.risk_assessment += " Failed policy risk assessment: " + policy.risk_assessment
+            fallback.reasoning_trace += " Failed policy reasoning trace:" + policy.reasoning_trace
+            policy = fallback
 
         # 4. Publish to Blackboard
         await self._blackboard.set_remediation_policy(policy)
         self._policies_generated += 1
         escalation = policy.escalation_required  # Read final escalation state
 
+        event_type = "POLICY_GENERATED"
         if escalation:
             self._escalations_triggered += 1
+            event_type = "ESCALATE"
 
         # 5. Log to Trace
         await self._trace_sink.post_trace_entry(
             source=self,
-            event_type="POLICY_GENERATED",
+            event_type=event_type,
             reasoning_text=f"Remediation Policy {policy.policy_id} generated by {policy_source}. Escalation: {escalation}. Steps: {len(policy.corrective_steps)}.",
             metadata={
                 "policy_id": policy.policy_id,
@@ -489,55 +654,55 @@ class PolicyAgent:
         )
 
         if escalation and self._mayday_agent is not None:
-            try:
-                # Build a compact health snapshot (implement or fetch from your health monitor)
-                health = SystemHealth(
-                    cpu_load_pct=None,
-                    net_rtt_ms=None,
-                    packet_loss_pct=None,
-                    disk_pressure_pct=None,
-                )
+            await self._escalate_to_mayday_agent(policy)
 
-                # Build the MaydayPacket from the policy + blackboard context
-                packet = await self._mayday_agent.build_packet_from_policy(
-                    policy=policy,
-                    blackboard=self._blackboard,
-                    health=health,
-                    trace_id=policy.policy_id,
-                )
+    async def _process_active_anomalies_tick(self) -> list[str]:
+        """
+        Perform one policy-agent tick: fetch active anomalies, process up to
+        MAX_ANOMALIES_PER_TICK, and return the list of anomaly ids processed.
+        """
+        processed_ids: list[str] = []
 
-                cloud_plan = await self._mayday_agent.send_escalation(packet)
+        try:
+            active_anomalies = await self._blackboard.get_active_anomalies()
+        except Exception as exc:
+            logger.exception("Failed to fetch active anomalies: %s", exc)
+            return processed_ids
 
-                if cloud_plan:
-                    cloud_plan.source = PlanSource.CLOUD_AGENT
-                    cloud_plan.trace_id = packet.trace_id
+        if not active_anomalies:
+            return processed_ids
 
-                    await self._blackboard.set_current_plan(cloud_plan)
+        sorted_anomalies = sorted(
+            active_anomalies.values(),
+            key=lambda a: a.severity.value,
+            reverse=True,
+        )
 
-                    await self._trace_sink.post_trace_entry(
-                        source=self,
-                        event_type="CLOUD_PLAN_RECEIVED",
-                        reasoning_text=f"Cloud remediation plan received for policy {policy.policy_id}",
-                        metadata={"policy_id": policy.policy_id, "plan_id": cloud_plan.plan_id},
-                    )
+        processed_this_tick = 0
+        for anomaly in sorted_anomalies:
+            if processed_this_tick >= self.MAX_ANOMALIES_PER_TICK:
+                break
+
+            if anomaly.id not in self._processed_anomalies and anomaly.severity in (
+                AnomalySeverity.HIGH,
+                AnomalySeverity.MEDIUM,
+            ):
+                try:
+                    await self._handle_anomaly_event(anomaly)
+                except Exception as handle_exc:
+                    logger.exception("Error handling anomaly %s: %s", anomaly.id, handle_exc)
+                    # continue to next anomaly rather than aborting the tick
                 else:
-                    await self._trace_sink.post_trace_entry(
-                        source=self,
-                        event_type="CLOUD_NO_PLAN",
-                        reasoning_text=f"Cloud returned no plan for policy {policy.policy_id}; falling back to local remediation.",
-                        metadata={"policy_id": policy.policy_id},
-                    )
+                    processed_ids.append(anomaly.id)
+                    processed_this_tick += 1
 
-            except Exception as exc:
-                logger.exception(
-                    "Mayday escalation failed for policy %s: %s", policy.policy_id, exc
-                )
-                await self._trace_sink.post_trace_entry(
-                    source=self,
-                    event_type="MAYDAY_ERROR",
-                    reasoning_text="Failed to send Mayday escalation; falling back to local remediation",
-                    metadata={"policy_id": policy.policy_id, "error": str(exc)},
-                )
+                    if anomaly.severity == AnomalySeverity.HIGH:
+                        logger.warning(
+                            "HIGH severity anomaly processed, allowing Orchestrator to react"
+                        )
+                        break
+
+        return processed_ids
 
     async def _run_loop(self, tick_interval: float) -> None:
         """Main Policy Agent loop: polls blackboard for active anomalies."""
@@ -545,41 +710,7 @@ class PolicyAgent:
         try:
             while self._loop_running:
                 try:
-                    active_anomalies = await self._blackboard.get_active_anomalies()
-
-                    if active_anomalies:
-                        # Sort by severity (highest first)
-                        sorted_anomalies = sorted(
-                            active_anomalies.values(),
-                            key=lambda a: a.severity.value,
-                            reverse=True,
-                        )
-
-                        processed_this_tick = 0
-                        for anomaly in sorted_anomalies:
-                            if processed_this_tick >= self.MAX_ANOMALIES_PER_TICK:
-                                break
-
-                            # Only process unhandled HIGH/MEDIUM severity anomalies
-                            if (
-                                anomaly.id not in self._processed_anomalies
-                                and anomaly.severity
-                                in (
-                                    AnomalySeverity.HIGH,
-                                    AnomalySeverity.MEDIUM,
-                                )
-                            ):
-                                await self._handle_anomaly_event(anomaly)
-                                processed_this_tick += 1
-
-                                # Break immediately after HIGH severity to allow orchestrator to react
-                                if anomaly.severity == AnomalySeverity.HIGH:
-                                    logger.warning(
-                                        "HIGH severity anomaly processed, "
-                                        "allowing Orchestrator to react"
-                                    )
-                                    break
-
+                    await self._process_active_anomalies_tick()
                     await asyncio.sleep(tick_interval)
 
                 except asyncio.CancelledError:

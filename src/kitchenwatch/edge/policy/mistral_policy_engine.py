@@ -148,7 +148,7 @@ class MistralLLMPolicyEngine(BasePolicyEngine):
                 {
                     "reasoning_trace": "Rule 2 was applied: Event is unknown/low-priority. Standard logging initiated.",
                     "risk_assessment": "LOW",
-                    "escalation_required": False,
+                    "escalation_required": True,
                     "corrective_steps": [
                         {
                             "description": f"Log unknown anomaly: {event.key}.",
@@ -204,7 +204,7 @@ class MistralLLMPolicyEngine(BasePolicyEngine):
             # 2. Construct the final RemediationPolicy object
             return RemediationPolicy(
                 # Policy Fields from LLM Output
-                policy_id=str(uuid4()),
+                policy_id="llm-" + str(uuid4()),
                 reasoning_trace=data.get("reasoning_trace", "No reasoning provided by LLM."),
                 risk_assessment=data.get("risk_assessment", "UNKNOWN"),
                 corrective_steps=corrective_steps,

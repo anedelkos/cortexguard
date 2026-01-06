@@ -319,7 +319,7 @@ async def test_step_retry_on_controller_failure() -> None:
     assert retry_step.status == StepStatus.COMPLETED
     assert retry_step.attempts == 2
 
-    trace = blackboard.reasoning_trace
+    trace = blackboard.reasoning_traces
     execution_fail_entries = [e for e in trace if e.event_type == "EXECUTION_FAILED"]
     step_completed_entries = [e for e in trace if e.event_type == "STEP_COMPLETED"]
 
@@ -370,7 +370,7 @@ async def test_execution_blocked_by_anomaly() -> None:
     assert len(controller.executed) == 0
     assert target_step.status == StepStatus.PENDING
 
-    trace = blackboard.reasoning_trace
+    trace = blackboard.reasoning_traces
     assert len(trace) == 1
     assert trace[0].event_type == "ANOMALY_MEDIUM"
 
@@ -404,7 +404,7 @@ async def test_validation_failure() -> None:
     assert len(controller.executed) == 0
     assert target_step.status == StepStatus.FAILED
 
-    trace = blackboard.reasoning_trace
+    trace = blackboard.reasoning_traces
     validation_fail_entries = [e for e in trace if e.event_type == "VALIDATION_FAILED"]
 
     assert len(validation_fail_entries) == 1

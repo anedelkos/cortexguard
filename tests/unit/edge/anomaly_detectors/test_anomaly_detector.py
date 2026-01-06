@@ -184,7 +184,6 @@ class TestAnomalyDetector:
         # d1: high severity (True, Score 0.9) - Class A
         detector.register_detector(MockDetectorA("collision", 0.9, "high"))
         # d2: high severity (True, Score 0.8) - Class B
-        # FIX: Changed severity to "high" to ensure both are 'active' contributions and their names are merged.
         detector.register_detector(MockDetectorB("collision", 0.8, "high"))
 
         # Act: Run one tick

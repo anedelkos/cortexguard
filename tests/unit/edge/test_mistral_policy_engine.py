@@ -194,7 +194,7 @@ def test_mock_llm_call_other_error(
     # Assertions updated for simplified trace and risk assessment
     assert "Rule 2 was applied" in response_data["reasoning_trace"]
     assert response_data["risk_assessment"] == "LOW"
-    assert response_data["escalation_required"] is False
+    assert response_data["escalation_required"] is True
     assert len(response_data["corrective_steps"]) == 1
 
     # Check Step 1: LOG_EVENT

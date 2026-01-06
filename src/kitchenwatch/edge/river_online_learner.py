@@ -72,16 +72,27 @@ class RiverOnlineLearner(BaseOnlineLearner):
         """
         predictions: dict[str, float] = {}
         for key, value in features.items():
+            if value is None or not isinstance(value, (int, float, bool)):
+                predictions[key] = 0.0
+                continue
+
+            if isinstance(value, bool):
+                value = float(value)
+
             if key not in self._models or key not in self._scalers:
                 # Fallback for untrained features
                 predictions[key] = value
                 continue
 
-            x = {key: value}
-            x_scaled = self._scalers[key].transform_one(x)  # type: ignore[no-untyped-call]
-            y_pred = self._models[key].predict_one(x_scaled)  # type: ignore[no-untyped-call]
+            x = {key: float(value)}
+            try:
+                x_scaled = self._scalers[key].transform_one(x)  # type: ignore[no-untyped-call]
+                y_pred = self._models[key].predict_one(x_scaled)  # type: ignore[no-untyped-call]
+            except Exception:  # Any error from scaler/model -> fallback to observed value
+                predictions[key] = float(value)
+                continue
 
-            predictions[key] = y_pred if y_pred is not None else value
+            predictions[key] = float(y_pred) if y_pred is not None else float(value)
 
         return predictions
 

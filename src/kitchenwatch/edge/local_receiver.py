@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Any
 
 from kitchenwatch.core.interfaces.base_receiver import BaseReceiver
@@ -22,7 +23,7 @@ class LocalReceiver(BaseReceiver[Any]):
         """
         self._edge_fusion: EdgeFusion = edge_fusion
         self._verbose: bool = verbose
-        self._received_count: int = 0
+        self._received_count: int = 0  # timing state (ns)
 
     @property
     def received_count(self) -> int:
@@ -32,6 +33,7 @@ class LocalReceiver(BaseReceiver[Any]):
     async def ingest(self, record: Any) -> None:
         """Handle a single fused record asynchronously."""
         self._received_count += 1
+        record.arrival_time_ns = time.time_ns()
 
         # Logging
         if self._verbose:

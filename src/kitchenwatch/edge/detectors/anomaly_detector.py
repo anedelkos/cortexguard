@@ -137,6 +137,7 @@ class AnomalyDetector:
                     severity,
                     score,
                     contributing_detectors,
+                    flag_metadata,
                 ) in active_aggregated_flags.items():
                     # Map old 'description' and 'context' into the new 'metadata' field
                     metadata = {
@@ -145,6 +146,7 @@ class AnomalyDetector:
                         "description": f"Automated detection of {key} (Severity: {severity.name}, Score: {score:.2f})",
                         "contributing_detectors": contributing_detectors,
                     }
+                    metadata = (flag_metadata or {}) | metadata
 
                     # Construct the mandatory fields for AnomalyEvent
                     event = AnomalyEvent(
@@ -198,7 +200,7 @@ class AnomalyDetector:
 
     def _aggregate_results(
         self, results: list[tuple[str, dict[str, Any]]]
-    ) -> dict[str, tuple[AnomalySeverity, float, list[str]]]:
+    ) -> dict[str, tuple[AnomalySeverity, float, list[str], dict[str, Any]] | None]:
         """
         Aggregate sub-detector results. A flag is set if ANY detector reports medium/high severity.
         Tracks the highest severity, maximum score, and list of contributing detectors for each key.
@@ -207,16 +209,16 @@ class AnomalyDetector:
             results: List of tuples (detector_name, detector_result_dict).
 
         Returns:
-            Dictionary mapping anomaly keys to (highest severity, max score, contributing detector names).
+            Dictionary mapping anomaly keys to (highest severity, max score, contributing detector names, metadata).
         """
         # key -> (severity, score, detector_list)
-        aggregated: dict[str, tuple[AnomalySeverity, float, list[str]]] = {}
+        aggregated: dict[str, tuple[AnomalySeverity, float, list[str], dict[str, Any]] | None] = {}
 
         for detector_name, result in results:
             key = result.get("key", "generic_anomaly")
 
             # Validate Score: Default to 0.5 if missing, but cap it [0.0, 1.0]
-            score_input = result.get("score")
+            score_input = result.get("score") or result.get("anomaly_score")
             try:
                 score = float(score_input) if score_input is not None else 0.5
                 score = max(0.0, min(1.0, score))
@@ -241,8 +243,8 @@ class AnomalyDetector:
 
             if is_anomalous:
                 # Get current aggregated state for this key
-                current_severity, current_score, current_detectors = aggregated.get(
-                    key, (AnomalySeverity.LOW, 0.0, [])
+                current_severity, current_score, current_detectors, current_metadata = (
+                    aggregated.get(key, (AnomalySeverity.LOW, 0.0, [], {}))
                 )
 
                 # 1. Determine the highest severity seen
@@ -256,8 +258,11 @@ class AnomalyDetector:
                 # 3. Collect unique list of contributing detectors
                 updated_detectors = list(set(current_detectors + [detector_name]))
 
+                # 4. Get optional metadata
+                metadata: dict[str, Any] = result.get("metadata", {})
+
                 # Update the aggregated state
-                aggregated[key] = (highest_severity, max_score, updated_detectors)
+                aggregated[key] = (highest_severity, max_score, updated_detectors, metadata)
 
         return aggregated
 

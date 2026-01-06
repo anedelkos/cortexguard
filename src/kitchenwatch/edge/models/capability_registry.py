@@ -7,6 +7,12 @@ import jsonschema
 from pydantic import BaseModel, Field
 
 
+class RiskLevel(Enum):
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+
+
 class FunctionSchema(BaseModel):
     """Represents the JSON Schema definition of a single LLM-callable function."""
 
@@ -18,8 +24,8 @@ class FunctionSchema(BaseModel):
         ...,
         description="The JSON Schema definition for the function's arguments (properties, required).",
     )
-    risk_level: str = Field(
-        "LOW",
+    risk_level: RiskLevel = Field(
+        RiskLevel.LOW,
         description="The operational risk associated with using this tool (e.g., LOW, MEDIUM, HIGH, E-STOP). This helps the LLM choose safer paths.",
     )
     pre_conditions: list[str] = Field(
@@ -30,12 +36,6 @@ class FunctionSchema(BaseModel):
         default_factory=list,
         description="List of state changes expected after successful execution (e.g., 'Item is now sliced', 'Device is powered off').",
     )
-
-
-class RiskLevel(Enum):
-    LOW = "LOW"
-    MEDIUM = "MEDIUM"
-    HIGH = "HIGH"
 
 
 class CapabilityRegistry(BaseModel):
@@ -110,7 +110,7 @@ class CapabilityRegistry(BaseModel):
 
         # Map configured risk_level string to RiskLevel enum (default to LOW)
         try:
-            risk = RiskLevel[schema.risk_level.upper()]
+            risk = RiskLevel[str(schema.risk_level).upper()]
         except Exception:
             risk = RiskLevel.LOW
 

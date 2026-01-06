@@ -5,6 +5,8 @@ from kitchenwatch.simulation.models.base_record import BaseFusedRecord
 
 class SensorReading(BaseModel):
     timestamp_ns: int
+    temp_c: float | None = None
+    smoke_ppm: float | None = None
 
     force_x: float | None = None
     force_y: float | None = None
@@ -23,6 +25,7 @@ class WindowedFusedRecord(BaseFusedRecord):
     """Fused record containing a short sequence of sensor samples."""
 
     timestamp_ns: int
+    arrival_time_ns: int | None = None
     rgb_path: str
     depth_path: str | None = None
 

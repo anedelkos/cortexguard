@@ -27,6 +27,7 @@ from fastapi import FastAPI
 from kitchenwatch.common.logging_config import setup_logging
 from kitchenwatch.core.interfaces.base_online_learner import BaseOnlineLearner
 from kitchenwatch.core.interfaces.base_policy_engine import BasePolicyEngine
+from kitchenwatch.core.mocks.mock_cloud_agent import MockCloudAgentClient
 from kitchenwatch.core.mocks.mock_controller import MockController
 from kitchenwatch.core.mocks.mock_step_classifier import MockStepClassifier
 from kitchenwatch.edge.api import health
@@ -41,6 +42,7 @@ from kitchenwatch.edge.detectors.vision.vision_safety_detector import (
 )
 from kitchenwatch.edge.edge_fusion import EdgeFusion, VisionEmbedder
 from kitchenwatch.edge.local_receiver import LocalReceiver
+from kitchenwatch.edge.mayday_agent import MaydayAgent
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.models.capability_registry import CapabilityRegistry
 from kitchenwatch.edge.online_learner_state_estimator import OnlineLearnerStateEstimator
@@ -50,6 +52,7 @@ from kitchenwatch.edge.policy.policy_agent import PolicyAgent
 from kitchenwatch.edge.river_online_learner import RiverOnlineLearner
 from kitchenwatch.edge.safety_agent import SafetyAgent
 from kitchenwatch.edge.step_executor import StepExecutor
+from kitchenwatch.edge.utils.tracing import TraceSink
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +72,7 @@ class RuntimeConfig:
 
     # Anomaly detection settings
     anomaly_check_interval: float = 1.0
-    anomaly_threshold: float = 0.8
+    anomaly_threshold: float = 5.0
 
     # Sensor fusion settings
     sensor_fusion_rate: float = 0.1  # 10 Hz
@@ -101,6 +104,7 @@ class EdgeRuntime:
         # --- CORE AGENT SUBSYSTEMS ---
         # Create controller & registry
         self.controller = MockController()  # or real robot controller
+        self.cloud_agent = MockCloudAgentClient()
         self.capability_registry = CapabilityRegistry()
         self.step_classifier = MockStepClassifier()
 
@@ -178,12 +182,18 @@ class EdgeRuntime:
         self.policy_engine: BasePolicyEngine = MistralLLMPolicyEngine(
             use_mock=True  # Use mock for safe/fast edge deployment
         )
+        self.mayday_agent = MaydayAgent(
+            cloud_agent_client=self.cloud_agent,
+            device_id="mock_01",
+            trace_sink=TraceSink(blackboard=self.blackboard),
+        )
 
         # 2. Instantiate the Policy Agent (The anomaly-to-policy rules engine)
         self.policy_agent = PolicyAgent(
             blackboard=self.blackboard,
             capability_registry=self.capability_registry,
             policy_engine=self.policy_engine,
+            mayday_agent=self.mayday_agent,
         )
 
         # Runtime state

@@ -4,7 +4,7 @@ import logging
 import statistics
 import uuid
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from datetime import datetime
 from typing import Any, cast
 from zoneinfo import ZoneInfo
@@ -15,8 +15,10 @@ from torchvision import models, transforms
 
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
+from kitchenwatch.edge.models.reasoning_trace_entry import TraceSeverity
 from kitchenwatch.edge.models.scene_graph import SceneGraph, SceneObject, SceneRelationship
 from kitchenwatch.edge.online_learner_state_estimator import OnlineLearnerStateEstimator
+from kitchenwatch.edge.utils.tracing import BaseTraceSink, TraceSink
 from kitchenwatch.simulation.models.windowed_fused_record import WindowedFusedRecord
 
 # Default smoothing factor for EMA (0 < alpha <= 1)
@@ -24,6 +26,11 @@ from kitchenwatch.simulation.models.windowed_fused_record import WindowedFusedRe
 DEFAULT_ALPHA = 0.1
 
 logger = logging.getLogger(__name__)
+
+# Configurable heuristics
+_IOU_OCCLUSION_THRESHOLD = 0.1
+_NEAR_THRESHOLD_M = 0.5
+_NEAR_CAMERA_THRESHOLD_M = 0.5  # optional: treat objects near camera as near
 
 
 class VisionEmbedder:
@@ -54,88 +61,74 @@ def _mock_vision_inference(
     record: WindowedFusedRecord, image_embedding: Any
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
     """
-    Fast demo stub that synthesizes vision_objects and vision_occlusion.
-    - Produces one 'person' at a pseudo-random distance derived from a numeric field in the window.
-    - Produces an occlusion hint when many objects or a synthetic condition is met.
-    Replace with real model inference later.
+    Minimal deterministic vision stub.
+
+    Behavior:
+    - All anomalies must be injected explicitly via ChaosEngine or tests.
     """
-    # Simple deterministic heuristic: use a numeric field from the first sample if present
-    distance_m = float("inf")
-    confidence = 0.0
-    try:
-        first = record.sensor_window[0]
-        # try to use a numeric field if available (e.g., 'force' or 'distance_raw')
-        for _k, v in first.model_dump().items():
-            if isinstance(v, (int, float)):
-                distance_m = max(0.05, float(v) / 10.0)  # scale to meters for demo
-                confidence = 0.8
-                break
-    except Exception:
-        distance_m = 1.0
-        confidence = 0.5
-
-    vision_objects = [
-        {
-            "label": "person",
-            "distance_m": distance_m,
-            "confidence": confidence,
-            "bbox_id": "demo-bbox-1",
-            "camera_id": "demo-cam",
-        }
-    ]
-
-    # Simple occlusion heuristic: if window size is small or embedding is None, no occlusion
-    occlusion = None
-    if len(record.sensor_window) > 5 and confidence < 0.6:
-        occlusion = {"area_pct": 70.0, "duration_s": 4.0}
-
-    return vision_objects, occlusion
+    return [], None
 
 
 def _to_scene_object(v: dict[str, Any], ema_state: dict[str, float]) -> SceneObject:
-    """Convert a vision detection dict into a SceneObject."""
     obj_id = v.get("bbox_id") or v.get("id") or uuid.uuid4().hex
     props: dict[str, Any] = {}
 
-    if (dm := v.get("distance_m")) is not None:
+    dm = v.get("distance_m")
+    if dm is not None:
         try:
             props["distance_m"] = float(dm)
-        except Exception:
-            props["distance_m"] = None
+        except Exception as exc:
+            logger.debug("Invalid distance_m for vision object %r: %s", v, exc)
 
-    props["confidence"] = float(v.get("confidence", 0.0))
+    # confidence always present as float
+    try:
+        props["confidence"] = float(v.get("confidence", 0.0))
+    except Exception:
+        props["confidence"] = 0.0
 
-    ema_key = f"{v.get('label')}_distance"
+    # EMA key: prefer label_distance but tolerate common variants
+    label = (v.get("label") or "unknown").lower()
+    ema_key = f"{label}_distance"
     if ema_key in ema_state:
         props["distance_ema"] = ema_state[ema_key]
 
     return SceneObject(
         id=str(obj_id),
-        label=str(v.get("label", "unknown")),
+        label=str(label),
         location_2d=v.get("bbox"),
         pose_3d=None,
         properties=props,
     )
 
 
-def _is_near(a: SceneObject, b: SceneObject, threshold_m: float = 0.5) -> bool:
-    """Proximity heuristic using distance_m or bbox overlap (normalized coords)."""
+def _iou(bbox_a: Sequence[float], bbox_b: Sequence[float]) -> float:
+    ax1, ay1, ax2, ay2 = bbox_a
+    bx1, by1, bx2, by2 = bbox_b
+    inter_w = max(0.0, min(ax2, bx2) - max(ax1, bx1))
+    inter_h = max(0.0, min(ay2, by2) - max(ay1, by1))
+    inter_area = inter_w * inter_h
+    area_a = max(0.0, (ax2 - ax1) * (ay2 - ay1))
+    area_b = max(0.0, (bx2 - bx1) * (by2 - by1))
+    union = area_a + area_b - inter_area
+    return (inter_area / union) if union > 0 else 0.0
+
+
+def _is_near(a: SceneObject, b: SceneObject, threshold_m: float = _NEAR_THRESHOLD_M) -> bool:
     da = a.properties.get("distance_m")
     db = b.properties.get("distance_m")
     if isinstance(da, (int, float)) and isinstance(db, (int, float)):
-        return abs(da - db) <= threshold_m or da <= threshold_m or db <= threshold_m
+        # symmetric proximity: both distances within threshold of each other
+        if abs(da - db) <= threshold_m:
+            return True
+        # also consider either object very close to camera as near
+        if min(da, db) <= _NEAR_CAMERA_THRESHOLD_M:
+            return True
+        return False
 
     bbox_a = a.location_2d
     bbox_b = b.location_2d
     if bbox_a and bbox_b and len(bbox_a) == 4 and len(bbox_b) == 4:
-        ax1, ay1, ax2, ay2 = bbox_a
-        bx1, by1, bx2, by2 = bbox_b
-        inter_w = max(0.0, min(ax2, bx2) - max(ax1, bx1))
-        inter_h = max(0.0, min(ay2, by2) - max(ay1, by1))
-        inter_area = inter_w * inter_h
-        area_a = max(0.0, (ax2 - ax1) * (ay2 - ay1))
-        if area_a > 0 and (inter_area / area_a) > 0.1:
-            return True
+        return _iou(bbox_a, bbox_b) > _IOU_OCCLUSION_THRESHOLD
 
     return False
 
@@ -145,32 +138,31 @@ def _build_scene_graph_from_vision(
     vision_objects: Iterable[dict[str, Any]],
     ema_state: dict[str, float],
 ) -> SceneGraph:
-    """Build a SceneGraph from vision_objects and EMA hints."""
     objs: list[SceneObject] = []
-    rels: list[SceneRelationship] = []
+    rels_set: set[tuple[str, str, str]] = set()  # (source, relationship, target)
 
     for v in vision_objects:
         try:
             objs.append(_to_scene_object(v, ema_state))
-        except Exception:
-            logger.debug("Skipping malformed vision object: %r", v)
+        except Exception as exc:
+            logger.debug("Skipping malformed vision object: %r (%s)", v, exc)
 
     for i, a in enumerate(objs):
         for j, b in enumerate(objs):
             if i == j:
                 continue
             if _is_near(a, b):
-                rels.append(SceneRelationship(source_id=a.id, relationship="near", target_id=b.id))
+                rels_set.add((a.id, "near", b.id))
 
-            if (
-                a.properties.get("confidence", 0.0) < 0.5
-                and b.properties.get("confidence", 0.0) > 0.7
-            ):
-                if a.location_2d and b.location_2d:
-                    rels.append(
-                        SceneRelationship(source_id=a.id, relationship="occluding", target_id=b.id)
-                    )
+            # occlusion: lower-confidence object occluding a higher-confidence one
+            conf_a = float(a.properties.get("confidence", 0.0))
+            conf_b = float(b.properties.get("confidence", 0.0))
+            if conf_a < 0.5 and conf_b > 0.7 and a.location_2d and b.location_2d:
+                # require IoU to be non-zero to consider occlusion
+                if _iou(a.location_2d, b.location_2d) > 0.0:
+                    rels_set.add((a.id, "occluding", b.id))
 
+    rels = [SceneRelationship(source_id=s, relationship=r, target_id=t) for (s, r, t) in rels_set]
     return SceneGraph(timestamp=timestamp, objects=objs, relationships=rels)
 
 
@@ -199,13 +191,26 @@ class EdgeFusion:
     - For edge deployment, EMA sufficient given stable sensors
     """
 
+    SMOKE_PPM_THRESHOLD = 50.0  # threshold in ppm
+    VISUAL_OPACITY_THRESHOLD = 0.5  # 0.0-1.0 opacity threshold for vision smoke
+    SMOKE_SET_CONSECUTIVE = 2  # require 2 consecutive windows to set
+    SMOKE_CLEAR_CONSECUTIVE = 2  # require 2 consecutive windows to clear
+    DRIFT_FAIL_MM = 10.0
+    FORCE_MIN_PCT = 20.0
+    FORCE_DROP_PCT = 30.0
+    EXPECTED_PERIOD_MS = 50
+    SOFT_DEGRADE_MS = 200
+    MAX_GAP_MS = 500
+
     def __init__(
         self,
         blackboard: Blackboard,
+        trace_sink: BaseTraceSink | None = None,
         state_estimator: OnlineLearnerStateEstimator | None = None,
         alpha: float = DEFAULT_ALPHA,
         custom_logger: logging.Logger | None = None,
         embedder: VisionEmbedder | None = None,
+        vision_inference: Any | None = None,
     ):
         """
         Initialize sensor fusion engine.
@@ -222,18 +227,155 @@ class EdgeFusion:
             raise ValueError(f"Alpha must be in (0, 1], got {alpha}")
 
         self._blackboard = blackboard
+        self._trace_sink: BaseTraceSink = (
+            trace_sink if trace_sink is not None else TraceSink(blackboard=self._blackboard)
+        )
         self._alpha = alpha
         self._logger = custom_logger or logger
         self.embedder = embedder
         self._state_estimator: OnlineLearnerStateEstimator | None = state_estimator
+        self.vision_inference = vision_inference or _mock_vision_inference
 
         # EMA state: sensor_key -> smoothed_value
         self._ema_state: dict[str, float] = {}
         self._last_snapshot: FusionSnapshot | None = None
 
+        # smoke fusion state (hysteresis)
+        self._smoke_state: bool = False
+        self._smoke_consec_set: int = 0
+        self._smoke_consec_clear: int = 0
+
         # Metrics (for observability)
         self._samples_processed = 0
         self._records_processed = 0
+        self._last_arrival_ns: int | None = None
+
+    async def _detect_smoke(
+        self, record: WindowedFusedRecord, vision_objects: list[dict[str, Any]]
+    ) -> bool:
+        """Detect smoke from smoke and camera sensors"""
+        last_smoke_ppm = next(
+            (r.smoke_ppm for r in reversed(record.sensor_window) if r.smoke_ppm is not None), None
+        )
+        visual_smoke = False
+        if vision_objects:
+            for v in vision_objects:
+                label = (v.get("label") or "").lower()
+                if label == "smoke":
+                    visual_smoke = True
+                    break
+                # tolerate opacity in properties (0.0-1.0)
+                props = v.get("properties") or {}
+                try:
+                    opacity = float(props.get("opacity", 0.0))
+                except Exception:
+                    opacity = 0.0
+                if opacity >= self.VISUAL_OPACITY_THRESHOLD:
+                    visual_smoke = True
+                    break
+
+        # 3) raw flag: either numeric sensor above threshold OR visual evidence
+        raw_smoke_flag = (
+            last_smoke_ppm is not None and last_smoke_ppm >= self.SMOKE_PPM_THRESHOLD
+        ) or visual_smoke
+
+        # 4) hysteresis: update consecutive counters and decide smoke_detected
+        if raw_smoke_flag:
+            self._smoke_consec_set += 1
+            self._smoke_consec_clear = 0
+        else:
+            self._smoke_consec_clear += 1
+            self._smoke_consec_set = 0
+
+        if self._smoke_consec_set >= self.SMOKE_SET_CONSECUTIVE:
+            smoke_detected = True
+        elif self._smoke_consec_clear >= self.SMOKE_CLEAR_CONSECUTIVE:
+            smoke_detected = False
+        else:
+            smoke_detected = self._smoke_state
+
+        return smoke_detected
+
+    def _compute_misgrasp_derived(
+        self, record: WindowedFusedRecord, vision_objects: list[dict[str, Any]] | None
+    ) -> dict[str, float | bool]:
+        forces = []
+        for r in record.sensor_window:
+            v = getattr(r, "force_x", None)
+            if v is not None:
+                forces.append(float(v))
+
+        max_force: float | None = max(forces) if forces else None
+
+        # last_force
+        last_force = None
+        for r in reversed(record.sensor_window):
+            v = getattr(r, "force_x", None)
+            if v is not None:
+                last_force = float(v)
+                break
+
+        force_drop_pct: float | None = None
+        if max_force is not None and last_force is not None and max_force > 0:
+            force_drop_pct = 100.0 * (max_force - last_force) / max_force
+
+        object_drift_mm: float | None = next(
+            (
+                cast(dict[str, Any], v.get("properties", {})).get("drift_mm")
+                for v in (vision_objects or [])
+                if isinstance(v.get("id", ""), str) and v.get("id", "").startswith("chaos_slip_")
+            ),
+            None,
+        )
+
+        misgrasp_candidate = False
+        if object_drift_mm is not None and object_drift_mm >= self.DRIFT_FAIL_MM:
+            misgrasp_candidate = True
+        elif max_force is not None:
+            if max_force < self.FORCE_MIN_PCT or (
+                force_drop_pct is not None and force_drop_pct >= self.FORCE_DROP_PCT
+            ):
+                misgrasp_candidate = True
+
+        # Normalize grasp_success to a bool (no None in return type)
+        if misgrasp_candidate:
+            grasp_success = False
+        elif max_force is not None:
+            grasp_success = True
+        else:
+            grasp_success = False
+
+        return {
+            "max_force_in_window": float(max_force) if max_force is not None else 0.0,
+            "last_force": float(last_force) if last_force is not None else 0.0,
+            "force_drop_pct": float(force_drop_pct) if force_drop_pct is not None else 0.0,
+            "object_drift_mm": float(object_drift_mm) if object_drift_mm is not None else 0.0,
+            "misgrasp_candidate": bool(misgrasp_candidate),
+            "grasp_success": bool(grasp_success),
+        }
+
+    def _compute_comm_lag_and_tag(self, record: WindowedFusedRecord) -> tuple[int, bool]:
+        """
+        Compute comm lag from record.arrival_time_ns.
+        Returns (lag_ms, timing_degraded).
+        """
+        arrival_ns = getattr(record, "arrival_time_ns", None)
+        if arrival_ns is None:
+            return 0, False
+
+        if self._last_arrival_ns is None:
+            self._last_arrival_ns = arrival_ns
+            return 0, False
+
+        arrival_gap_ns = arrival_ns - self._last_arrival_ns
+        if arrival_gap_ns < 0:
+            arrival_gap_ns = 0
+
+        lag_ms = arrival_gap_ns // 1_000_000
+        timing_degraded = lag_ms > self.SOFT_DEGRADE_MS
+
+        self._last_arrival_ns = arrival_ns
+        return lag_ms, timing_degraded
 
     async def process_record(self, record: WindowedFusedRecord) -> FusionSnapshot:
         """
@@ -276,7 +418,7 @@ class EdgeFusion:
             # fallback: keep as-is (could be already a list/None/other)
             serialized_embedding = image_embedding
 
-        vision_objects, vision_occlusion = _mock_vision_inference(record, image_embedding)
+        vision_objects, vision_occlusion = self.vision_inference(record, image_embedding)
         # build timezone-aware scene graph and publish to blackboard if available
         sg_timestamp = datetime.fromtimestamp(record.timestamp_ns / 1e9, tz=ZoneInfo("UTC"))
         scene_graph = _build_scene_graph_from_vision(
@@ -288,11 +430,39 @@ class EdgeFusion:
         except AttributeError:
             logger.debug("Blackboard.set_scene_graph not available; skipping scene graph publish")
 
+        last_temp = next(
+            (
+                r.temp_c
+                for r in reversed(record.sensor_window)
+                if getattr(r, "temp_c", None) is not None
+            ),
+            None,
+        )
+        smoke_detected = await self._detect_smoke(record, vision_objects)
+        self._smoke_state = smoke_detected
+
+        misgrasped_derived = self._compute_misgrasp_derived(record, vision_objects)
+        derived = self._ema_state.copy()
+        derived.update(misgrasped_derived)
+
+        lag_ms, timing_degraded = self._compute_comm_lag_and_tag(record)
+        derived["comm_lag_ms"] = lag_ms
+        derived["timing_degraded"] = timing_degraded
+        if timing_degraded:
+            await self._trace_sink.post_trace_entry(
+                source=self,
+                event_type="COMM_TIMING_DEGRADATION",
+                reasoning_text=f"Degraded sensor data arrival by {lag_ms}, expected period: {self.EXPECTED_PERIOD_MS}",
+                severity=TraceSeverity.HIGH,
+            )
+
         # Create snapshot from current EMA state
         snapshot = FusionSnapshot(
             id=uuid.uuid4().hex,
             timestamp=datetime.fromtimestamp(record.timestamp_ns / 1e9),
             sensors={
+                "temp_celsius": last_temp,
+                "smoke_detected": smoke_detected,
                 "raw": record.sensor_window,
                 "ema_smoothed": self._ema_state.copy(),
                 "window_stats": self._compute_window_stats(record.sensor_window),
@@ -303,7 +473,7 @@ class EdgeFusion:
                     {"id": o.id, "label": o.label} for o in scene_graph.objects
                 ],
             },
-            derived=self._ema_state.copy(),  # Smoothed values as derived features
+            derived=derived,  # Smoothed values as derived features
         )
 
         self._last_snapshot = snapshot
@@ -350,7 +520,8 @@ class EdgeFusion:
                 # Subsequent: apply EMA formula
                 # new = α * observation + (1-α) * old
                 old_ema = self._ema_state[key]
-                self._ema_state[key] = self._alpha * float(value) + (1 - self._alpha) * old_ema
+                new_ema = self._alpha * float(value) + (1 - self._alpha) * old_ema
+                self._ema_state[key] = new_ema
 
     def reset_ema_state(self) -> None:
         """

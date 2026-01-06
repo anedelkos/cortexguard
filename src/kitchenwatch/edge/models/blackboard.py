@@ -38,7 +38,7 @@ class Blackboard:
     active_anomalies: dict[str, AnomalyEvent] = field(default_factory=dict)
 
     # The Reasoning Trace (Agent Scratchpad) - Stores a history of all significant events.
-    reasoning_trace: list[ReasoningTraceEntry] = field(default_factory=list)
+    reasoning_traces: list[ReasoningTraceEntry] = field(default_factory=list)
 
     recovery_status: dict[str, str] = field(default_factory=dict)
     safety_flags: dict[str, bool] = field(default_factory=dict)
@@ -145,7 +145,7 @@ class Blackboard:
         Adds a generic event entry to the Reasoning Trace (Agent Scratchpad).
         """
         async with self._lock:
-            self.reasoning_trace.append(entry)
+            self.reasoning_traces.append(entry)
 
     async def set_anomaly(self, event: AnomalyEvent) -> None:
         """
@@ -231,7 +231,6 @@ class Blackboard:
         Checks if any active anomaly meets or exceeds a minimum severity level.
         This is the critical 'Safety Gate' check for the StepExecutor.
         """
-        # FIX 3: Use the Enum object itself as the key
         min_level = SEVERITY_RANKING.get(severity_min)
 
         if min_level is None:
@@ -242,7 +241,6 @@ class Blackboard:
 
         async with self._lock:
             for event in self.active_anomalies.values():
-                # FIX 4: Use the Enum object itself as the key
                 flag_level = SEVERITY_RANKING.get(event.severity)
 
                 if flag_level is None:

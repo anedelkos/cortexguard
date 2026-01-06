@@ -18,6 +18,9 @@ class StateEstimate(BaseModel):
     uncertainty: dict[str, float] | None = Field(
         default=None, description="Optional per-signal uncertainty."
     )
+    z_scores: dict[str, float] | None = Field(
+        default=None, description="Optional computed z-scores."
+    )
     ttd: float | None = Field(default=None, description="Time-to-done for current activity.")
     ttf: float | None = Field(default=None, description="Time-to-failure for current activity.")
     flags: dict[str, Any] = Field(default_factory=dict, description="Anomaly or condition flags.")
