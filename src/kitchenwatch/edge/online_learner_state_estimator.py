@@ -1,7 +1,7 @@
 import datetime
 import logging
 from collections import deque
-from statistics import stdev
+from statistics import mean, stdev
 
 from kitchenwatch.core.interfaces.base_online_learner import BaseOnlineLearner
 from kitchenwatch.edge.models.blackboard import Blackboard
@@ -15,6 +15,9 @@ SIGMA_THRESHOLD_NOMINAL = 3.0  # Standard deviations for anomaly detection
 SIGMA_THRESHOLD_IMPULSE = 6.0  # High threshold for impulse events (2x nominal)
 MIN_HISTORY_SAMPLES = 10  # Minimum samples needed for statistical significance
 EPSILON = 1e-6  # Small value to avoid division by zero
+MIN_SIGMA = (
+    1e-3  # Practical sigma floor to avoid tiny-variance amplification (tune to sensor noise)
+)
 
 
 class OnlineLearnerStateEstimator:
@@ -70,6 +73,12 @@ class OnlineLearnerStateEstimator:
         # Metrics for observability
         self._update_count = 0
         self._anomaly_count = 0
+
+        # Per-feature observed counts (counts only numeric, non-None observations)
+        self._seen_per_feature: dict[str, int] = {}
+
+        # Persistence counters (consecutive windows above threshold)
+        self._consec_high: dict[str, int] = {}
 
     def _z_to_symbol(self, z: float) -> str:
         """
@@ -176,7 +185,16 @@ class OnlineLearnerStateEstimator:
         max_z_score = 0.0
         max_z_feature: str | None = None
 
+        # Build a filtered features dict for learner.update (exclude None)
+        features_for_update: dict[str, float] = {}
+
         for key, observed_value in features.items():
+            if observed_value is None:
+                continue
+
+            self._seen_per_feature[key] = self._seen_per_feature.get(key, 0) + 1
+            features_for_update[key] = observed_value
+
             expected_value = expected.get(key, observed_value)
             residual = observed_value - expected_value
             residuals[key] = residual
@@ -189,30 +207,58 @@ class OnlineLearnerStateEstimator:
             # 3. Calculate statistical metrics
             residual_history = self._residuals[key]
 
-            if len(residual_history) >= self._min_history:
-                # Calculate standard deviation of residuals
-                # Low sigma = high confidence, high sigma = high uncertainty
-                sigma = stdev(residual_history) if len(residual_history) > 1 else 0.0
-                uncertainty[key] = sigma
-
-                # Calculate Z-score (normalized deviation)
-                if sigma > EPSILON:
-                    z = abs(residual) / sigma
-                    z_scores[key] = z
-
-                    if z > max_z_score:
-                        max_z_score = z
-                        max_z_feature = key
-                else:
-                    # Zero variance - model is perfect or not enough data
-                    z_scores[key] = 0.0
-            else:
-                # Not enough history for reliable statistics
+            # Only compute stats after we've actually seen enough numeric samples
+            if self._seen_per_feature.get(key, 0) < self._min_history:
                 uncertainty[key] = 0.0
                 z_scores[key] = 0.0
+                continue
+
+            # Compute raw sigma and mean of residual history
+            sigma_raw = stdev(residual_history) if len(residual_history) > 1 else 0.0
+            mu = mean(residual_history) if len(residual_history) > 0 else 0.0
+            uncertainty[key] = sigma_raw
+
+            # Use a practical floor for z computation to avoid tiny-variance blowups
+            sigma_used = max(sigma_raw, MIN_SIGMA)
+
+            # Center residual by historical mean before normalizing
+            z = abs(residual - mu) / sigma_used
+            z_scores[key] = z
+
+            # Optional persistence: require 2 consecutive windows above threshold to count
+            if z > self._sigma_threshold:
+                self._consec_high[key] = self._consec_high.get(key, 0) + 1
+            else:
+                self._consec_high[key] = 0
+
+            if self._consec_high.get(key, 0) < 2:
+                # treat as non-trigger for now (do not update max_z)
+                continue
+
+            if z > max_z_score:
+                max_z_score = z
+                max_z_feature = key
+
+            # Debug logging for diagnostics
+            logger.debug(
+                "estimator key=%s residual=%.6f mu=%.6f sigma_raw=%.6f sigma_used=%.6f z=%.3f seen=%d history_len=%d",
+                key,
+                residual,
+                mu,
+                sigma_raw,
+                sigma_used,
+                z,
+                self._seen_per_feature.get(key, 0),
+                len(residual_history),
+            )
 
         # 4. Update learner with new observations
-        self._learner.update(features)
+        try:
+            if features_for_update:
+                self._learner.update(features_for_update)
+        except Exception as e:
+            logger.exception("Learner update failed: %s", e)
+
         self._update_count += 1
 
         # 5. Classify state based on statistical significance
@@ -225,7 +271,6 @@ class OnlineLearnerStateEstimator:
         # 6. Calculate Symbolic State
         symbolic_system_state: dict[str, str] = {}
         for key, z_score in z_scores.items():
-            # Only track features with enough history
             if z_score != 0.0:
                 symbolic_system_state[f"{key}_state"] = self._z_to_symbol(z_score)
 
@@ -253,6 +298,7 @@ class OnlineLearnerStateEstimator:
             confidence=confidence,
             residuals=residuals,
             uncertainty=uncertainty,
+            z_scores=z_scores,
             ttd=None,  # Time to degradation (not implemented)
             ttf=None,  # Time to failure (not implemented)
             flags=flags,

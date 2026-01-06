@@ -711,7 +711,7 @@ async def test_scene_graph_built_and_summary_in_snapshot(edge_fusion, blackboard
             None,
         )
 
-    monkeypatch.setattr("kitchenwatch.edge.edge_fusion._mock_vision_inference", fake_vision)
+    edge_fusion.vision_inference = fake_vision
 
     called: dict[str, Any] = {}
 

@@ -8,7 +8,7 @@ from kitchenwatch.edge.models.goal import GoalContext
 from kitchenwatch.edge.models.plan import Plan, PlanStatus, PlanType, StepStatus
 from kitchenwatch.edge.models.reasoning_trace_entry import TraceSeverity
 from kitchenwatch.edge.models.remediation_policy import RemediationPolicy
-from kitchenwatch.edge.safety_agent import SafetyAgent
+from kitchenwatch.edge.safety_agent import SafetyAgent, SafetyCommand
 from kitchenwatch.edge.utils.async_priority_queue import AsyncPriorityQueue
 from kitchenwatch.edge.utils.tracing import BaseTraceSink, TraceSink
 
@@ -231,6 +231,17 @@ class Orchestrator:
             # Critical: Clear the policy from the Blackboard once handled
             await self._blackboard.clear_remediation_policy()
 
+    async def _check_safety(self) -> SafetyCommand | None:
+        state_estimate = await self._blackboard.get_latest_state_estimate()
+        if state_estimate is None:
+            return None
+
+        safety_cmd = await self._safety_agent.execute_safety_check(state_estimate)
+        if safety_cmd.action != "NOMINAL":
+            await self._arbiter.emergency_stop(reason=safety_cmd.reason or "hazard detected")
+
+        return safety_cmd
+
     # ---------------------
     # Main Loop
     # ---------------------
@@ -244,19 +255,9 @@ class Orchestrator:
                         f"Tick: current plan = {self._current_plan.plan_id if self._current_plan else 'None'}"
                     )
 
-                    # 0. Pull latest state estimate from blackboard
-                    state_estimate = await self._blackboard.get_latest_state_estimate()
-                    if state_estimate is None:
-                        await asyncio.sleep(tick_interval)
-                        continue
-
                     # 1. Run safety check before any plan/step logic
-                    safety_cmd = await self._safety_agent.execute_safety_check(state_estimate)
-                    if safety_cmd.action != "NOMINAL":
-                        await self._arbiter.emergency_stop(
-                            reason=safety_cmd.reason or "hazard detected"
-                        )
-                        # Skip executing steps until next tick
+                    safety_cmd = await self._check_safety()
+                    if safety_cmd is None or safety_cmd.action != "NOMINAL":
                         await asyncio.sleep(tick_interval)
                         continue
 

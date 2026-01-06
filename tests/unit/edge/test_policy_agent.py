@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from kitchenwatch.core.interfaces.base_policy_engine import BasePolicyEngine
+from kitchenwatch.edge.mayday_agent import MaydayAgent
 from kitchenwatch.edge.models.agent_tool_call import AgentToolCall
 from kitchenwatch.edge.models.anomaly_event import AnomalyEvent, AnomalySeverity
 from kitchenwatch.edge.models.blackboard import Blackboard
@@ -41,10 +42,13 @@ def mock_deps(mock_policy_engine: MagicMock) -> dict[str, Any]:
     mock_capability_registry.get_function_schema = MagicMock()
     mock_capability_registry.get_llm_tool_catalog = MagicMock(return_value="[]")
 
+    mock_mayday_agent = MagicMock(spec=MaydayAgent)
+
     return {
         "blackboard": mock_blackboard,
         "capability_registry": mock_capability_registry,
         "policy_engine": mock_policy_engine,
+        "mayday_agent": mock_mayday_agent,
     }
 
 
@@ -260,7 +264,7 @@ async def test_llm_based_validation_failure_updates_policy(
 
     assert policy.escalation_required is True
     assert "CRITICAL - Invalid Action" in policy.risk_assessment
-    assert "WARNING: Generated plan contained invalid actions" in policy.reasoning_trace
+    assert "VALIDATION FAILURE: Invalid actions detected" in policy.reasoning_trace
 
     mock_sut_logger.error.assert_called()
 
@@ -452,9 +456,9 @@ async def test_supervisor_invalid_action_forces_escalation(monkeypatch, mock_dep
     monkeypatch.setattr(agent, "_validate_action", lambda action: False)
 
     # Run supervisor
-    ok = agent._supervise_policy_actions(bad_policy)
+    valid_policy, details = agent._validate_policy_actions(bad_policy)
 
-    assert ok is False
+    assert valid_policy is False
     assert bad_policy.escalation_required is True
     assert (
         "VALIDATION FAILURE" in bad_policy.reasoning_trace

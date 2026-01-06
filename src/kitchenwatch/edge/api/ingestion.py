@@ -26,10 +26,10 @@ def get_ingestion_router(receiver: LocalReceiver) -> APIRouter:
         Automatically validated via Pydantic models from `kitchenwatch.simulation.models`.
         """
         # Use the injected receiver instance and await the asynchronous ingest
-        await receiver.ingest(record.model_dump())
+        await receiver.ingest(record)
         return {
             "message": "record accepted",
-            "received_count": receiver.received_count,  # Use the public property
+            "received_count": receiver.received_count,
             "record_type": record.__class__.__name__,
         }
 

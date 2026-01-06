@@ -31,6 +31,7 @@ class StatisticalImpulseDetector(BaseDetector):
         self,
         state_estimator: OnlineLearnerStateEstimator,
         z_score_threshold: float = DEFAULT_Z_SCORE_THRESHOLD,
+        min_uncertainty_for_detection: float | None = None,
     ) -> None:
         """
         Initializes the detector.
@@ -40,9 +41,18 @@ class StatisticalImpulseDetector(BaseDetector):
             z_score_threshold: The Z-score (standard deviation) above which
                                an impulse event is flagged as 'high' severity.
                                Defaults to DEFAULT_Z_SCORE_THRESHOLD.
+            min_uncertainty_for_detection: Treat features with uncertainty
+                               <= this value as "not ready" and skip detection.
+                               Defaults to _FEATURE_MIN_UNCERTAINTY.
         """
         self._estimator = state_estimator
         self._threshold = z_score_threshold
+        # allow overriding the minimum uncertainty used to decide "ready for detection"
+        self._min_uncertainty_for_detection = (
+            min_uncertainty_for_detection
+            if min_uncertainty_for_detection is not None
+            else self._FEATURE_MIN_UNCERTAINTY
+        )
 
     async def detect(self, snapshot: FusionSnapshot) -> dict[str, Any]:
         """
@@ -54,23 +64,46 @@ class StatisticalImpulseDetector(BaseDetector):
         # Ensure the estimator has run and updated the snapshot with its state
         state_estimate = await self._estimator.update(snapshot)
 
-        residuals = state_estimate.residuals
-        uncertainty = state_estimate.uncertainty
+        residuals = state_estimate.residuals or {}
+        uncertainty = state_estimate.uncertainty or {}
 
-        if not uncertainty or not residuals:
-            logger.debug("Skipping tick: residuals or uncertainty data is missing.")
-            return {}  # Cannot detect without required metrics
+        if not residuals and not getattr(state_estimate, "z_scores", None):
+            logger.debug("Skipping tick: no residuals or z_scores available.")
+            return {}
+
+        # Prefer z_scores produced by the estimator (centered, floored, persisted)
+        z_scores = getattr(state_estimate, "z_scores", None)
 
         max_z_score = 0.0
         feature_name = ""
 
-        # Find the feature with the highest Z-score
-        for key, res in residuals.items():
-            sigma = uncertainty.get(key, 0.0)
+        if z_scores:
+            # Use estimator-provided z scores directly
+            for k, z in z_scores.items():
+                if z is None:
+                    continue
+                if z > max_z_score:
+                    max_z_score = z
+                    feature_name = k
+        else:
+            # Fallback: recompute z using estimator uncertainty but skip features
+            # with effectively zero uncertainty (insufficient data).
+            MIN_SIGMA = 1e-3  # used only for numerical stability when sigma > 0
+            for key, res in residuals.items():
+                sigma = uncertainty.get(key, 0.0)
 
-            # Avoid division by zero, using the class constant
-            if sigma > self._FEATURE_MIN_UNCERTAINTY:
-                z = abs(res) / sigma
+                # If sigma is effectively zero or below the detection floor, skip this feature
+                if sigma <= self._min_uncertainty_for_detection:
+                    logger.debug(
+                        "Skipping detection for %s due to insufficient uncertainty (sigma=%s).",
+                        key,
+                        sigma,
+                    )
+                    continue
+
+                # Use a practical floor only for numerical stability, not to force detection from zero sigma
+                sigma_used = max(sigma, MIN_SIGMA)
+                z = abs(res) / sigma_used
                 if z > max_z_score:
                     max_z_score = z
                     feature_name = key
@@ -91,8 +124,8 @@ class StatisticalImpulseDetector(BaseDetector):
             # Log the full details for production monitoring/debugging
             logger.warning(
                 f"🚨 Impulse detected! Z={max_z_score:.2f} ({feature_name}). "
-                f"Score={anomaly_score:.2f}. Residual={residuals[feature_name]:.3f}, "
-                f"Sigma={uncertainty[feature_name]:.3f}"
+                f"Score={anomaly_score:.2f}. Residual={residuals.get(feature_name, 0.0):.3f}, "
+                f"Sigma={uncertainty.get(feature_name, 0.0):.3f}"
             )
 
             # Defensive block to prevent crashing on final dictionary assembly
@@ -104,8 +137,8 @@ class StatisticalImpulseDetector(BaseDetector):
                     "metadata": {
                         "max_z_score": max_z_score,
                         "trigger_feature": feature_name,
-                        "residual": residuals[feature_name],
-                        "uncertainty": uncertainty[feature_name],
+                        "residual": residuals.get(feature_name, 0.0),
+                        "uncertainty": uncertainty.get(feature_name, 0.0),
                     },
                 }
             except KeyError:

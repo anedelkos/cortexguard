@@ -6,7 +6,11 @@ import pytest
 from kitchenwatch.edge.arbiter import Arbiter
 from kitchenwatch.edge.models.agent_tool_call import AgentToolCall
 from kitchenwatch.edge.models.blackboard import Blackboard
-from kitchenwatch.edge.models.capability_registry import CapabilityRegistry, FunctionSchema
+from kitchenwatch.edge.models.capability_registry import (
+    CapabilityRegistry,
+    FunctionSchema,
+    RiskLevel,
+)
 from kitchenwatch.edge.models.plan import PlanStep, StepStatus
 from kitchenwatch.edge.models.scene_graph import SceneGraph, SceneObject, SceneRelationship
 from kitchenwatch.edge.models.state_estimate import StateEstimate
@@ -38,7 +42,7 @@ class DummyCapabilityRegistry(CapabilityRegistry):
         return FunctionSchema(
             description=f"Dummy schema for {name}",
             parameters={"type": "object", "properties": {}},
-            risk_level="LOW",
+            risk_level=RiskLevel.LOW,
             pre_conditions=[],
             post_effects=[],
         )
