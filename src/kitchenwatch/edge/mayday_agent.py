@@ -74,6 +74,13 @@ class MaydayAgent:
         self._timeout_seconds = float(timeout_seconds)
         self._max_retries = int(max_retries)
         self._backoff_factor = float(backoff_factor)
+        self._consecutive_failures = 0
+        self._timeouts_total = 0
+        self._errors_total = 0
+        self._retries_total = 0
+        self._failures_total = 0
+        self._health_state = 0  # 0=ok, 1=degraded
+        self._health_degrade_threshold = 3
 
         # Metrics
         self._escalations_sent = 0  # number of send_escalation() calls
@@ -212,7 +219,7 @@ class MaydayAgent:
             health=health,
             state_estimate=self._serialize_state_estimate(state),
             scene_graph_compact=scene_graph_compact,
-            reasoning_trace=reasoning_trace or [getattr(policy, "reasoning_trace", "")],
+            reasoning_trace=reasoning_trace or [],
             remediation_policy=remediation_policy_serialized,
             replay_data=replay_data,
         )
@@ -348,10 +355,22 @@ class MaydayAgent:
                     except Exception:
                         logger.debug("Failed to post ESCALATION_NO_PLAN trace", exc_info=True)
 
+                self._consecutive_failures = 0
+                self._health_state = 0
+
                 return plan
 
+            except asyncio.CancelledError:
+                logger.info("MaydayAgent: escalation cancelled")
+                raise
             except TimeoutError as te:
                 last_exc = te
+                self._timeouts_total += 1
+                self._retries_total += 1
+                self._consecutive_failures += 1
+                if self._consecutive_failures >= self._health_degrade_threshold:
+                    self._health_state = 1
+
                 logger.warning(
                     "MaydayAgent: escalation attempt %d timed out after %.2fs for %s",
                     attempt,
@@ -375,6 +394,12 @@ class MaydayAgent:
 
             except Exception as exc:
                 last_exc = exc
+                self._errors_total += 1
+                self._retries_total += 1
+                self._consecutive_failures += 1
+                if self._consecutive_failures >= self._health_degrade_threshold:
+                    self._health_state = 1
+
                 logger.exception(
                     "MaydayAgent: escalation attempt %d failed for %s: %s",
                     attempt,
@@ -403,7 +428,7 @@ class MaydayAgent:
                     await asyncio.sleep(backoff)
                 except asyncio.CancelledError:
                     logger.info("MaydayAgent: retry sleep cancelled")
-                    break
+                    return None
 
         # Exhausted retries: emit final failure trace and return None
         try:
@@ -421,6 +446,7 @@ class MaydayAgent:
         except Exception:
             logger.debug("Failed to post ESCALATION_FAILURE trace", exc_info=True)
 
+        self._failures_total += 1
         return None
 
     def get_metrics(self) -> dict[str, int]:
@@ -428,4 +454,9 @@ class MaydayAgent:
             "escalations_sent": self._escalations_sent,
             "attempts_sent": self._attempts_sent,
             "responses_received": self._responses_received,
+            "retries_total": self._retries_total,
+            "timeouts_total": self._timeouts_total,
+            "errors_total": self._errors_total,
+            "failures_total": self._failures_total,
+            "health_state": self._health_state,
         }
