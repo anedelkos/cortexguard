@@ -6,11 +6,14 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol, runtime_checkable
 
+from opentelemetry import trace
+
 from kitchenwatch.edge.models.anomaly_event import AnomalySeverity
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.models.reasoning_trace_entry import ReasoningTraceEntry, TraceSeverity
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer("cortexguard.trace")
 
 
 def _source_to_name(source: object | str) -> str:
@@ -153,6 +156,22 @@ async def post_trace_entry(
     # otherwise fall back to expecting the sink to implement post_trace itself.
     if isinstance(sink, TraceSink) and getattr(sink, "blackboard", None) is not None:
         await _safe_add_trace(sink.blackboard, entry)
+
+        try:
+            span = trace.get_current_span()
+            if span is not None:
+                span.add_event(
+                    event_type,
+                    {
+                        "source": source_name,
+                        "reasoning_text": reasoning_text,
+                        **(metadata or {}),
+                        "severity": severity.name,
+                        "duration_ms": duration_ms if duration_ms is not None else 0,
+                    },
+                )
+        except Exception:
+            logger.debug("Failed to emit OTel span event", exc_info=True)
     else:
         # If a custom sink is provided (test double, remote exporter), try to call its post_trace.
         try:

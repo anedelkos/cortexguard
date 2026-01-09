@@ -3,12 +3,15 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
+from opentelemetry import trace
+
 from kitchenwatch.edge.models.anomaly_event import AnomalyEvent
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.models.scene_graph import SceneGraph
 from kitchenwatch.edge.models.state_estimate import StateEstimate
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer("cortexguard.safety")
 
 SAFETY_RADIUS_M = 0.5
 
@@ -47,17 +50,62 @@ class SafetyAgent:
         self.rules.append(self._rule_detector_short_circuit)
 
     async def execute_safety_check(self, state_estimate: StateEstimate) -> SafetyCommand:
-        # pull scene graph from blackboard
-        scene_graph = await self._blackboard.get_scene_graph()
-        self._anomalies = await self._blackboard.get_active_anomalies()
+        with tracer.start_as_current_span("safety_agent.check") as span:
+            span.set_attribute("safety.rules_count", len(self.rules))
 
-        for rule in self.rules:
-            cmd = rule(state_estimate, scene_graph)
-            if cmd.action != "NOMINAL":
-                logger.warning("Safety breach detected by %s: %s", rule.__name__, cmd.reason)
-                return cmd
+            # pull scene graph from blackboard
+            scene_graph = await self._blackboard.get_scene_graph()
+            self._anomalies = await self._blackboard.get_active_anomalies()
 
-        return SafetyCommand(action="NOMINAL")
+            span.set_attribute(
+                "safety.anomalies_count",
+                len(self._anomalies) if self._anomalies is not None else 0,
+            )
+            span.set_attribute("safety.has_scene_graph", scene_graph is not None)
+
+            for rule in self.rules:
+                rule_name = getattr(rule, "__name__", repr(rule))
+
+                # optional: per-rule span if you want more granularity
+                with tracer.start_as_current_span("safety_agent.rule") as rule_span:
+                    rule_span.set_attribute("safety.rule_name", rule_name)
+
+                    cmd = rule(state_estimate, scene_graph)
+                    if cmd.action != "NOMINAL":
+                        reason = cmd.reason or "<no-reason>"
+                        logger.warning("Safety breach detected by %s: %s", rule_name, reason)
+
+                        # mark both rule span and parent span
+                        rule_span.add_event(
+                            "SAFETY_BREACH",
+                            {
+                                "rule_name": rule_name,
+                                "action": cmd.action,
+                                "reason": reason,
+                            },
+                        )
+                        span.add_event(
+                            "SAFETY_BREACH",
+                            {
+                                "rule_name": rule_name,
+                                "action": cmd.action,
+                                "reason": reason,
+                            },
+                        )
+                        span.set_attribute("safety.result_action", cmd.action)
+                        span.set_attribute("safety.result_rule", rule_name)
+
+                        return cmd
+
+            # no rule fired
+            span.add_event(
+                "SAFETY_NOMINAL",
+                {
+                    "action": "NOMINAL",
+                },
+            )
+            span.set_attribute("safety.result_action", "NOMINAL")
+            return SafetyCommand(action="NOMINAL")
 
     # --- Default rules ---
 

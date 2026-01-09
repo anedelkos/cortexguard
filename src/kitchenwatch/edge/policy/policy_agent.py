@@ -1,10 +1,13 @@
 import asyncio
 import logging
+import time
 from collections import deque
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any, ClassVar
 from uuid import uuid4
+
+from opentelemetry import trace
 
 from kitchenwatch.core.interfaces.base_policy_engine import BasePolicyEngine
 from kitchenwatch.edge.mayday_agent import MaydayAgent
@@ -17,9 +20,15 @@ from kitchenwatch.edge.models.mayday_packet import SystemHealth
 from kitchenwatch.edge.models.plan import Plan, PlanSource, PlanStep, StepStatus
 from kitchenwatch.edge.models.remediation_policy import RemediationPolicy
 from kitchenwatch.edge.models.state_estimate import StateEstimate
+from kitchenwatch.edge.utils.metrics import (
+    anomalies_total,
+    component_duration_ms,
+    policy_escalations_total,
+)
 from kitchenwatch.edge.utils.tracing import BaseTraceSink, TraceSink
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer("cortexguard.policy_agent")
 
 PolicyFunc = Callable[[AnomalyEvent, StateEstimate], RemediationPolicy]
 
@@ -150,71 +159,74 @@ class PolicyAgent:
 
         - If remove_invalid_steps is True, invalid corrective steps are removed from the policy.
         """
-        invalid_indices: list[int] = []
-        invalid_descriptions: list[str] = []
+        with tracer.start_as_current_span("policy_agent.validation") as span:
+            span.set_attribute("policy.id", policy.policy_id)
 
-        for idx, step in enumerate(list(policy.corrective_steps)):
-            action = getattr(step, "action", None)
-            if not action:
-                continue
+            invalid_indices: list[int] = []
+            invalid_descriptions: list[str] = []
 
-            try:
-                valid = self._validate_action(action)
-            except Exception as exc:
-                valid = False
-                logger.exception(
-                    "Exception while validating action for policy %s step %d: %s",
-                    policy.policy_id,
-                    idx,
-                    exc,
-                )
+            for idx, step in enumerate(list(policy.corrective_steps)):
+                action = getattr(step, "action", None)
+                if not action:
+                    continue
 
-            if not valid:
-                tool_id = action.arguments.get("tool_id", "N/A")
-                capability = action.action_name
-                invalid_indices.append(idx)
-                invalid_descriptions.append(f"{tool_id}.{capability}")
-                logger.error(
-                    "Supervisor Alert: Invalid action '%s.%s' detected in policy %s (step %d)",
-                    tool_id,
-                    capability,
-                    policy.policy_id,
-                    idx,
-                )
-
-        if not invalid_indices:
-            return True, {"message": "all_actions_valid"}
-
-        # Mutate policy once: mark escalation, update risk and reasoning trace
-        policy.escalation_required = True
-        policy.risk_assessment = "CRITICAL - Invalid Action Generated (Validation Failure)"
-        policy.reasoning_trace = (
-            (policy.reasoning_trace or "")
-            + " [VALIDATION FAILURE: Invalid actions detected: "
-            + ", ".join(invalid_descriptions)
-            + "]"
-        )
-
-        # Optionally remove or neutralize invalid steps
-        if remove_invalid_steps:
-            # Remove by index in reverse order to keep indices valid
-            for idx in sorted(invalid_indices, reverse=True):
                 try:
-                    policy.corrective_steps.pop(idx)
-                except Exception:
+                    valid = self._validate_action(action)
+                except Exception as exc:
+                    valid = False
                     logger.exception(
-                        "Failed to remove invalid corrective step %d from policy %s",
-                        idx,
+                        "Exception while validating action for policy %s step %d: %s",
                         policy.policy_id,
+                        idx,
+                        exc,
                     )
 
-        details = {
-            "invalid_indices": invalid_indices,
-            "invalid_actions": invalid_descriptions,
-            "removed_invalid_steps": remove_invalid_steps,
-        }
+                if not valid:
+                    tool_id = action.arguments.get("tool_id", "N/A")
+                    capability = action.action_name
+                    invalid_indices.append(idx)
+                    invalid_descriptions.append(f"{tool_id}.{capability}")
+                    logger.error(
+                        "Supervisor Alert: Invalid action '%s.%s' detected in policy %s (step %d)",
+                        tool_id,
+                        capability,
+                        policy.policy_id,
+                        idx,
+                    )
 
-        return False, details
+            if not invalid_indices:
+                return True, {"message": "all_actions_valid"}
+
+            # Mutate policy once: mark escalation, update risk and reasoning trace
+            policy.escalation_required = True
+            policy.risk_assessment = "CRITICAL - Invalid Action Generated (Validation Failure)"
+            policy.reasoning_trace = (
+                (policy.reasoning_trace or "")
+                + " [VALIDATION FAILURE: Invalid actions detected: "
+                + ", ".join(invalid_descriptions)
+                + "]"
+            )
+
+            # Optionally remove or neutralize invalid steps
+            if remove_invalid_steps:
+                # Remove by index in reverse order to keep indices valid
+                for idx in sorted(invalid_indices, reverse=True):
+                    try:
+                        policy.corrective_steps.pop(idx)
+                    except Exception:
+                        logger.exception(
+                            "Failed to remove invalid corrective step %d from policy %s",
+                            idx,
+                            policy.policy_id,
+                        )
+
+            details = {
+                "invalid_indices": invalid_indices,
+                "invalid_actions": invalid_descriptions,
+                "removed_invalid_steps": remove_invalid_steps,
+            }
+
+            return False, details
 
     def _get_llm_action_catalog(self) -> str:
         """
@@ -328,99 +340,107 @@ class PolicyAgent:
         Delegates to LLM for unknown medium severity anomalies, providing
         the current active plan as 'Working Memory' context.
         """
-        logger.info(
-            f"Delegating unknown MEDIUM policy generation for anomaly {anomaly.key} "
-            f"to LLM Engine: {self._policy_engine.model_name()}"
-        )
+        with tracer.start_as_current_span("policy_agent.llm_request") as span:
+            span.set_attribute("model", self._policy_engine.model_name())
 
-        # 1. Fetch the authoritative tool catalog
-        action_catalog_json = self._get_llm_action_catalog()
-
-        # 2. Pass Working Memory (Active Plan) to the Policy Engine for context
-        # Defensive check for 'current_step_id' which was reported as a missing attribute.
-        current_step_id = getattr(active_plan, "current_step_id", "Unknown")
-
-        active_plan_context = (
-            f"Active Plan ID: {active_plan.plan_id}, Current Step: {current_step_id}"
-            if active_plan
-            else "No active plan currently running."
-        )
-
-        # 3. Generate the policy
-        start = datetime.now()
-        await self._trace_sink.post_trace_entry(
-            source=self,
-            event_type="POLICY_LLM_REQUEST",
-            reasoning_text="LLM policy request",
-            metadata={"model": self._policy_engine.model_name()},
-            refs={"anomaly_id": anomaly.id},
-        )
-
-        if snapshot and snapshot.sensors.get("scene_graph_summary"):
-            vision_context = self._scene_graph_summary_to_prompt(
-                snapshot.sensors["scene_graph_summary"]
-            )
-        else:
-            sg = await self._blackboard.get_scene_graph()
-            vision_context = (
-                self._scene_graph_to_compact_prompt(sg) if sg else "No vision context available."
+            logger.info(
+                f"Delegating unknown MEDIUM policy generation for anomaly {anomaly.key} "
+                f"to LLM Engine: {self._policy_engine.model_name()}"
             )
 
-        try:
-            policy = await self._policy_engine.generate_policy(
-                event=anomaly,
-                context=context,
-                # Arguments passed to LLM engine must match the required signature (LSP)
-                action_catalog_json=action_catalog_json,
-                active_plan_context=active_plan_context,
-                vision_context=vision_context,
+            # 1. Fetch the authoritative tool catalog
+            action_catalog_json = self._get_llm_action_catalog()
+
+            # 2. Pass Working Memory (Active Plan) to the Policy Engine for context
+            # Defensive check for 'current_step_id' which was reported as a missing attribute.
+            current_step_id = getattr(active_plan, "current_step_id", "Unknown")
+
+            active_plan_context = (
+                f"Active Plan ID: {active_plan.plan_id}, Current Step: {current_step_id}"
+                if active_plan
+                else "No active plan currently running."
             )
-            duration_ms = int((datetime.now() - start).total_seconds() * 1000)
+
+            # 3. Generate the policy
+            start = datetime.now()
             await self._trace_sink.post_trace_entry(
                 source=self,
-                event_type="POLICY_LLM_RESPONSE",
-                reasoning_text="LLM policy response",
-                metadata={"duration_ms": duration_ms},
-                refs={"anomaly_id": anomaly.id},
-            )
-        except Exception as e:
-            # Log and trace the LLM failure, then return a conservative fail-safe policy
-            logger.exception("LLM policy generation failed: %s", e)
-            await self._trace_sink.post_trace_entry(
-                source=self,
-                event_type="POLICY_LLM_ERROR",
-                reasoning_text="LLM policy generation failed; returning fail-safe policy",
-                metadata={"error": str(e)},
+                event_type="POLICY_LLM_REQUEST",
+                reasoning_text="LLM policy request",
+                metadata={"model": self._policy_engine.model_name()},
                 refs={"anomaly_id": anomaly.id},
             )
 
-            # Construct a deterministic fail-safe RemediationPolicy
-            fail_reason = (
-                "CRITICAL PARSING/LLM FAILURE: Unable to generate policy from LLM. "
-                "Issuing fail-safe emergency remediation to preserve system safety."
-            )
-            fail_steps = [
-                PlanStep(
-                    id="1",
-                    description="Perform emergency shutdown of hazardous actuators.",
-                    status=StepStatus.PENDING,
-                    action=AgentToolCall(
-                        action_name="EMERGENCY_SHUTDOWN",
-                        arguments={"tool_id": self.REMEDIATION_TOOL_ID},
-                    ),
+            if snapshot and snapshot.sensors.get("scene_graph_summary"):
+                vision_context = self._scene_graph_summary_to_prompt(
+                    snapshot.sensors["scene_graph_summary"]
                 )
-            ]
-            policy = RemediationPolicy(
-                policy_id=str(uuid4()),
-                trigger_event=anomaly,
-                reasoning_trace=fail_reason,
-                risk_assessment="HIGH - System safety cannot be guaranteed.",
-                corrective_steps=fail_steps,
-                escalation_required=True,
-                created_at=datetime.now(),
-            )
+            else:
+                sg = await self._blackboard.get_scene_graph()
+                vision_context = (
+                    self._scene_graph_to_compact_prompt(sg)
+                    if sg
+                    else "No vision context available."
+                )
 
-        return policy
+            try:
+                policy = await self._policy_engine.generate_policy(
+                    event=anomaly,
+                    context=context,
+                    # Arguments passed to LLM engine must match the required signature (LSP)
+                    action_catalog_json=action_catalog_json,
+                    active_plan_context=active_plan_context,
+                    vision_context=vision_context,
+                )
+                duration_ms = int((datetime.now() - start).total_seconds() * 1000)
+                span.set_attribute("llm.duration_ms", duration_ms)
+
+                await self._trace_sink.post_trace_entry(
+                    source=self,
+                    event_type="POLICY_LLM_RESPONSE",
+                    reasoning_text="LLM policy response",
+                    metadata={"duration_ms": duration_ms},
+                    refs={"anomaly_id": anomaly.id},
+                )
+            except Exception as e:
+                # Log and trace the LLM failure, then return a conservative fail-safe policy
+                logger.exception("LLM policy generation failed: %s", e)
+                span.add_event("LLM_FALLBACK", {"error": str(e)})
+                await self._trace_sink.post_trace_entry(
+                    source=self,
+                    event_type="POLICY_LLM_ERROR",
+                    reasoning_text="LLM policy generation failed; returning fail-safe policy",
+                    metadata={"error": str(e)},
+                    refs={"anomaly_id": anomaly.id},
+                )
+
+                # Construct a deterministic fail-safe RemediationPolicy
+                fail_reason = (
+                    "CRITICAL PARSING/LLM FAILURE: Unable to generate policy from LLM. "
+                    "Issuing fail-safe emergency remediation to preserve system safety."
+                )
+                fail_steps = [
+                    PlanStep(
+                        id="1",
+                        description="Perform emergency shutdown of hazardous actuators.",
+                        status=StepStatus.PENDING,
+                        action=AgentToolCall(
+                            action_name="EMERGENCY_SHUTDOWN",
+                            arguments={"tool_id": self.REMEDIATION_TOOL_ID},
+                        ),
+                    )
+                ]
+                policy = RemediationPolicy(
+                    policy_id=str(uuid4()),
+                    trigger_event=anomaly,
+                    reasoning_trace=fail_reason,
+                    risk_assessment="HIGH - System safety cannot be guaranteed.",
+                    corrective_steps=fail_steps,
+                    escalation_required=True,
+                    created_at=datetime.now(),
+                )
+
+            return policy
 
     def _policy_for_value_freeze(
         self, anomaly: AnomalyEvent, state_estimate: StateEstimate
@@ -460,80 +480,94 @@ class PolicyAgent:
         Dispatches the anomaly to the correct policy generation function.
         Guarantees a return of RemediationPolicy or None.
         """
-        # 1. Highest Priority: Critical Safety Shutdown (Rules-Based)
-        if anomaly.severity == AnomalySeverity.HIGH:
-            return self._generate_critical_safety_policy(anomaly, context)
+        with tracer.start_as_current_span("policy_agent.dispatch") as span:
+            span.set_attribute("anomaly.key", anomaly.key)
+            span.set_attribute("anomaly.severity", anomaly.severity.name)
 
-        # 2. S2.3 Value Freeze → degraded mode policy
-        if anomaly.key.endswith("_value_freeze"):
-            return self._policy_for_value_freeze(anomaly, context)
+            # 1. Highest Priority: Critical Safety Shutdown (Rules-Based)
+            if anomaly.severity == AnomalySeverity.HIGH:
+                return self._generate_critical_safety_policy(anomaly, context)
 
-        # 3. Medium Priority: Specific Known Remediation (Rules-Based)
-        handler = self._policy_dispatcher.get(anomaly.key)
+            # 2. S2.3 Value Freeze → degraded mode policy
+            if anomaly.key.endswith("_value_freeze"):
+                return self._policy_for_value_freeze(anomaly, context)
 
-        if handler:
-            # Type checker now accepts this call because PolicyFunc no longer
-            # includes the implicit 'self'
-            return handler(anomaly, context)
+            # 3. Medium Priority: Specific Known Remediation (Rules-Based)
+            handler = self._policy_dispatcher.get(anomaly.key)
 
-        # 3. Default Medium: Unknown Anomaly (LLM-Assisted Plan)
-        if anomaly.severity == AnomalySeverity.MEDIUM:
-            # We pass the active_plan here to close the Working Memory gap
-            return await self._generate_unknown_medium_policy(
-                anomaly, context, active_plan, snapshot
-            )
+            if handler:
+                # Type checker now accepts this call because PolicyFunc no longer
+                # includes the implicit 'self'
+                return handler(anomaly, context)
 
-        # 4. Low Priority: Ignored
-        return None
+            # 3. Default Medium: Unknown Anomaly (LLM-Assisted Plan)
+            if anomaly.severity == AnomalySeverity.MEDIUM:
+                # We pass the active_plan here to close the Working Memory gap
+                return await self._generate_unknown_medium_policy(
+                    anomaly, context, active_plan, snapshot
+                )
+
+            # 4. Low Priority: Ignored
+            return None
 
     async def _escalate_to_mayday_agent(self, policy: RemediationPolicy) -> None:
-        try:
-            # Build a compact health snapshot (implement or fetch from your health monitor)
-            health = SystemHealth(
-                cpu_load_pct=None,
-                net_rtt_ms=None,
-                packet_loss_pct=None,
-                disk_pressure_pct=None,
-            )
+        policy_escalations_total.inc()
 
-            # Build the MaydayPacket from the policy + blackboard context
-            packet = await self._mayday_agent.build_packet_from_policy(
-                policy=policy,
-                blackboard=self._blackboard,
-                health=health,
-                trace_id=policy.policy_id,
-            )
+        with tracer.start_as_current_span("policy_agent.escalation") as span:
+            span.set_attribute("policy.id", policy.policy_id)
 
-            cloud_plan = await self._mayday_agent.send_escalation(packet)
-
-            if cloud_plan:
-                cloud_plan.source = PlanSource.CLOUD_AGENT
-                cloud_plan.trace_id = packet.trace_id
-
-                await self._blackboard.set_current_plan(cloud_plan)
-
-                await self._trace_sink.post_trace_entry(
-                    source=self,
-                    event_type="CLOUD_PLAN_RECEIVED",
-                    reasoning_text=f"Cloud remediation plan received for policy {policy.policy_id}",
-                    metadata={"policy_id": policy.policy_id, "plan_id": cloud_plan.plan_id},
-                )
-            else:
-                await self._trace_sink.post_trace_entry(
-                    source=self,
-                    event_type="CLOUD_NO_PLAN",
-                    reasoning_text=f"Cloud returned no plan for policy {policy.policy_id}; falling back to local remediation.",
-                    metadata={"policy_id": policy.policy_id},
+            try:
+                # Build a compact health snapshot (implement or fetch from your health monitor)
+                health = SystemHealth(
+                    cpu_load_pct=None,
+                    net_rtt_ms=None,
+                    packet_loss_pct=None,
+                    disk_pressure_pct=None,
                 )
 
-        except Exception as exc:
-            logger.exception("Mayday escalation failed for policy %s: %s", policy.policy_id, exc)
-            await self._trace_sink.post_trace_entry(
-                source=self,
-                event_type="MAYDAY_ERROR",
-                reasoning_text="Failed to send Mayday escalation; falling back to local remediation",
-                metadata={"policy_id": policy.policy_id, "error": str(exc)},
-            )
+                # Build the MaydayPacket from the policy + blackboard context
+                packet = await self._mayday_agent.build_packet_from_policy(
+                    policy=policy,
+                    blackboard=self._blackboard,
+                    health=health,
+                    trace_id=policy.policy_id,
+                )
+
+                cloud_plan = await self._mayday_agent.send_escalation(packet)
+
+                if cloud_plan:
+                    span.add_event("CLOUD_PLAN_RECEIVED")
+                    cloud_plan.source = PlanSource.CLOUD_AGENT
+                    cloud_plan.trace_id = packet.trace_id
+
+                    await self._blackboard.set_current_plan(cloud_plan)
+
+                    await self._trace_sink.post_trace_entry(
+                        source=self,
+                        event_type="CLOUD_PLAN_RECEIVED",
+                        reasoning_text=f"Cloud remediation plan received for policy {policy.policy_id}",
+                        metadata={"policy_id": policy.policy_id, "plan_id": cloud_plan.plan_id},
+                    )
+                else:
+                    span.add_event("CLOUD_NO_PLAN")
+
+                    await self._trace_sink.post_trace_entry(
+                        source=self,
+                        event_type="CLOUD_NO_PLAN",
+                        reasoning_text=f"Cloud returned no plan for policy {policy.policy_id}; falling back to local remediation.",
+                        metadata={"policy_id": policy.policy_id},
+                    )
+
+            except Exception as exc:
+                logger.exception(
+                    "Mayday escalation failed for policy %s: %s", policy.policy_id, exc
+                )
+                await self._trace_sink.post_trace_entry(
+                    source=self,
+                    event_type="MAYDAY_ERROR",
+                    reasoning_text="Failed to send Mayday escalation; falling back to local remediation",
+                    metadata={"policy_id": policy.policy_id, "error": str(exc)},
+                )
 
     def _build_safe_fallback_policy(self, anomaly: AnomalyEvent) -> RemediationPolicy:
         """
@@ -561,78 +595,90 @@ class PolicyAgent:
             trigger_event=anomaly,
         )
 
-    async def _handle_anomaly_event(self, anomaly: AnomalyEvent) -> None:
-        """
-        Orchestrate policy generation, validation, and publishing.
-        """
-        if anomaly.id in self._processed_anomalies:
-            return
-
-        self._processed_anomalies.append(anomaly.id)
-        self._anomalies_processed += 1
-
-        # 1. Fetch Context (State Estimate + Working Memory / Active Plan)
+    async def _fetch_context_for_anomaly(
+        self, anomaly: AnomalyEvent
+    ) -> tuple[StateEstimate | None, Plan | None]:
         context, active_plan = await self._fetch_context()
 
         if not context:
             logger.warning(
-                f"No StateEstimate context available for anomaly {anomaly.key}. Skipping policy generation."
+                f"No StateEstimate context available for anomaly {anomaly.key}. "
+                "Skipping policy generation."
             )
-            return
+            return None, None
 
-        # Defensive access for active_plan_id logging
-        active_plan_id = (
-            active_plan.plan_id if active_plan and hasattr(active_plan, "plan_id") else "None"
-        )
+        active_plan_id = getattr(active_plan, "plan_id", "None")
         logger.info(
             f"Policy Agent triggered by anomaly '{anomaly.key}' "
             f"(Severity: {anomaly.severity.name}). Active Plan: {active_plan_id}"
         )
 
-        # 2. Generate Policy (Standardized Output: RemediationPolicy | None)
-        snapshot = await self._blackboard.get_fusion_snapshot()
+        return context, active_plan
+
+    async def _generate_policy_for_anomaly(
+        self,
+        anomaly: AnomalyEvent,
+        context: StateEstimate,
+        active_plan: Plan | None,
+        snapshot: FusionSnapshot | None,
+    ) -> RemediationPolicy | None:
+        start = time.perf_counter()
+
         policy = await self._dispatch_policy_generation(anomaly, context, active_plan, snapshot)
 
         if not policy:
             logger.info(f"No policy generated for anomaly {anomaly.key} (likely LOW severity).")
-            return
+            return None
 
-        policy_source = "LLM" if policy.policy_id.startswith("llm-") else "Rules"
+        duration_ms = (time.perf_counter() - start) * 1000.0
+        component_duration_ms.labels(component="policy_generation").observe(duration_ms)
 
-        # 3. Supervisor Step: Validate Actions (Safety Gate)
-        # This checks the policy regardless of source (Rules or LLM)
-        is_valid_policy, details = self._validate_policy_actions(policy, remove_invalid_steps=True)
-        if not is_valid_policy:
-            await self._trace_sink.post_trace_entry(
-                source=self,
-                event_type="POLICY_VALIDATION_FAILED",
-                reasoning_text=f"Policy {policy.policy_id} failed supervisor validation.",
-                metadata={"policy_id": policy.policy_id, "anomaly_id": anomaly.id, **details},
-            )
-            fallback = self._build_safe_fallback_policy(anomaly)
-            fallback.risk_assessment += " Failed policy risk assessment: " + policy.risk_assessment
-            fallback.reasoning_trace += " Failed policy reasoning trace:" + policy.reasoning_trace
-            policy = fallback
+        return policy
 
-        # 4. Publish to Blackboard
+    async def _validate_or_fallback(
+        self, anomaly: AnomalyEvent, policy: RemediationPolicy
+    ) -> RemediationPolicy:
+        is_valid, details = self._validate_policy_actions(policy, remove_invalid_steps=True)
+
+        if is_valid:
+            return policy
+
+        await self._trace_sink.post_trace_entry(
+            source=self,
+            event_type="POLICY_VALIDATION_FAILED",
+            reasoning_text=f"Policy {policy.policy_id} failed supervisor validation.",
+            metadata={"policy_id": policy.policy_id, "anomaly_id": anomaly.id, **details},
+        )
+
+        fallback = self._build_safe_fallback_policy(anomaly)
+        fallback.risk_assessment += " Failed policy risk assessment: " + policy.risk_assessment
+        fallback.reasoning_trace += " Failed policy reasoning trace:" + policy.reasoning_trace
+
+        return fallback
+
+    async def _publish_policy(self, anomaly: AnomalyEvent, policy: RemediationPolicy) -> None:
+        component_duration_ms.labels(component="policy_publish").observe(0)
+
         await self._blackboard.set_remediation_policy(policy)
         self._policies_generated += 1
-        escalation = policy.escalation_required  # Read final escalation state
 
-        event_type = "POLICY_GENERATED"
+        escalation = policy.escalation_required
         if escalation:
             self._escalations_triggered += 1
-            event_type = "ESCALATE"
 
-        # 5. Log to Trace
+        event_type = "ESCALATE" if escalation else "POLICY_GENERATED"
+
         await self._trace_sink.post_trace_entry(
             source=self,
             event_type=event_type,
-            reasoning_text=f"Remediation Policy {policy.policy_id} generated by {policy_source}. Escalation: {escalation}. Steps: {len(policy.corrective_steps)}.",
+            reasoning_text=(
+                f"Remediation Policy {policy.policy_id} generated. "
+                f"Escalation: {escalation}. Steps: {len(policy.corrective_steps)}."
+            ),
             metadata={
                 "policy_id": policy.policy_id,
                 "anomaly_id": anomaly.id,
-                "source": policy_source,
+                "source": "LLM" if policy.policy_id.startswith("llm-") else "Rules",
                 "risk_assessment": policy.risk_assessment,
                 "escalation_required": escalation,
                 "full_reasoning_trace": policy.reasoning_trace,
@@ -649,25 +695,64 @@ class PolicyAgent:
 
         logger.warning(
             f"Generated policy {policy.policy_id} for anomaly {anomaly.key}. "
-            f"Source: {policy_source}. "
             f"Escalation: {escalation}"
         )
 
-        if escalation and self._mayday_agent is not None:
-            await self._escalate_to_mayday_agent(policy)
+    async def _handle_anomaly_event(self, anomaly: AnomalyEvent) -> None:
+        """
+        Orchestrate policy generation, validation, and publishing.
+        """
+        anomalies_total.inc()
+
+        with tracer.start_as_current_span("policy_agent.handle_anomaly") as span:
+            span.set_attribute("anomaly.key", anomaly.key)
+            span.set_attribute("anomaly.severity", anomaly.severity.name)
+            span.set_attribute("anomaly.id", anomaly.id)
+
+            if anomaly.id in self._processed_anomalies:
+                return
+
+            self._processed_anomalies.append(anomaly.id)
+            self._anomalies_processed += 1
+
+            # 1. Fetch context
+            context, active_plan = await self._fetch_context_for_anomaly(anomaly)
+            if context is None:
+                return
+
+            # 2. Generate policy
+            snapshot = await self._blackboard.get_fusion_snapshot()
+            policy = await self._generate_policy_for_anomaly(
+                anomaly, context, active_plan, snapshot
+            )
+            if policy is None:
+                return
+
+            # 3. Validate or fallback
+            policy = await self._validate_or_fallback(anomaly, policy)
+
+            # 4. Publish
+            await self._publish_policy(anomaly, policy)
+
+            # 5. Escalate if needed
+            if policy.escalation_required and self._mayday_agent is not None:
+                await self._escalate_to_mayday_agent(policy)
 
     async def _process_active_anomalies_tick(self) -> list[str]:
         """
         Perform one policy-agent tick: fetch active anomalies, process up to
         MAX_ANOMALIES_PER_TICK, and return the list of anomaly ids processed.
         """
+        tick_start = time.perf_counter()
         processed_ids: list[str] = []
 
-        try:
-            active_anomalies = await self._blackboard.get_active_anomalies()
-        except Exception as exc:
-            logger.exception("Failed to fetch active anomalies: %s", exc)
-            return processed_ids
+        with tracer.start_as_current_span("policy_agent.tick") as span:
+            try:
+                active_anomalies = await self._blackboard.get_active_anomalies()
+                span.set_attribute("active_anomalies.count", len(active_anomalies or {}))
+            except Exception as exc:
+                logger.exception("Failed to fetch active anomalies: %s", exc)
+                return processed_ids
 
         if not active_anomalies:
             return processed_ids
@@ -701,6 +786,9 @@ class PolicyAgent:
                             "HIGH severity anomaly processed, allowing Orchestrator to react"
                         )
                         break
+
+        duration_ms = (time.perf_counter() - tick_start) * 1000.0
+        component_duration_ms.labels(component="policy_agent_tick").observe(duration_ms)
 
         return processed_ids
 

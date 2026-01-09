@@ -2,6 +2,9 @@ networks:
   kitchenwatch_net:
     driver: bridge
 
+volumes:
+  grafana-data:
+
 services:
   edge:
     image: kitchenwatch-edge:latest
@@ -9,6 +12,13 @@ services:
       context: .
       dockerfile: docker/edge.Dockerfile
     container_name: kitchenwatch-edge
+    depends_on:
+      - tempo
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/healthz" ]
+      interval: 3s
+      timeout: 2s
+      retries: 10
     environment:
       - LOG_LEVEL=INFO
       - LOG_JSON=true
@@ -25,7 +35,8 @@ services:
       dockerfile: docker/simulator.Dockerfile
     container_name: kitchenwatch-simulator
     depends_on:
-      - edge
+      edge:
+        condition: service_healthy
     working_dir: /workspace/kitchenwatch
     command: []
     environment:
@@ -38,5 +49,41 @@ services:
     expose:
       - "8080"
     restart: unless-stopped
+    networks:
+      - kitchenwatch_net
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: kitchenwatch-prometheus
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - kitchenwatch_net
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: kitchenwatch-grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./docker/grafana_datasources.yaml:/etc/grafana/provisioning/datasources/cortexguard.yaml:ro
+      - ./docker/grafana_dashboards.yaml:/etc/grafana/provisioning/dashboards/cortexguard-dashboards.yaml:ro
+      - ./docker/grafana_dashboard.json:/var/lib/grafana/dashboards/cortexguard-edge.json:ro
+      - grafana-data:/var/lib/grafana
+    networks:
+      - kitchenwatch_net
+
+  tempo:
+    image: grafana/tempo:latest
+    container_name: kitchenwatch-tempo
+    volumes:
+      - ./docker/tempo.yaml:/etc/tempo.yaml:ro
+      - ./docker/tempo-data:/var/tempo
+    command: ["--config.file=/etc/tempo.yaml"]
+    ports:
+      - "4318:4318"
+      - "3100:3100"
     networks:
       - kitchenwatch_net

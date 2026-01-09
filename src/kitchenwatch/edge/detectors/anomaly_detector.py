@@ -1,16 +1,25 @@
 import asyncio
 import logging
+import time
 import uuid
-from typing import Any, cast
+from typing import Any
+
+from opentelemetry import trace
 
 from kitchenwatch.core.interfaces.base_detector import BaseDetector
 from kitchenwatch.edge.models.anomaly_event import SEVERITY_RANKING, AnomalyEvent, AnomalySeverity
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
 from kitchenwatch.edge.models.reasoning_trace_entry import TraceSeverity
+from kitchenwatch.edge.utils.metrics import (
+    anomalies_total,
+    component_duration_ms,
+    detector_failures_total,
+)
 from kitchenwatch.edge.utils.tracing import BaseTraceSink, TraceSink
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer("cortexguard.anomaly_detector")
 
 
 class AnomalyDetector:
@@ -67,136 +76,163 @@ class AnomalyDetector:
         logger.debug("No active PlanStep or action found. Defaulting to 'Idle'")
         return "Idle"
 
-    async def _run_tick(self) -> None:
-        """Execute one detection cycle: fetch snapshot, run detectors, aggregate, and update blackboard."""
-        snapshot = await self._poll_blackboard()
-        current_intent = await self._poll_blackboard_intent()
+    async def _run_detectors(self, snapshot: FusionSnapshot) -> list[tuple[str, Any]]:
 
-        if snapshot is None:
-            return
+        tasks = []
 
-        try:
-            # Run detectors concurrently
-            tasks = [detector.detect(snapshot) for detector in self._sub_detectors]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+        for detector in self._sub_detectors:
+            name = detector.__class__.__name__
 
-            valid_results: list[tuple[str, dict[str, Any]]] = []
-            for i, result in enumerate(results):
-                detector = self._sub_detectors[i]
-                detector_name = detector.__class__.__name__
+            async def run_detector(detector: Any = detector, name: str = name) -> Any:
+                with tracer.start_as_current_span("anomaly_detector.detector") as dspan:
+                    dspan.set_attribute("detector.name", name)
+                    return await detector.detect(snapshot)
 
-                if isinstance(result, Exception):
-                    logger.error(
-                        f"Sub-detector {detector_name} failed",
-                        exc_info=result,
-                    )
-                    await self._trace_sink.post_trace_entry(
-                        source=self,
-                        event_type="DETECTOR_FAILED",
-                        reasoning_text=f"Sub-detector {detector_name} raised an exception",
-                        metadata={"detector": detector_name, "error": str(result)},
-                        severity=TraceSeverity.HIGH,
-                    )
-                    self._detector_failures += 1
-                elif result:
-                    # Store detector name along with its result dictionary
-                    valid_results.append((detector_name, cast(dict[str, Any], result)))
+            tasks.append(run_detector())
 
-            if valid_results:
-                # Aggregate results now includes score and detector list
-                active_aggregated_flags = self._aggregate_results(valid_results)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        valid = []
+
+        for detector, result in zip(self._sub_detectors, results, strict=False):
+            name = detector.__class__.__name__
+
+            if isinstance(result, Exception):
+                logger.error(f"Sub-detector {name} failed", exc_info=result)
                 await self._trace_sink.post_trace_entry(
                     source=self,
-                    event_type="AGGREGATION_SUMMARY",
-                    reasoning_text="Aggregation completed for tick",
-                    metadata={
-                        "keys_considered": len(valid_results),
-                        "anomalies_emitted": len(active_aggregated_flags),
-                        "top_keys": list(active_aggregated_flags.keys())[:5],
-                    },
+                    event_type="DETECTOR_FAILED",
+                    reasoning_text=f"Sub-detector {name} raised an exception",
+                    metadata={"detector": name, "error": str(result)},
+                    severity=TraceSeverity.HIGH,
+                )
+                self._detector_failures += 1
+                detector_failures_total.inc()
+            elif result:
+                valid.append((name, result))
+
+        return valid
+
+    async def _aggregate_and_emit(self, valid_results: list[tuple[str, Any]]) -> dict[str, Any]:
+        active_flags = self._aggregate_results(valid_results)
+
+        await self._trace_sink.post_trace_entry(
+            source=self,
+            event_type="AGGREGATION_SUMMARY",
+            reasoning_text="Aggregation completed for tick",
+            metadata={
+                "keys_considered": len(valid_results),
+                "anomalies_emitted": len(active_flags),
+                "top_keys": list(active_flags.keys())[:5],
+            },
+        )
+
+        return active_flags
+
+    async def _clear_resolved_anomalies(self, new_keys: set[str]) -> None:
+        keys_to_clear = self._active_anomaly_keys - new_keys
+
+        for key in keys_to_clear:
+            await self._blackboard.clear_anomaly(key)
+            await self._trace_sink.post_trace_entry(
+                source=self,
+                event_type="ANOMALY_CLEARED",
+                reasoning_text=f"Anomaly '{key}' resolved or no longer detected.",
+                metadata={"anomaly_key": key},
+                severity=TraceSeverity.INFO,
+                refs={"anomaly_key": key},
+            )
+
+    async def _emit_and_store_active_anomalies(
+        self,
+        active_flags: dict[str, tuple[Any, float, list[str], dict[str, Any] | None]],
+        snapshot: FusionSnapshot,
+        current_intent: str | None,
+    ) -> None:
+        for key, (severity, score, detectors, flag_metadata) in active_flags.items():
+            metadata = {
+                "snapshot_id": snapshot.id,
+                "current_intent": current_intent,
+                "description": f"Automated detection of {key} (Severity: {severity.name}, Score: {score:.2f})",
+                "contributing_detectors": detectors,
+            }
+            metadata = (flag_metadata or {}) | metadata
+
+            event = AnomalyEvent(
+                id=uuid.uuid4().hex,
+                key=key,
+                timestamp=snapshot.timestamp,
+                severity=severity,
+                score=score,
+                contributing_detectors=detectors,
+                metadata=metadata,
+                window=None,
+            )
+
+            await self._blackboard.set_anomaly(event)
+
+            if key not in self._active_anomaly_keys:
+                anomalies_total.inc()
+
+                trace_sev = (
+                    TraceSeverity.CRITICAL
+                    if severity == AnomalySeverity.HIGH
+                    else (
+                        TraceSeverity.HIGH
+                        if severity == AnomalySeverity.MEDIUM
+                        else TraceSeverity.WARN
+                    )
                 )
 
-                newly_active_keys = set(active_aggregated_flags.keys())
+                await self._trace_sink.post_trace_entry(
+                    source=self,
+                    event_type="ANOMALY_TRIGGERED",
+                    reasoning_text=f"New anomaly '{key}' detected. Severity: {severity.name}. Score: {score:.2f}.",
+                    metadata={"anomaly_key": key, "severity": severity.name, "score": score},
+                    severity=trace_sev,
+                    refs={"anomaly_key": key},
+                )
 
-                # Clear flags that were active last tick but are NOT active now.
-                keys_to_clear = self._active_anomaly_keys - newly_active_keys
-                for key in keys_to_clear:
-                    await self._blackboard.clear_anomaly(key)
+    async def _run_tick(self) -> None:
+        """Execute one detection cycle: fetch snapshot, run detectors, aggregate, and update blackboard."""
+        tick_start = time.perf_counter()
 
-                    await self._trace_sink.post_trace_entry(
-                        source=self,
-                        event_type="ANOMALY_CLEARED",
-                        reasoning_text=f"Anomaly '{key}' resolved or no longer detected in the environment.",
-                        metadata={"anomaly_key": key},
-                        severity=TraceSeverity.INFO,
-                        refs={"anomaly_key": key},
-                    )
+        with tracer.start_as_current_span("anomaly_detector.tick") as span:
+            span.set_attribute("detector.count", len(self._sub_detectors))
 
-                # Set/Update currently active flags with the complete AnomalyEvent structure
-                for key, (
-                    severity,
-                    score,
-                    contributing_detectors,
-                    flag_metadata,
-                ) in active_aggregated_flags.items():
-                    # Map old 'description' and 'context' into the new 'metadata' field
-                    metadata = {
-                        "snapshot_id": snapshot.id,
-                        "current_intent": current_intent,
-                        "description": f"Automated detection of {key} (Severity: {severity.name}, Score: {score:.2f})",
-                        "contributing_detectors": contributing_detectors,
-                    }
-                    metadata = (flag_metadata or {}) | metadata
+            snapshot = await self._poll_blackboard()
+            current_intent = await self._poll_blackboard_intent()
 
-                    # Construct the mandatory fields for AnomalyEvent
-                    event = AnomalyEvent(
-                        id=uuid.uuid4().hex,  # MANDATORY: Generate a unique ID
-                        key=key,
-                        timestamp=snapshot.timestamp,
-                        severity=severity,
-                        score=score,  # MANDATORY: Use aggregated score
-                        contributing_detectors=contributing_detectors,  # MANDATORY: Use aggregated list
-                        metadata=metadata,
-                        window=None,  # No window specified for instantaneous detection
-                    )
-                    await self._blackboard.set_anomaly(event)
+            if snapshot is None:
+                return
 
-                    trace_sev = (
-                        TraceSeverity.CRITICAL
-                        if severity == AnomalySeverity.HIGH
-                        else (
-                            TraceSeverity.HIGH
-                            if severity == AnomalySeverity.MEDIUM
-                            else TraceSeverity.WARN
-                        )
-                    )
+            try:
+                valid_results = await self._run_detectors(snapshot)
 
-                    if key not in self._active_anomaly_keys:
-                        await self._trace_sink.post_trace_entry(
-                            source=self,
-                            event_type="ANOMALY_TRIGGERED",
-                            reasoning_text=f"New anomaly '{key}' detected. Severity: {severity.name}. Score: {score:.2f}.",
-                            metadata={
-                                "anomaly_key": key,
-                                "severity": severity.name,
-                                "score": score,
-                            },
-                            severity=trace_sev,
-                            refs={"anomaly_key": key},
-                        )
+                if not valid_results:
+                    return
 
-                # Update the state tracker for the next tick
+                active_flags = await self._aggregate_and_emit(valid_results)
+
+                newly_active_keys = set(active_flags.keys())
+
+                await self._clear_resolved_anomalies(newly_active_keys)
+
+                await self._emit_and_store_active_anomalies(active_flags, snapshot, current_intent)
+
                 self._active_anomaly_keys = newly_active_keys
 
                 if newly_active_keys:
                     self._anomalies_detected += 1
                     logger.info(f"Anomalies detected: {list(newly_active_keys)}")
 
-        except Exception as e:
-            logger.exception(f"Unexpected error during tick processing: {e}")
+            except Exception as e:
+                logger.exception(f"Unexpected error during tick processing: {e}")
 
-        finally:
-            self._ticks_processed += 1
+            finally:
+                self._ticks_processed += 1
+                duration_ms = (time.perf_counter() - tick_start) * 1000.0
+                component_duration_ms.labels(component="anomaly_detector_tick").observe(duration_ms)
 
     def _aggregate_results(
         self, results: list[tuple[str, dict[str, Any]]]

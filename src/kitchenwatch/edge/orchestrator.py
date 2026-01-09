@@ -1,6 +1,9 @@
 import asyncio
 import logging
+import time
 from uuid import uuid4
+
+from opentelemetry import trace
 
 from kitchenwatch.edge.arbiter import Arbiter
 from kitchenwatch.edge.models.blackboard import Blackboard
@@ -10,9 +13,11 @@ from kitchenwatch.edge.models.reasoning_trace_entry import TraceSeverity
 from kitchenwatch.edge.models.remediation_policy import RemediationPolicy
 from kitchenwatch.edge.safety_agent import SafetyAgent, SafetyCommand
 from kitchenwatch.edge.utils.async_priority_queue import AsyncPriorityQueue
+from kitchenwatch.edge.utils.metrics import component_duration_ms
 from kitchenwatch.edge.utils.tracing import BaseTraceSink, TraceSink
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer("cortexguard.orchestrator")
 
 DEFAULT_TICK_INTERVAL = 0.1
 HIGH_PRIORITY = 0  # Highest priority for urgent remediation plans
@@ -250,48 +255,77 @@ class Orchestrator:
         logger.info("Orchestrator loop started.")
         try:
             while self._loop_running:
-                try:
-                    logger.debug(
-                        f"Tick: current plan = {self._current_plan.plan_id if self._current_plan else 'None'}"
+                tick_start = time.perf_counter()
+                with tracer.start_as_current_span("orchestrator.tick") as span:
+                    plan_id = getattr(self._current_plan, "plan_id", None)
+                    span.set_attribute(
+                        "current_plan_id", plan_id if plan_id is not None else "None"
                     )
+                    span.set_attribute("queue_size", len(self._plan_queue))
+                    try:
+                        logger.debug(
+                            f"Tick: current plan = {self._current_plan.plan_id if self._current_plan else 'None'}"
+                        )
 
-                    # 1. Run safety check before any plan/step logic
-                    safety_cmd = await self._check_safety()
-                    if safety_cmd is None or safety_cmd.action != "NOMINAL":
-                        await asyncio.sleep(tick_interval)
-                        continue
+                        # 1. Run safety check before any plan/step logic
+                        with tracer.start_as_current_span(
+                            "orchestrator.safety_check"
+                        ) as safety_span:
+                            safety_cmd = await self._check_safety()
+                            action = getattr(safety_cmd, "action", None)
+                            safety_span.set_attribute(
+                                "safety.action", action if action is not None else "None"
+                            )
 
-                    # 2. Check for immediate, high-priority remediation actions
-                    await self._handle_remediation_policy()
-
-                    # Start a plan if none running
-                    if not self._current_plan:
-                        await self._start_next_plan()
-
-                    # Check preemption and step status
-                    if self._current_plan:
-                        # Check preemption again, as remediation may have been added
-                        urgent_plan = await self._check_for_preemption()
-                        if urgent_plan:
-                            await self._start_next_plan(urgent_plan)
+                        if safety_cmd is None or safety_cmd.action != "NOMINAL":
                             await asyncio.sleep(tick_interval)
                             continue
 
-                        current_step = await self._blackboard.get_current_step()
-                        step_status = (
-                            getattr(current_step, "status", None) if current_step else None
+                        # 2. Check for immediate, high-priority remediation actions
+                        with tracer.start_as_current_span("orchestrator.handle_remediation"):
+                            await self._handle_remediation_policy()
+
+                        # Start a plan if none running
+                        if not self._current_plan:
+                            with tracer.start_as_current_span("orchestrator.start_plan"):
+                                await self._start_next_plan()
+
+                        # Check preemption and step status
+                        if self._current_plan:
+                            # Check preemption again, as remediation may have been added
+                            with tracer.start_as_current_span("orchestrator.preemption_check"):
+                                urgent_plan = await self._check_for_preemption()
+
+                            if urgent_plan:
+                                with tracer.start_as_current_span("orchestrator.start_plan"):
+                                    await self._start_next_plan(urgent_plan)
+                                await asyncio.sleep(tick_interval)
+                                continue
+
+                            current_step = await self._blackboard.get_current_step()
+                            step_status = (
+                                getattr(current_step, "status", None) if current_step else None
+                            )
+
+                            if step_status and step_status in (
+                                StepStatus.COMPLETED,
+                                StepStatus.FAILED,
+                            ):
+                                with tracer.start_as_current_span("orchestrator.advance_plan"):
+                                    await self._advance_plan_or_handle_failure()
+
+                        await asyncio.sleep(tick_interval)
+
+                    except asyncio.CancelledError:
+                        logger.info("Orchestrator loop cancelled gracefully.")
+                        raise
+                    except Exception as loop_err:
+                        logger.exception(f"Unexpected error in orchestrator tick: {loop_err}")
+                    finally:
+                        duration_ms = (time.perf_counter() - tick_start) * 1000.0
+                        component_duration_ms.labels(component="orchestrator_tick").observe(
+                            duration_ms
                         )
-
-                        if step_status and step_status in (StepStatus.COMPLETED, StepStatus.FAILED):
-                            await self._advance_plan_or_handle_failure()
-
-                    await asyncio.sleep(tick_interval)
-
-                except asyncio.CancelledError:
-                    logger.info("Orchestrator loop cancelled gracefully.")
-                    raise
-                except Exception as loop_err:
-                    logger.exception(f"Unexpected error in orchestrator tick: {loop_err}")
 
         except Exception as e:
             logger.critical(f"Fatal orchestrator error: {e}", exc_info=True)

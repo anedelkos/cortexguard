@@ -37,6 +37,7 @@ docker-compose.override.yml
 *.env
 *.pid
 *.sock
+docker/tempo-data/
 
 # Ignore devcontainer build context
 .devcontainer/.env
