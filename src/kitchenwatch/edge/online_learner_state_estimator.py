@@ -1,14 +1,22 @@
 import datetime
 import logging
+import time
 from collections import deque
 from statistics import mean, stdev
+
+from opentelemetry import trace
 
 from kitchenwatch.core.interfaces.base_online_learner import BaseOnlineLearner
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
 from kitchenwatch.edge.models.state_estimate import StateEstimate
+from kitchenwatch.edge.utils.metrics import (
+    component_duration_ms,
+    estimator_confidence,
+)
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer("cortexguard.online_learner_state_estimator")
 
 # Anomaly detection thresholds
 SIGMA_THRESHOLD_NOMINAL = 3.0  # Standard deviations for anomaly detection
@@ -107,6 +115,196 @@ class OnlineLearnerStateEstimator:
             logger.exception(f"Failed to retrieve intent from Blackboard: {e}")
             return "exception"
 
+    def _set_timestamp_attribute(
+        self, span: trace.Span, ts: datetime.datetime | float | int
+    ) -> None:
+        if isinstance(ts, datetime.datetime):
+            span.set_attribute("timestamp", ts.isoformat())
+        else:
+            span.set_attribute("timestamp", float(ts))
+
+    async def _augment_with_scene_graph(
+        self, features: dict[str, float]
+    ) -> datetime.datetime | None:
+        try:
+            sg = await self._blackboard.get_scene_graph()
+        except Exception as exc:
+            logger.debug("Failed to get scene graph from blackboard: %s", exc)
+            return None
+
+        if sg is None:
+            logger.debug("No SceneGraph available; skipping vision-derived features")
+            return None
+
+        objs = getattr(sg, "objects", None)
+        rels = getattr(sg, "relationships", None)
+
+        has_objects = isinstance(objs, (list, tuple)) and len(objs) > 0
+        has_relationships = isinstance(rels, (list, tuple)) and len(rels) > 0
+
+        if not (has_objects or has_relationships):
+            logger.debug("No populated SceneGraph available; skipping vision-derived features")
+            return None
+
+        scene_graph_frame: datetime.datetime | None = None
+        sg_ts = getattr(sg, "timestamp", None)
+        if isinstance(sg_ts, datetime.datetime):
+            scene_graph_frame = sg_ts
+
+        # Extract nearest human/hand distance (if any)
+        nearest_human: float | None = None
+        for o in objs or []:
+            label = (o.label or "").lower()
+            if label in ("person", "human", "hand"):
+                d = o.properties.get("distance_m")
+                if isinstance(d, (int, float)):
+                    nearest_human = d if nearest_human is None else min(nearest_human, float(d))
+        if nearest_human is not None:
+            features["vision_nearest_human_m"] = float(nearest_human)
+
+        # Count occluding relationships as a simple vision-derived feature
+        occlusion_count = sum(
+            1 for r in rels or [] if getattr(r, "relationship", None) == "occluding"
+        )
+        features["vision_occlusion_count"] = float(occlusion_count)
+
+        return scene_graph_frame
+
+    def _compute_residuals_and_stats(self, features: dict[str, float]) -> tuple[
+        dict[str, float],  # residuals
+        dict[str, float],  # uncertainty
+        dict[str, float],  # z_scores
+        float,  # max_z_score
+        str | None,  # max_z_feature
+        dict[str, float],  # features_for_update
+    ]:
+        residuals = {}
+        uncertainty = {}
+        z_scores = {}
+        max_z_score = 0.0
+        max_z_feature = None
+        features_for_update = {}
+
+        with tracer.start_as_current_span("estimator.predict_and_residuals"):
+            expected = self._learner.predict(features)
+
+            for key, observed in features.items():
+                if observed is None:
+                    continue
+
+                self._seen_per_feature[key] = self._seen_per_feature.get(key, 0) + 1
+                features_for_update[key] = observed
+
+                exp = expected.get(key, observed)
+                residual = observed - exp
+                residuals[key] = residual
+
+                # history
+                if key not in self._residuals:
+                    self._residuals[key] = deque(maxlen=self._window_size)
+                self._residuals[key].append(residual)
+
+                # not enough history
+                if self._seen_per_feature[key] < self._min_history:
+                    uncertainty[key] = 0.0
+                    z_scores[key] = 0.0
+                    continue
+
+                hist = self._residuals[key]
+                sigma_raw = stdev(hist) if len(hist) > 1 else 0.0
+                mu = mean(hist) if hist else 0.0
+                uncertainty[key] = sigma_raw
+
+                sigma_used = max(sigma_raw, MIN_SIGMA)
+                z = abs(residual - mu) / sigma_used
+                z_scores[key] = z
+
+                # persistence
+                if z > self._sigma_threshold:
+                    self._consec_high[key] = self._consec_high.get(key, 0) + 1
+                else:
+                    self._consec_high[key] = 0
+
+                if self._consec_high[key] < 2:
+                    continue
+
+                if z > max_z_score:
+                    max_z_score = z
+                    max_z_feature = key
+
+        return (
+            residuals,
+            uncertainty,
+            z_scores,
+            max_z_score,
+            max_z_feature,
+            features_for_update,
+        )
+
+    def _safe_update_learner(self, features_for_update: dict[str, float]) -> None:
+        try:
+            if features_for_update:
+                self._learner.update(features_for_update)
+        except Exception as e:
+            logger.exception("Learner update failed: %s", e)
+        self._update_count += 1
+
+    def _compute_symbolic_state(self, z_scores: dict[str, float]) -> dict[str, str]:
+        symbolic = {}
+        for key, z in z_scores.items():
+            if z != 0.0:
+                symbolic[f"{key}_state"] = self._z_to_symbol(z)
+        return symbolic
+
+    def _attach_scene_graph_frame(
+        self, flags: dict[str, float], frame: datetime.datetime | None
+    ) -> None:
+        if frame is None:
+            return
+        try:
+            flags["scene_graph_frame"] = float(frame.timestamp())
+        except Exception:
+            logger.debug("Could not convert scene_graph_frame to timestamp: %r", frame)
+
+    def _update_metrics(self, label: str) -> None:
+        if label != "nominal":
+            self._anomaly_count += 1
+
+    def _normalize_timestamp(self, ts: datetime.datetime | float | int) -> datetime.datetime:
+        if isinstance(ts, datetime.datetime):
+            return ts
+        # assume float or int epoch seconds
+        return datetime.datetime.fromtimestamp(float(ts))
+
+    def _build_state_estimate(
+        self,
+        timestamp: datetime.datetime | float | int,
+        label: str,
+        confidence: float,
+        residuals: dict[str, float],
+        uncertainty: dict[str, float],
+        z_scores: dict[str, float],
+        flags: dict[str, float],
+        intent: str | None,
+        symbolic_state: dict[str, str],
+    ) -> StateEstimate:
+
+        ts = self._normalize_timestamp(timestamp)
+
+        return StateEstimate(
+            timestamp=ts,
+            label=label,
+            confidence=confidence,
+            residuals=residuals,
+            uncertainty=uncertainty,
+            z_scores=z_scores,
+            ttd=None,
+            ttf=None,
+            flags=flags,
+            source_intent=intent,
+            symbolic_system_state=symbolic_state,
+        )
+
     async def update(self, snapshot: FusionSnapshot) -> StateEstimate:
         """
         Process a fusion snapshot and estimate system state.
@@ -125,186 +323,71 @@ class OnlineLearnerStateEstimator:
         Returns:
             StateEstimate with label, confidence, and diagnostics
         """
-        now = snapshot.timestamp
-        current_intent = await self._fetch_current_intent()
+        start = time.perf_counter()
 
-        # Use EMA-smoothed features to reduce noise
-        features = snapshot.derived.copy()
+        with tracer.start_as_current_span("estimator.update") as span:
+            self._set_timestamp_attribute(span, snapshot.timestamp)
+            span.set_attribute("feature.count", len(snapshot.derived or {}))
 
-        scene_graph_frame: datetime.datetime | None = None
-        try:
-            sg = await self._blackboard.get_scene_graph()
-        except Exception as exc:
-            logger.debug("Failed to get scene graph from blackboard: %s", exc)
-            sg = None
+            now = snapshot.timestamp
+            current_intent = await self._fetch_current_intent()
 
-        objs = getattr(sg, "objects", None)
-        rels = getattr(sg, "relationships", None)
+            # 1. Extract base features
+            features = snapshot.derived.copy()
 
-        has_objects = isinstance(objs, (list, tuple)) and len(objs) > 0
-        has_relationships = isinstance(rels, (list, tuple)) and len(rels) > 0
+            # 2. Augment with scene graph
+            scene_graph_frame = await self._augment_with_scene_graph(features)
 
-        if sg is not None and (has_objects or has_relationships):
-            # record a small reference to the scene graph timestamp/frame if it's a datetime
-            sg_ts = getattr(sg, "timestamp", None)
-            if isinstance(sg_ts, datetime.datetime):
-                scene_graph_frame = sg_ts
+            if not features:
+                logger.warning("Empty features in snapshot, returning nominal state")
+                return self._create_nominal_state(now, current_intent)
 
-            # Extract nearest human/hand distance (if any)
-            nearest_human: float | None = None
-            for o in sg.objects:
-                label = (o.label or "").lower()
-                if label in ("person", "human", "hand"):
-                    d = o.properties.get("distance_m")
-                    if isinstance(d, (int, float)):
-                        nearest_human = d if nearest_human is None else min(nearest_human, float(d))
-            if nearest_human is not None:
-                features["vision_nearest_human_m"] = float(nearest_human)
+            # 3. Predict + residuals + stats
+            (
+                residuals,
+                uncertainty,
+                z_scores,
+                max_z_score,
+                max_z_feature,
+                features_for_update,
+            ) = self._compute_residuals_and_stats(features)
 
-            # Count occluding relationships as a simple vision-derived feature
-            occlusion_count = sum(
-                1 for r in sg.relationships if getattr(r, "relationship", None) == "occluding"
+            # 4. Update learner
+            self._safe_update_learner(features_for_update)
+
+            # 5. Classify state
+            label, flags = self._classify_state(max_z_score, max_z_feature, z_scores)
+            span.set_attribute("max_z_score", max_z_score)
+            span.set_attribute("label", label)
+
+            # 6. Symbolic state
+            symbolic_state = self._compute_symbolic_state(z_scores)
+
+            # 7. Confidence
+            confidence = self._calculate_confidence(max_z_score)
+            estimator_confidence.set(confidence)
+
+            # 8. Attach scene graph frame
+            self._attach_scene_graph_frame(flags, scene_graph_frame)
+
+            # 9. Update metrics
+            self._update_metrics(label)
+
+            duration_ms = (time.perf_counter() - start) * 1000.0
+            component_duration_ms.labels(component="estimator_update").observe(duration_ms)
+
+            # 10. Build final state estimate
+            return self._build_state_estimate(
+                now,
+                label,
+                confidence,
+                residuals,
+                uncertainty,
+                z_scores,
+                flags,
+                current_intent,
+                symbolic_state,
             )
-            features["vision_occlusion_count"] = float(occlusion_count)
-        else:
-            # No usable scene graph found; do not add vision-derived features.
-            logger.debug("No populated SceneGraph available; skipping vision-derived features")
-
-        if not features:
-            logger.warning("Empty features in snapshot, returning nominal state")
-            return self._create_nominal_state(now, current_intent)
-
-        residuals: dict[str, float] = {}
-        uncertainty: dict[str, float] = {}
-        z_scores: dict[str, float] = {}
-
-        # 1. Predict expected values
-        expected = self._learner.predict(features)
-
-        # 2. Calculate residuals and update history
-        max_z_score = 0.0
-        max_z_feature: str | None = None
-
-        # Build a filtered features dict for learner.update (exclude None)
-        features_for_update: dict[str, float] = {}
-
-        for key, observed_value in features.items():
-            if observed_value is None:
-                continue
-
-            self._seen_per_feature[key] = self._seen_per_feature.get(key, 0) + 1
-            features_for_update[key] = observed_value
-
-            expected_value = expected.get(key, observed_value)
-            residual = observed_value - expected_value
-            residuals[key] = residual
-
-            # Initialize residual history for new features
-            if key not in self._residuals:
-                self._residuals[key] = deque(maxlen=self._window_size)
-            self._residuals[key].append(residual)
-
-            # 3. Calculate statistical metrics
-            residual_history = self._residuals[key]
-
-            # Only compute stats after we've actually seen enough numeric samples
-            if self._seen_per_feature.get(key, 0) < self._min_history:
-                uncertainty[key] = 0.0
-                z_scores[key] = 0.0
-                continue
-
-            # Compute raw sigma and mean of residual history
-            sigma_raw = stdev(residual_history) if len(residual_history) > 1 else 0.0
-            mu = mean(residual_history) if len(residual_history) > 0 else 0.0
-            uncertainty[key] = sigma_raw
-
-            # Use a practical floor for z computation to avoid tiny-variance blowups
-            sigma_used = max(sigma_raw, MIN_SIGMA)
-
-            # Center residual by historical mean before normalizing
-            z = abs(residual - mu) / sigma_used
-            z_scores[key] = z
-
-            # Optional persistence: require 2 consecutive windows above threshold to count
-            if z > self._sigma_threshold:
-                self._consec_high[key] = self._consec_high.get(key, 0) + 1
-            else:
-                self._consec_high[key] = 0
-
-            if self._consec_high.get(key, 0) < 2:
-                # treat as non-trigger for now (do not update max_z)
-                continue
-
-            if z > max_z_score:
-                max_z_score = z
-                max_z_feature = key
-
-            # Debug logging for diagnostics
-            logger.debug(
-                "estimator key=%s residual=%.6f mu=%.6f sigma_raw=%.6f sigma_used=%.6f z=%.3f seen=%d history_len=%d",
-                key,
-                residual,
-                mu,
-                sigma_raw,
-                sigma_used,
-                z,
-                self._seen_per_feature.get(key, 0),
-                len(residual_history),
-            )
-
-        # 4. Update learner with new observations
-        try:
-            if features_for_update:
-                self._learner.update(features_for_update)
-        except Exception as e:
-            logger.exception("Learner update failed: %s", e)
-
-        self._update_count += 1
-
-        # 5. Classify state based on statistical significance
-        label, flags = self._classify_state(
-            max_z_score=max_z_score,
-            max_z_feature=max_z_feature,
-            z_scores=z_scores,
-        )
-
-        # 6. Calculate Symbolic State
-        symbolic_system_state: dict[str, str] = {}
-        for key, z_score in z_scores.items():
-            if z_score != 0.0:
-                symbolic_system_state[f"{key}_state"] = self._z_to_symbol(z_score)
-
-        # Track anomalies
-        if label != "nominal":
-            self._anomaly_count += 1
-
-        # 7. Calculate confidence (inverse of normalized Z-score)
-        # z=0 → confidence=1.0 (perfect match)
-        # z=threshold → confidence=0.0 (anomaly boundary)
-        confidence = self._calculate_confidence(max_z_score)
-
-        if scene_graph_frame is not None:
-            # store as epoch seconds (float) to preserve flags: dict[str, float]
-            try:
-                flags["scene_graph_frame"] = float(scene_graph_frame.timestamp())
-            except Exception:
-                logger.debug(
-                    "Could not convert scene_graph_frame to timestamp: %r", scene_graph_frame
-                )
-
-        return StateEstimate(
-            timestamp=now,
-            label=label,
-            confidence=confidence,
-            residuals=residuals,
-            uncertainty=uncertainty,
-            z_scores=z_scores,
-            ttd=None,  # Time to degradation (not implemented)
-            ttf=None,  # Time to failure (not implemented)
-            flags=flags,
-            source_intent=current_intent,
-            symbolic_system_state=symbolic_system_state,
-        )
 
     def _classify_state(
         self,

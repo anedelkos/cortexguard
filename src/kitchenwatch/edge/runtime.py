@@ -31,6 +31,7 @@ from kitchenwatch.core.mocks.mock_cloud_agent import MockCloudAgentClient
 from kitchenwatch.core.mocks.mock_controller import MockController
 from kitchenwatch.core.mocks.mock_step_classifier import MockStepClassifier
 from kitchenwatch.edge.api import health
+from kitchenwatch.edge.api import metrics as metrics_router
 from kitchenwatch.edge.api.ingestion import get_ingestion_router
 from kitchenwatch.edge.arbiter import Arbiter
 from kitchenwatch.edge.detectors.anomaly_detector import AnomalyDetector
@@ -45,6 +46,7 @@ from kitchenwatch.edge.local_receiver import LocalReceiver
 from kitchenwatch.edge.mayday_agent import MaydayAgent
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.models.capability_registry import CapabilityRegistry
+from kitchenwatch.edge.observability.opentelemetry_tracing import setup_opentelemetry_tracing
 from kitchenwatch.edge.online_learner_state_estimator import OnlineLearnerStateEstimator
 from kitchenwatch.edge.orchestrator import Orchestrator
 from kitchenwatch.edge.policy.mistral_policy_engine import MistralLLMPolicyEngine
@@ -444,6 +446,7 @@ def get_api_app(profile: str = "default") -> FastAPI:
 
     # Ensure logging is set up before anything else
     setup_logging()
+    setup_opentelemetry_tracing()
 
     # Determine the runtime profile
     runtime_profile = os.getenv("RUNTIME_PROFILE", profile)
@@ -475,6 +478,7 @@ def get_api_app(profile: str = "default") -> FastAPI:
     # 2. Include the routers
     app.include_router(health.router)
     app.include_router(ingestion_router, prefix="/api/v1")
+    app.include_router(metrics_router.router)
 
     # 3. Expose Health and Metrics (using the runtime instance created above)
     @app.get("/healthz")
@@ -483,7 +487,7 @@ def get_api_app(profile: str = "default") -> FastAPI:
         # Delegating to EdgeRuntime's method which returns dict[str, bool]
         return await runtime.health_check()
 
-    @app.get("/metrics")
+    @app.get("/runtime-metrics")
     async def get_metrics() -> dict[str, int | str | None]:
         """Exposes key runtime metrics (anomalies, plans, etc.)."""
         # Delegating to EdgeRuntime's method which returns dict[str, int | str | None]

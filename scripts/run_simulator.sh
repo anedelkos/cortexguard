@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # --- Default values ---
-RATE=1.0
+RATE=0.5
 REPEAT=0
 MANIFEST_PATH=""
 ENDPOINT="http://edge:8080/api/v1/ingest"

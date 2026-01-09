@@ -1,0 +1,260 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "iteration": 1710000000000,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "panels": [],
+      "title": "System Health",
+      "type": "row"
+    },
+
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": { "unit": "none" },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 1 },
+      "id": 2,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "targets": [
+        {
+          "expr": "cortexguard_active_anomalies",
+          "legendFormat": "Active anomalies",
+          "refId": "A"
+        }
+      ],
+      "title": "Active Anomalies",
+      "type": "stat"
+    },
+
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": { "unit": "none" },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 1 },
+      "id": 3,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "targets": [
+        {
+          "expr": "cortexguard_plan_queue_length",
+          "legendFormat": "Queue length",
+          "refId": "A"
+        }
+      ],
+      "title": "Plan Queue Length",
+      "type": "stat"
+    },
+
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit" },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 1 },
+      "id": 4,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "targets": [
+        {
+          "expr": "cortexguard_estimator_confidence",
+          "legendFormat": "Estimator confidence",
+          "refId": "A"
+        }
+      ],
+      "title": "Estimator Confidence",
+      "type": "stat"
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "id": 10,
+      "panels": [],
+      "title": "Subsystem Latencies",
+      "type": "row"
+    },
+
+    {
+      "datasource": "Prometheus",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 6 },
+      "id": 11,
+      "targets": [
+        {
+          "expr": "rate(cortexguard_component_duration_ms_bucket{component=\"fusion_process_record\"}[1m])",
+          "legendFormat": "Fusion",
+          "refId": "A"
+        }
+      ],
+      "title": "Fusion Latency (ms)",
+      "type": "heatmap"
+    },
+
+    {
+      "datasource": "Prometheus",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 6 },
+      "id": 12,
+      "targets": [
+        {
+          "expr": "rate(cortexguard_component_duration_ms_bucket{component=\"estimator_update\"}[1m])",
+          "legendFormat": "Estimator",
+          "refId": "A"
+        }
+      ],
+      "title": "Estimator Update Latency (ms)",
+      "type": "heatmap"
+    },
+
+    {
+      "datasource": "Prometheus",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 12 },
+      "id": 13,
+      "targets": [
+        {
+          "expr": "rate(cortexguard_component_duration_ms_bucket{component=\"anomaly_detector_tick\"}[1m])",
+          "legendFormat": "AnomalyDetector",
+          "refId": "A"
+        }
+      ],
+      "title": "AnomalyDetector Tick Latency (ms)",
+      "type": "heatmap"
+    },
+
+    {
+      "datasource": "Prometheus",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 12 },
+      "id": 14,
+      "targets": [
+        {
+          "expr": "rate(cortexguard_component_duration_ms_bucket{component=\"policy_agent_tick\"}[1m])",
+          "legendFormat": "PolicyAgent",
+          "refId": "A"
+        }
+      ],
+      "title": "PolicyAgent Tick Latency (ms)",
+      "type": "heatmap"
+    },
+
+    {
+      "datasource": "Prometheus",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 18 },
+      "id": 15,
+      "targets": [
+        {
+          "expr": "rate(cortexguard_component_duration_ms_bucket{component=\"policy_generation\"}[1m])",
+          "legendFormat": "Policy Generation",
+          "refId": "A"
+        }
+      ],
+      "title": "Policy Generation Latency (ms)",
+      "type": "heatmap"
+    },
+
+    {
+      "datasource": "Prometheus",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 18 },
+      "id": 16,
+      "targets": [
+        {
+          "expr": "rate(cortexguard_component_duration_ms_bucket{component=\"orchestrator_tick\"}[1m])",
+          "legendFormat": "Orchestrator",
+          "refId": "A"
+        }
+      ],
+      "title": "Orchestrator Tick Latency (ms)",
+      "type": "heatmap"
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 24 },
+      "id": 20,
+      "panels": [],
+      "title": "Counters",
+      "type": "row"
+    },
+
+    {
+      "datasource": "Prometheus",
+      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 25 },
+      "id": 21,
+      "targets": [
+        {
+          "expr": "cortexguard_anomalies_total",
+          "legendFormat": "Anomalies",
+          "refId": "A"
+        }
+      ],
+      "title": "Total Anomalies Emitted",
+      "type": "stat"
+    },
+
+    {
+      "datasource": "Prometheus",
+      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 25 },
+      "id": 22,
+      "targets": [
+        {
+          "expr": "cortexguard_detector_failures_total",
+          "legendFormat": "Detector failures",
+          "refId": "A"
+        }
+      ],
+      "title": "Detector Failures",
+      "type": "stat"
+    },
+
+    {
+      "datasource": "Prometheus",
+      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 25 },
+      "id": 23,
+      "targets": [
+        {
+          "expr": "cortexguard_policy_escalations_total",
+          "legendFormat": "Escalations",
+          "refId": "A"
+        }
+      ],
+      "title": "Policy Escalations",
+      "type": "stat"
+    }
+  ],
+
+  "refresh": "5s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["cortexguard", "observability"],
+  "templating": { "list": [] },
+  "time": { "from": "now-15m", "to": "now" },
+  "timezone": "",
+  "title": "CortexGuard Edge Observability",
+  "uid": "cortexguard-edge-observability",
+  "version": 1,
+  "weekStart": ""
+}

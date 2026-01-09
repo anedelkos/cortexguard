@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import datetime
 from typing import Any, cast
+
+from opentelemetry import trace
 
 from kitchenwatch.core.interfaces.base_cloud_agent_client import BaseCloudAgentClient
 from kitchenwatch.edge.models.blackboard import Blackboard
@@ -11,11 +14,16 @@ from kitchenwatch.edge.models.mayday_packet import MaydayPacket, SystemHealth
 from kitchenwatch.edge.models.plan import Plan
 from kitchenwatch.edge.models.reasoning_trace_entry import TraceSeverity
 from kitchenwatch.edge.models.remediation_policy import RemediationPolicy
+from kitchenwatch.edge.utils.metrics import (
+    component_duration_ms,
+    policy_escalations_total,
+)
 
 # Import the tracing protocol (BaseTraceSink) and TraceSink concrete class
 from kitchenwatch.edge.utils.tracing import BaseTraceSink  # type: ignore[attr-defined]
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer("cortexguard.mayday")
 
 
 class _NoopTraceSink(BaseTraceSink):
@@ -274,6 +282,126 @@ class MaydayAgent:
 
         return packet
 
+    async def _attempt_escalation(
+        self, packet: MaydayPacket, attempt: int
+    ) -> tuple[Plan | None, Exception | None]:
+        """
+        One escalation attempt, including tracing, cloud call, and error handling.
+        """
+        attempt_start = time.perf_counter()
+
+        with tracer.start_as_current_span("mayday.send_attempt") as attempt_span:
+            attempt_span.set_attribute("attempt.index", attempt)
+            attempt_span.set_attribute("timeout_seconds", self._timeout_seconds)
+            attempt_span.set_attribute("backoff_factor", self._backoff_factor)
+
+            self._attempts_sent += 1
+
+            # Trace attempt start
+            await self._trace_sink.post_trace_entry(
+                source=self,
+                event_type="ESCALATION_ATTEMPT",
+                reasoning_text=f"Escalation attempt {attempt} started",
+                metadata={
+                    "trace_id": packet.trace_id,
+                    "attempt_index": attempt,
+                    "timeout_s": self._timeout_seconds,
+                    "backoff_factor": self._backoff_factor,
+                },
+            )
+
+            attempt_start = time.perf_counter()
+
+            try:
+                plan = await self._call_cloud(packet, attempt)
+                duration_ms = (time.perf_counter() - attempt_start) * 1000.0
+                component_duration_ms.labels(component="mayday_attempt").observe(duration_ms)
+
+                if plan:
+                    self._responses_received += 1
+                    await self._trace_sink.post_trace_entry(
+                        source=self,
+                        event_type="ESCALATION_SUCCESS",
+                        reasoning_text="Cloud returned remediation plan",
+                        metadata={
+                            "trace_id": packet.trace_id,
+                            "plan_id": getattr(plan, "plan_id", None),
+                            "duration_ms": duration_ms,
+                            "attempt_index": attempt,
+                        },
+                    )
+                else:
+                    await self._trace_sink.post_trace_entry(
+                        source=self,
+                        event_type="ESCALATION_NO_PLAN",
+                        reasoning_text="Cloud returned no plan",
+                        metadata={
+                            "trace_id": packet.trace_id,
+                            "duration_ms": duration_ms,
+                            "attempt_index": attempt,
+                        },
+                        severity=TraceSeverity.WARN,
+                    )
+
+                self._consecutive_failures = 0
+                self._health_state = 0
+                return plan, None
+
+            except asyncio.CancelledError:
+                logger.info("MaydayAgent: escalation cancelled")
+                raise
+
+            except TimeoutError as te:
+                self._timeouts_total += 1
+                self._retries_total += 1
+                self._consecutive_failures += 1
+                if self._consecutive_failures >= self._health_degrade_threshold:
+                    self._health_state = 1
+
+                await self._trace_sink.post_trace_entry(
+                    source=self,
+                    event_type="ESCALATION_ATTEMPT_TIMEOUT",
+                    reasoning_text="Escalation attempt timed out",
+                    metadata={
+                        "trace_id": packet.trace_id,
+                        "attempt_index": attempt,
+                        "timeout_s": self._timeout_seconds,
+                    },
+                    severity=TraceSeverity.WARN,
+                )
+                return None, te
+
+            except Exception as exc:
+                self._errors_total += 1
+                self._retries_total += 1
+                self._consecutive_failures += 1
+                if self._consecutive_failures >= self._health_degrade_threshold:
+                    self._health_state = 1
+
+                await self._trace_sink.post_trace_entry(
+                    source=self,
+                    event_type="ESCALATION_ATTEMPT_ERROR",
+                    reasoning_text="Escalation attempt failed",
+                    metadata={
+                        "trace_id": packet.trace_id,
+                        "attempt_index": attempt,
+                        "error": str(exc),
+                    },
+                    severity=TraceSeverity.HIGH,
+                )
+                return None, exc
+
+    async def _call_cloud(self, packet: MaydayPacket, attempt: int) -> Plan | None:
+        """
+        Isolated cloud call wrapped in its own span.
+        """
+        with tracer.start_as_current_span("cloud.send_escalation") as cloud_span:
+            cloud_span.set_attribute("packet.trace_id", packet.trace_id)
+            cloud_span.set_attribute("attempt.index", attempt)
+
+            coro = self._cloud_agent_client.send_escalation(packet)
+            return await asyncio.wait_for(coro, timeout=self._timeout_seconds)
+
     async def send_escalation(self, packet: MaydayPacket) -> Plan | None:
         """
         Send the MaydayPacket to the cloud via the injected BaseCloudAgentClient.
@@ -287,151 +415,36 @@ class MaydayAgent:
         Emits ESCALATION_ATTEMPT, ESCALATION_SUCCESS, ESCALATION_NO_PLAN, ESCALATION_ATTEMPT_TIMEOUT,
         ESCALATION_ATTEMPT_ERROR, and ESCALATION_FAILURE traces.
         """
-        logger.info("MaydayAgent: sending escalation %s", packet.trace_id)
-        self._escalations_sent += 1
+        policy_escalations_total.inc()
+        start = time.perf_counter()
 
-        last_exc: Exception | None = None
-        attempt = 0
-        while attempt <= self._max_retries:
-            attempt += 1
-            self._attempts_sent += 1
+        with tracer.start_as_current_span("mayday.escalation") as span:
+            span.set_attribute("packet.trace_id", packet.trace_id)
+            span.set_attribute("device.id", self._device_id)
+            span.set_attribute("max_retries", self._max_retries)
+            span.set_attribute("timeout_seconds", self._timeout_seconds)
 
-            # Trace attempt start
-            try:
-                await self._trace_sink.post_trace_entry(
-                    source=self,
-                    event_type="ESCALATION_ATTEMPT",
-                    reasoning_text=f"Escalation attempt {attempt} started",
-                    metadata={
-                        "trace_id": packet.trace_id,
-                        "attempt_index": attempt,
-                        "timeout_s": self._timeout_seconds,
-                        "backoff_factor": self._backoff_factor,
-                    },
-                )
-            except Exception:
-                logger.debug("Failed to post ESCALATION_ATTEMPT trace", exc_info=True)
+            logger.info("MaydayAgent: sending escalation %s", packet.trace_id)
+            self._escalations_sent += 1
 
-            attempt_start = datetime.now()
-            try:
-                coro = self._cloud_agent_client.send_escalation(packet)
-                plan = await asyncio.wait_for(coro, timeout=self._timeout_seconds)
-                duration_ms = int((datetime.now() - attempt_start).total_seconds() * 1000)
+            last_exc: Exception | None = None
 
-                if plan:
-                    self._responses_received += 1
-                    logger.info(
-                        "MaydayAgent: received plan %s", getattr(plan, "plan_id", "<no-id>")
-                    )
-                    # Success trace
+            for attempt in range(1, self._max_retries + 2):
+                plan, last_exc = await self._attempt_escalation(packet, attempt)
+
+                if plan is not None:
+                    return plan
+
+                # retry if attempts remain
+                if attempt <= self._max_retries:
+                    backoff = (self._backoff_factor ** (attempt - 1)) * 0.1
                     try:
-                        await self._trace_sink.post_trace_entry(
-                            source=self,
-                            event_type="ESCALATION_SUCCESS",
-                            reasoning_text="Cloud returned remediation plan",
-                            metadata={
-                                "trace_id": packet.trace_id,
-                                "plan_id": getattr(plan, "plan_id", None),
-                                "duration_ms": duration_ms,
-                                "attempt_index": attempt,
-                            },
-                        )
-                    except Exception:
-                        logger.debug("Failed to post ESCALATION_SUCCESS trace", exc_info=True)
-                else:
-                    logger.warning("MaydayAgent: cloud returned no plan for %s", packet.trace_id)
-                    try:
-                        await self._trace_sink.post_trace_entry(
-                            source=self,
-                            event_type="ESCALATION_NO_PLAN",
-                            reasoning_text="Cloud returned no plan",
-                            metadata={
-                                "trace_id": packet.trace_id,
-                                "duration_ms": duration_ms,
-                                "attempt_index": attempt,
-                            },
-                            severity=TraceSeverity.WARN,
-                        )
-                    except Exception:
-                        logger.debug("Failed to post ESCALATION_NO_PLAN trace", exc_info=True)
+                        await asyncio.sleep(backoff)
+                    except asyncio.CancelledError:
+                        logger.info("MaydayAgent: retry sleep cancelled")
+                        return None
 
-                self._consecutive_failures = 0
-                self._health_state = 0
-
-                return plan
-
-            except asyncio.CancelledError:
-                logger.info("MaydayAgent: escalation cancelled")
-                raise
-            except TimeoutError as te:
-                last_exc = te
-                self._timeouts_total += 1
-                self._retries_total += 1
-                self._consecutive_failures += 1
-                if self._consecutive_failures >= self._health_degrade_threshold:
-                    self._health_state = 1
-
-                logger.warning(
-                    "MaydayAgent: escalation attempt %d timed out after %.2fs for %s",
-                    attempt,
-                    self._timeout_seconds,
-                    packet.trace_id,
-                )
-                try:
-                    await self._trace_sink.post_trace_entry(
-                        source=self,
-                        event_type="ESCALATION_ATTEMPT_TIMEOUT",
-                        reasoning_text="Escalation attempt timed out",
-                        metadata={
-                            "trace_id": packet.trace_id,
-                            "attempt_index": attempt,
-                            "timeout_s": self._timeout_seconds,
-                        },
-                        severity=TraceSeverity.WARN,
-                    )
-                except Exception:
-                    logger.debug("Failed to post ESCALATION_ATTEMPT_TIMEOUT trace", exc_info=True)
-
-            except Exception as exc:
-                last_exc = exc
-                self._errors_total += 1
-                self._retries_total += 1
-                self._consecutive_failures += 1
-                if self._consecutive_failures >= self._health_degrade_threshold:
-                    self._health_state = 1
-
-                logger.exception(
-                    "MaydayAgent: escalation attempt %d failed for %s: %s",
-                    attempt,
-                    packet.trace_id,
-                    exc,
-                )
-                try:
-                    await self._trace_sink.post_trace_entry(
-                        source=self,
-                        event_type="ESCALATION_ATTEMPT_ERROR",
-                        reasoning_text="Escalation attempt failed",
-                        metadata={
-                            "trace_id": packet.trace_id,
-                            "attempt_index": attempt,
-                            "error": str(exc),
-                        },
-                        severity=TraceSeverity.HIGH,
-                    )
-                except Exception:
-                    logger.debug("Failed to post ESCALATION_ATTEMPT_ERROR trace", exc_info=True)
-
-            # If we have more retries left, backoff then retry
-            if attempt <= self._max_retries:
-                backoff = (self._backoff_factor ** (attempt - 1)) * 0.1
-                try:
-                    await asyncio.sleep(backoff)
-                except asyncio.CancelledError:
-                    logger.info("MaydayAgent: retry sleep cancelled")
-                    return None
-
-        # Exhausted retries: emit final failure trace and return None
-        try:
+            # Exhausted retries
             await self._trace_sink.post_trace_entry(
                 source=self,
                 event_type="ESCALATION_FAILURE",
@@ -443,11 +456,11 @@ class MaydayAgent:
                 },
                 severity=TraceSeverity.CRITICAL,
             )
-        except Exception:
-            logger.debug("Failed to post ESCALATION_FAILURE trace", exc_info=True)
 
-        self._failures_total += 1
-        return None
+            self._failures_total += 1
+            duration_ms = (time.perf_counter() - start) * 1000.0
+            component_duration_ms.labels(component="mayday").observe(duration_ms)
+            return None
 
     def get_metrics(self) -> dict[str, int]:
         return {

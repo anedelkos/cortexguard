@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import statistics
+import time
 import uuid
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
@@ -10,6 +11,7 @@ from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 import torch
+from opentelemetry import trace
 from PIL import Image
 from torchvision import models, transforms
 
@@ -18,6 +20,9 @@ from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
 from kitchenwatch.edge.models.reasoning_trace_entry import TraceSeverity
 from kitchenwatch.edge.models.scene_graph import SceneGraph, SceneObject, SceneRelationship
 from kitchenwatch.edge.online_learner_state_estimator import OnlineLearnerStateEstimator
+from kitchenwatch.edge.utils.metrics import (
+    component_duration_ms,
+)
 from kitchenwatch.edge.utils.tracing import BaseTraceSink, TraceSink
 from kitchenwatch.simulation.models.windowed_fused_record import WindowedFusedRecord
 
@@ -26,6 +31,7 @@ from kitchenwatch.simulation.models.windowed_fused_record import WindowedFusedRe
 DEFAULT_ALPHA = 0.1
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer("cortexguard.edge_fusion")
 
 # Configurable heuristics
 _IOU_OCCLUSION_THRESHOLD = 0.1
@@ -251,7 +257,7 @@ class EdgeFusion:
         self._last_arrival_ns: int | None = None
 
     async def _detect_smoke(
-        self, record: WindowedFusedRecord, vision_objects: list[dict[str, Any]]
+        self, record: WindowedFusedRecord, vision_objects: list[Any] | None
     ) -> bool:
         """Detect smoke from smoke and camera sensors"""
         last_smoke_ppm = next(
@@ -377,6 +383,90 @@ class EdgeFusion:
         self._last_arrival_ns = arrival_ns
         return lag_ms, timing_degraded
 
+    async def _update_ema(self, record: WindowedFusedRecord) -> None:
+        with tracer.start_as_current_span("fusion.ema_update"):
+            for sample in record.sensor_window:
+                self._update_ema_state(sample)
+                self._samples_processed += 1
+        self._records_processed += 1
+
+    async def _compute_image_embedding(self, record: WindowedFusedRecord) -> tuple[Any, Any]:
+        image_embedding = None
+        with tracer.start_as_current_span("fusion.image_embedding"):
+            if self.embedder and getattr(record, "rgb_path", None):
+                try:
+                    img = Image.open(record.rgb_path).convert("RGB")
+                    image_embedding = self.embedder.embed(img)
+                except Exception as e:
+                    self._logger.warning(f"Failed to embed image {record.rgb_path}: {e}")
+
+        if image_embedding is None:
+            return None, None
+        if isinstance(image_embedding, torch.Tensor):
+            return image_embedding, image_embedding.cpu().numpy().tolist()
+        return image_embedding, image_embedding
+
+    async def _run_vision_inference(
+        self, record: WindowedFusedRecord, embedding: Any
+    ) -> tuple[list[Any], Any]:
+        with tracer.start_as_current_span("fusion.vision_inference"):
+            return self.vision_inference(record, embedding)
+
+    async def _build_and_publish_scene_graph(
+        self, record: WindowedFusedRecord, vision_objects: list[Any] | None
+    ) -> Any:
+        with tracer.start_as_current_span("fusion.scene_graph"):
+            ts = datetime.fromtimestamp(record.timestamp_ns / 1e9, tz=ZoneInfo("UTC"))
+            scene_graph = _build_scene_graph_from_vision(ts, vision_objects or [], self._ema_state)
+            try:
+                await self._blackboard.set_scene_graph(scene_graph)
+            except AttributeError:
+                logger.debug("Blackboard.set_scene_graph not available; skipping publish")
+            return scene_graph
+
+    async def _compute_derived_features(
+        self, record: WindowedFusedRecord, vision_objects: list[Any] | None
+    ) -> tuple[float | None, bool, dict[str, Any]]:
+        with tracer.start_as_current_span("fusion.derived_features"):
+            last_temp = next(
+                (
+                    r.temp_c
+                    for r in reversed(record.sensor_window)
+                    if getattr(r, "temp_c", None) is not None
+                ),
+                None,
+            )
+
+            smoke_detected = await self._detect_smoke(record, vision_objects)
+            self._smoke_state = smoke_detected
+
+            derived = self._ema_state.copy()
+            derived.update(self._compute_misgrasp_derived(record, vision_objects))
+
+            lag_ms, timing_degraded = self._compute_comm_lag_and_tag(record)
+            derived["comm_lag_ms"] = lag_ms
+            derived["timing_degraded"] = timing_degraded
+
+            if timing_degraded:
+                await self._trace_sink.post_trace_entry(
+                    source=self,
+                    event_type="COMM_TIMING_DEGRADATION",
+                    reasoning_text=f"Degraded sensor data arrival by {lag_ms}, expected period: {self.EXPECTED_PERIOD_MS}",
+                    severity=TraceSeverity.HIGH,
+                )
+
+            return last_temp, smoke_detected, derived
+
+    async def _update_state_estimator(self, snapshot: FusionSnapshot) -> None:
+        if not self._state_estimator:
+            return
+        with tracer.start_as_current_span("fusion.state_estimator"):
+            try:
+                estimate = await self._state_estimator.update(snapshot)
+                await self._blackboard.update_state_estimate(estimate)
+            except Exception as e:
+                self._logger.exception(f"StateEstimator failed: {e}")
+
     async def process_record(self, record: WindowedFusedRecord) -> FusionSnapshot:
         """
         Process a windowed sensor record and update fusion state.
@@ -391,104 +481,61 @@ class EdgeFusion:
         Returns:
             FusionSnapshot with smoothed sensor values and derived features
         """
+        start = time.perf_counter()
 
-        # Process each sample in the window
-        for sample in record.sensor_window:
-            self._update_ema_state(sample)
-            self._samples_processed += 1
+        with tracer.start_as_current_span("fusion.process_record") as span:
+            span.set_attribute("window.size", len(record.sensor_window))
+            span.set_attribute("has_rgb", bool(getattr(record, "rgb_path", None)))
 
-        self._records_processed += 1
+            # 1. EMA update
+            await self._update_ema(record)
 
-        # Compute image embedding (one per window)
-        image_embedding = None
-        if self.embedder is not None and hasattr(record, "rgb_path") and record.rgb_path:
-            try:
-                img = Image.open(record.rgb_path).convert("RGB")
-                image_embedding = self.embedder.embed(img)
-            except Exception as e:
-                self._logger.warning(f"Failed to embed image {record.rgb_path}: {e}")
+            # 2. Image embedding
+            image_embedding, serialized_embedding = await self._compute_image_embedding(record)
 
-        serialized_embedding: Any
-        if image_embedding is None:
-            serialized_embedding = None
-        elif isinstance(image_embedding, torch.Tensor):
-            # move to CPU and convert to plain Python list for safe serialization/storage
-            serialized_embedding = image_embedding.cpu().numpy().tolist()
-        else:
-            # fallback: keep as-is (could be already a list/None/other)
-            serialized_embedding = image_embedding
-
-        vision_objects, vision_occlusion = self.vision_inference(record, image_embedding)
-        # build timezone-aware scene graph and publish to blackboard if available
-        sg_timestamp = datetime.fromtimestamp(record.timestamp_ns / 1e9, tz=ZoneInfo("UTC"))
-        scene_graph = _build_scene_graph_from_vision(
-            sg_timestamp, vision_objects or [], self._ema_state
-        )
-
-        try:
-            await self._blackboard.set_scene_graph(scene_graph)  # type: ignore[attr-defined]
-        except AttributeError:
-            logger.debug("Blackboard.set_scene_graph not available; skipping scene graph publish")
-
-        last_temp = next(
-            (
-                r.temp_c
-                for r in reversed(record.sensor_window)
-                if getattr(r, "temp_c", None) is not None
-            ),
-            None,
-        )
-        smoke_detected = await self._detect_smoke(record, vision_objects)
-        self._smoke_state = smoke_detected
-
-        misgrasped_derived = self._compute_misgrasp_derived(record, vision_objects)
-        derived = self._ema_state.copy()
-        derived.update(misgrasped_derived)
-
-        lag_ms, timing_degraded = self._compute_comm_lag_and_tag(record)
-        derived["comm_lag_ms"] = lag_ms
-        derived["timing_degraded"] = timing_degraded
-        if timing_degraded:
-            await self._trace_sink.post_trace_entry(
-                source=self,
-                event_type="COMM_TIMING_DEGRADATION",
-                reasoning_text=f"Degraded sensor data arrival by {lag_ms}, expected period: {self.EXPECTED_PERIOD_MS}",
-                severity=TraceSeverity.HIGH,
+            # 3. Vision inference
+            vision_objects, vision_occlusion = await self._run_vision_inference(
+                record, image_embedding
             )
 
-        # Create snapshot from current EMA state
-        snapshot = FusionSnapshot(
-            id=uuid.uuid4().hex,
-            timestamp=datetime.fromtimestamp(record.timestamp_ns / 1e9),
-            sensors={
-                "temp_celsius": last_temp,
-                "smoke_detected": smoke_detected,
-                "raw": record.sensor_window,
-                "ema_smoothed": self._ema_state.copy(),
-                "window_stats": self._compute_window_stats(record.sensor_window),
-                "image_embedding": serialized_embedding,
-                "vision_objects": vision_objects,
-                "vision_occlusion": vision_occlusion,
-                "scene_graph_summary": [
-                    {"id": o.id, "label": o.label} for o in scene_graph.objects
-                ],
-            },
-            derived=derived,  # Smoothed values as derived features
-        )
+            # 4. Scene graph
+            scene_graph = await self._build_and_publish_scene_graph(record, vision_objects)
 
-        self._last_snapshot = snapshot
-        await self._blackboard.update_fusion_snapshot(snapshot)
+            # 5. Derived features
+            last_temp, smoke_detected, derived = await self._compute_derived_features(
+                record, vision_objects
+            )
 
-        self._logger.debug(f"Updated snapshot with (window_size={len(record.sensor_window)})")
+            # 6. Build snapshot
+            snapshot = FusionSnapshot(
+                id=uuid.uuid4().hex,
+                timestamp=datetime.fromtimestamp(record.timestamp_ns / 1e9),
+                sensors={
+                    "temp_celsius": last_temp,
+                    "smoke_detected": smoke_detected,
+                    "raw": record.sensor_window,
+                    "ema_smoothed": self._ema_state.copy(),
+                    "window_stats": self._compute_window_stats(record.sensor_window),
+                    "image_embedding": serialized_embedding,
+                    "vision_objects": vision_objects,
+                    "vision_occlusion": vision_occlusion,
+                    "scene_graph_summary": [
+                        {"id": o.id, "label": o.label} for o in scene_graph.objects
+                    ],
+                },
+                derived=derived,
+            )
 
-        if self._state_estimator:
-            try:
-                estimate = await self._state_estimator.update(snapshot)
-                await self._blackboard.update_state_estimate(estimate)
-            except Exception as e:
-                self._logger.exception(f"StateEstimator failed: {e}")
+            self._last_snapshot = snapshot
+            await self._blackboard.update_fusion_snapshot(snapshot)
 
-        return snapshot
+            # 7. State estimator
+            await self._update_state_estimator(snapshot)
+
+            duration_ms = (time.perf_counter() - start) * 1000.0
+            component_duration_ms.labels(component="fusion_process_record").observe(duration_ms)
+
+            return snapshot
 
     def _update_ema_state(self, sample: Any) -> None:
         """
