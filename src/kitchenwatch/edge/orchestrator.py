@@ -19,7 +19,6 @@ from kitchenwatch.edge.utils.tracing import BaseTraceSink, TraceSink
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer("cortexguard.orchestrator")
 
-DEFAULT_TICK_INTERVAL = 0.1
 HIGH_PRIORITY = 0  # Highest priority for urgent remediation plans
 
 
@@ -39,11 +38,13 @@ class Orchestrator:
         blackboard: Blackboard,
         arbiter: Arbiter,
         safety_agent: SafetyAgent,
+        tick_interval: float,
         trace_sink: BaseTraceSink | None = None,
     ) -> None:
         self._blackboard = blackboard
         self._arbiter = arbiter
         self._safety_agent = safety_agent
+        self._tick_interval = tick_interval
         self._trace_sink: BaseTraceSink = (
             trace_sink if trace_sink is not None else TraceSink(blackboard=self._blackboard)
         )
@@ -467,7 +468,7 @@ class Orchestrator:
     # ---------------------
     # Lifecycle Methods
     # ---------------------
-    async def start(self, tick_interval: float = DEFAULT_TICK_INTERVAL) -> None:
+    async def start(self, tick_interval: float | None = None) -> None:
         """Start orchestrator in background."""
         if self._loop_running:
             logger.warning("Orchestrator already running")
@@ -476,14 +477,15 @@ class Orchestrator:
             logger.warning("Previous task still active")
             return
 
+        interval = tick_interval if tick_interval is not None else self._tick_interval
         self._loop_running = True
-        self._task = asyncio.create_task(self._run_loop(tick_interval))
+        self._task = asyncio.create_task(self._run_loop(interval))
         logger.info("Orchestrator started.")
         await self._trace_sink.post_trace_entry(
             source=self,
             event_type="ORCHESTRATOR_STARTED",
             reasoning_text="Orchestrator started",
-            metadata={"process_id": str(uuid4()), "tick_interval": tick_interval},
+            metadata={"process_id": str(uuid4()), "tick_interval": interval},
         )
 
     async def stop(self) -> None:

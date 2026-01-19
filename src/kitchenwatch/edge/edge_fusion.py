@@ -15,6 +15,12 @@ from opentelemetry import trace
 from PIL import Image
 from torchvision import models, transforms
 
+from kitchenwatch.common.constants import DEFAULT_ALPHA
+from kitchenwatch.edge.constants import (
+    _IOU_OCCLUSION_THRESHOLD,
+    _NEAR_CAMERA_THRESHOLD_M,
+    _NEAR_THRESHOLD_M,
+)
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
 from kitchenwatch.edge.models.reasoning_trace_entry import TraceSeverity
@@ -26,17 +32,8 @@ from kitchenwatch.edge.utils.metrics import (
 from kitchenwatch.edge.utils.tracing import BaseTraceSink, TraceSink
 from kitchenwatch.simulation.models.windowed_fused_record import WindowedFusedRecord
 
-# Default smoothing factor for EMA (0 < alpha <= 1)
-# Lower alpha = more smoothing, higher alpha = more responsive
-DEFAULT_ALPHA = 0.1
-
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer("cortexguard.edge_fusion")
-
-# Configurable heuristics
-_IOU_OCCLUSION_THRESHOLD = 0.1
-_NEAR_THRESHOLD_M = 0.5
-_NEAR_CAMERA_THRESHOLD_M = 0.5  # optional: treat objects near camera as near
 
 
 class VisionEmbedder:
@@ -197,16 +194,16 @@ class EdgeFusion:
     - For edge deployment, EMA sufficient given stable sensors
     """
 
-    SMOKE_PPM_THRESHOLD = 50.0  # threshold in ppm
-    VISUAL_OPACITY_THRESHOLD = 0.5  # 0.0-1.0 opacity threshold for vision smoke
-    SMOKE_SET_CONSECUTIVE = 2  # require 2 consecutive windows to set
-    SMOKE_CLEAR_CONSECUTIVE = 2  # require 2 consecutive windows to clear
-    DRIFT_FAIL_MM = 10.0
-    FORCE_MIN_PCT = 20.0
-    FORCE_DROP_PCT = 30.0
-    EXPECTED_PERIOD_MS = 50
-    SOFT_DEGRADE_MS = 200
-    MAX_GAP_MS = 500
+    _SMOKE_PPM_THRESHOLD = 50.0  # threshold in ppm
+    _VISUAL_OPACITY_THRESHOLD = 0.5  # 0.0-1.0 opacity threshold for vision smoke
+    _SMOKE_SET_CONSECUTIVE = 2  # require 2 consecutive windows to set
+    _SMOKE_CLEAR_CONSECUTIVE = 2  # require 2 consecutive windows to clear
+    _DRIFT_FAIL_MM = 10.0
+    _FORCE_MIN_PCT = 20.0
+    _FORCE_DROP_PCT = 30.0
+    _EXPECTED_PERIOD_MS = 50
+    _SOFT_DEGRADE_MS = 200
+    _MAX_GAP_MS = 500
 
     def __init__(
         self,
@@ -276,13 +273,13 @@ class EdgeFusion:
                     opacity = float(props.get("opacity", 0.0))
                 except Exception:
                     opacity = 0.0
-                if opacity >= self.VISUAL_OPACITY_THRESHOLD:
+                if opacity >= self._VISUAL_OPACITY_THRESHOLD:
                     visual_smoke = True
                     break
 
         # 3) raw flag: either numeric sensor above threshold OR visual evidence
         raw_smoke_flag = (
-            last_smoke_ppm is not None and last_smoke_ppm >= self.SMOKE_PPM_THRESHOLD
+            last_smoke_ppm is not None and last_smoke_ppm >= self._SMOKE_PPM_THRESHOLD
         ) or visual_smoke
 
         # 4) hysteresis: update consecutive counters and decide smoke_detected
@@ -293,9 +290,9 @@ class EdgeFusion:
             self._smoke_consec_clear += 1
             self._smoke_consec_set = 0
 
-        if self._smoke_consec_set >= self.SMOKE_SET_CONSECUTIVE:
+        if self._smoke_consec_set >= self._SMOKE_SET_CONSECUTIVE:
             smoke_detected = True
-        elif self._smoke_consec_clear >= self.SMOKE_CLEAR_CONSECUTIVE:
+        elif self._smoke_consec_clear >= self._SMOKE_CLEAR_CONSECUTIVE:
             smoke_detected = False
         else:
             smoke_detected = self._smoke_state
@@ -335,11 +332,11 @@ class EdgeFusion:
         )
 
         misgrasp_candidate = False
-        if object_drift_mm is not None and object_drift_mm >= self.DRIFT_FAIL_MM:
+        if object_drift_mm is not None and object_drift_mm >= self._DRIFT_FAIL_MM:
             misgrasp_candidate = True
         elif max_force is not None:
-            if max_force < self.FORCE_MIN_PCT or (
-                force_drop_pct is not None and force_drop_pct >= self.FORCE_DROP_PCT
+            if max_force < self._FORCE_MIN_PCT or (
+                force_drop_pct is not None and force_drop_pct >= self._FORCE_DROP_PCT
             ):
                 misgrasp_candidate = True
 
@@ -378,7 +375,7 @@ class EdgeFusion:
             arrival_gap_ns = 0
 
         lag_ms = arrival_gap_ns // 1_000_000
-        timing_degraded = lag_ms > self.SOFT_DEGRADE_MS
+        timing_degraded = lag_ms > self._SOFT_DEGRADE_MS
 
         self._last_arrival_ns = arrival_ns
         return lag_ms, timing_degraded
@@ -451,7 +448,7 @@ class EdgeFusion:
                 await self._trace_sink.post_trace_entry(
                     source=self,
                     event_type="COMM_TIMING_DEGRADATION",
-                    reasoning_text=f"Degraded sensor data arrival by {lag_ms}, expected period: {self.EXPECTED_PERIOD_MS}",
+                    reasoning_text=f"Degraded sensor data arrival by {lag_ms}, expected period: {self._EXPECTED_PERIOD_MS}",
                     severity=TraceSeverity.HIGH,
                 )
 

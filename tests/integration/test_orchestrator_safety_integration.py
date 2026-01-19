@@ -58,7 +58,7 @@ class SafetyOrchestrator(Orchestrator):
         executor: StepExecutor,
     ) -> None:
         # Forward arbiter and safety_agent to the base Orchestrator
-        super().__init__(blackboard, arbiter, safety_agent)
+        super().__init__(blackboard, arbiter, safety_agent, tick_interval=1)
         self.arbiter = arbiter
         self.safety_agent = safety_agent
         self.executor = executor
@@ -81,7 +81,16 @@ async def test_safety_agent_triggers_emergency_stop_in_orchestrator():
     registry = DummyCapabilityRegistry()
     arbiter = Arbiter(blackboard, registry, controller)
     safety_agent = SafetyAgent(blackboard)
-    executor = StepExecutor(blackboard, classifier, registry, controller)
+    executor = StepExecutor(
+        blackboard,
+        classifier,
+        registry,
+        controller,
+        default_poll_interval=0.1,
+        default_idle_interval=0.1,
+        default_max_retries=3,
+        default_retry_delay=0.01,
+    )
     orchestrator = SafetyOrchestrator(blackboard, arbiter, safety_agent, executor)
 
     # Hazardous scene: hand near blade
@@ -130,7 +139,16 @@ async def test_nominal_plan_executes_without_safety_stop():
     registry = DummyCapabilityRegistry()
     arbiter = Arbiter(blackboard, registry, controller)
     safety_agent = SafetyAgent(blackboard)
-    executor = StepExecutor(blackboard, classifier, registry, controller)
+    executor = StepExecutor(
+        blackboard,
+        classifier,
+        registry,
+        controller,
+        default_poll_interval=0.1,
+        default_idle_interval=0.1,
+        default_max_retries=3,
+        default_retry_delay=0.01,
+    )
     orchestrator = SafetyOrchestrator(blackboard, arbiter, safety_agent, executor)
 
     # Safe scene: no hazards

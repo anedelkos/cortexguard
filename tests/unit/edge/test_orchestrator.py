@@ -43,7 +43,7 @@ def orchestrator(blackboard: Blackboard) -> Orchestrator:
     capability_registry = CapabilityRegistry()
     arbiter = Arbiter(blackboard, capability_registry, controller)
     safety_agent = SafetyAgent(blackboard)
-    return Orchestrator(blackboard, arbiter, safety_agent)
+    return Orchestrator(blackboard, arbiter, safety_agent, 0.1)
 
 
 def make_plan(

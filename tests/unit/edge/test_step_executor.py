@@ -89,6 +89,10 @@ async def test_execute_step_success(
         classifier,
         mock_capability_registry,
         mock_controller,
+        default_poll_interval=0.1,
+        default_idle_interval=0.1,
+        default_max_retries=3,
+        default_retry_delay=0.01,
     )
 
     await executor.execute_step(step)
@@ -128,6 +132,8 @@ async def test_execute_step_retry_logic(
         mock_controller,
         default_max_retries=3,
         default_retry_delay=0.001,
+        default_poll_interval=0.1,
+        default_idle_interval=0.1,
     )
 
     await executor.execute_step(step)
@@ -156,6 +162,8 @@ async def test_execute_step_permanent_failure(
         mock_controller,
         default_max_retries=2,
         default_retry_delay=0,
+        default_poll_interval=0.1,
+        default_idle_interval=0.1,
     )
 
     await executor.execute_step(step)
@@ -184,6 +192,10 @@ async def test_execute_step_blocked_by_anomaly(
         classifier,
         mock_capability_registry,
         mock_controller,
+        default_poll_interval=0.1,
+        default_idle_interval=0.1,
+        default_max_retries=3,
+        default_retry_delay=0.01,
     )
 
     await executor.execute_step(step)
@@ -211,6 +223,9 @@ async def test_execute_step_validation_failure(
         mock_capability_registry,
         mock_controller,
         default_max_retries=1,
+        default_poll_interval=0.1,
+        default_idle_interval=0.1,
+        default_retry_delay=0.01,
     )
 
     await executor.execute_step(step)
@@ -244,7 +259,16 @@ async def test_execute_step_aborted_by_emergency_stop(
     # Simulate emergency stop flag set
     mock_blackboard.get_safety_flag = AsyncMock(return_value=True)
 
-    executor = StepExecutor(mock_blackboard, classifier, mock_capability_registry, mock_controller)
+    executor = StepExecutor(
+        mock_blackboard,
+        classifier,
+        mock_capability_registry,
+        mock_controller,
+        default_poll_interval=0.1,
+        default_idle_interval=0.1,
+        default_max_retries=3,
+        default_retry_delay=0.01,
+    )
 
     await executor.execute_step(step)
 
@@ -268,7 +292,16 @@ async def test_execute_step_validation_returns_unexpected_shape(
     # Return a wrong shape
     mock_capability_registry.validate_call.return_value = "not_a_tuple"
 
-    executor = StepExecutor(mock_blackboard, classifier, mock_capability_registry, mock_controller)
+    executor = StepExecutor(
+        mock_blackboard,
+        classifier,
+        mock_capability_registry,
+        mock_controller,
+        default_poll_interval=0.1,
+        default_idle_interval=0.1,
+        default_max_retries=3,
+        default_retry_delay=0.01,
+    )
 
     await executor.execute_step(step)
 
@@ -289,7 +322,16 @@ async def test_execute_step_controller_failure(
 
     mock_controller.execute.side_effect = RuntimeError("Controller error")
 
-    executor = StepExecutor(mock_blackboard, classifier, mock_capability_registry, mock_controller)
+    executor = StepExecutor(
+        mock_blackboard,
+        classifier,
+        mock_capability_registry,
+        mock_controller,
+        default_poll_interval=0.1,
+        default_idle_interval=0.1,
+        default_max_retries=3,
+        default_retry_delay=0.01,
+    )
 
     await executor.execute_step(step)
 
@@ -307,7 +349,16 @@ async def test_execute_step_skips_non_pending_step(
     step = make_plan_step(status=StepStatus.COMPLETED)
     classifier = MockStepClassifier()
 
-    executor = StepExecutor(mock_blackboard, classifier, mock_capability_registry, mock_controller)
+    executor = StepExecutor(
+        mock_blackboard,
+        classifier,
+        mock_capability_registry,
+        mock_controller,
+        default_poll_interval=0.1,
+        default_idle_interval=0.1,
+        default_max_retries=3,
+        default_retry_delay=0.01,
+    )
 
     await executor.execute_step(step)
 
@@ -324,7 +375,16 @@ async def test_executor_loop_halts_on_emergency_stop(
     mock_controller: AsyncMock,
 ) -> None:
     classifier = MockStepClassifier()
-    executor = StepExecutor(mock_blackboard, classifier, mock_capability_registry, mock_controller)
+    executor = StepExecutor(
+        mock_blackboard,
+        classifier,
+        mock_capability_registry,
+        mock_controller,
+        default_poll_interval=0.1,
+        default_idle_interval=0.1,
+        default_max_retries=3,
+        default_retry_delay=0.01,
+    )
 
     mock_blackboard.get_safety_flag = AsyncMock(return_value=True)
 

@@ -17,8 +17,6 @@ logger = logging.getLogger(__name__)
 
 EXECUTOR_POLL_INTERVAL = 0.05
 EXECUTOR_IDLE_INTERVAL = 0.1
-DEFAULT_MAX_PLAN_FAILURES = 3
-DEFAULT_RETRY_DELAY = 0.5
 
 
 class StepExecutor(BaseExecutor):
@@ -33,9 +31,11 @@ class StepExecutor(BaseExecutor):
         step_classifier: BaseStepClassifier,
         capability_registry: CapabilityRegistry,
         controller: BaseController,
+        default_max_retries: int,
+        default_retry_delay: float,
+        default_poll_interval: float,
+        default_idle_interval: float,
         trace_sink: BaseTraceSink | None = None,
-        default_max_retries: int = DEFAULT_MAX_PLAN_FAILURES,
-        default_retry_delay: float = DEFAULT_RETRY_DELAY,
     ) -> None:
         self._blackboard = blackboard
         self._trace_sink: BaseTraceSink = (
@@ -44,8 +44,10 @@ class StepExecutor(BaseExecutor):
         self._step_classifier = step_classifier
         self._capability_registry = capability_registry
         self._controller = controller
-        self._default_max_retries = default_max_retries
-        self._default_retry_delay = default_retry_delay
+        self._max_retries = default_max_retries
+        self._retry_delay = default_retry_delay
+        self._poll_interval = default_poll_interval
+        self._idle_interval = default_idle_interval
         self._loop_running = False
         self._paused = False
         self._task: asyncio.Task[None] | None = None
@@ -210,12 +212,8 @@ class StepExecutor(BaseExecutor):
         if await self._blackboard.is_anomaly_present(severity_min=AnomalySeverity.MEDIUM):
             return
 
-        max_attempts = (
-            step.max_retries if hasattr(step, "max_retries") else self._default_max_retries
-        )
-        retry_delay = (
-            step.retry_delay_s if hasattr(step, "retry_delay_s") else self._default_retry_delay
-        )
+        max_attempts = step.max_retries if hasattr(step, "max_retries") else self._max_retries
+        retry_delay = step.retry_delay_s if hasattr(step, "retry_delay_s") else self._retry_delay
 
         function_name = step.action.action_name
         arguments = step.action.arguments
@@ -298,6 +296,6 @@ class StepExecutor(BaseExecutor):
             step = await self._blackboard.get_current_step()
             if step and step.status == StepStatus.PENDING:
                 await self.execute_step(step)
-                await asyncio.sleep(EXECUTOR_POLL_INTERVAL)
+                await asyncio.sleep(self._poll_interval)
             else:
-                await asyncio.sleep(EXECUTOR_IDLE_INTERVAL)
+                await asyncio.sleep(self._idle_interval)

@@ -226,6 +226,10 @@ async def test_successful_plan_execution() -> None:
         step_classifier=classifier,
         capability_registry=registry,
         controller=controller,
+        default_poll_interval=0.1,
+        default_idle_interval=0.1,
+        default_max_retries=3,
+        default_retry_delay=0.01,
     )
     await executor.start()
 
@@ -284,6 +288,8 @@ async def test_step_retry_on_controller_failure() -> None:
         step_classifier=classifier,
         capability_registry=registry,
         controller=failing_controller,
+        default_poll_interval=0.1,
+        default_idle_interval=0.1,
         default_max_retries=3,
         default_retry_delay=0.01,
     )
@@ -359,6 +365,10 @@ async def test_execution_blocked_by_anomaly() -> None:
         step_classifier=classifier,
         capability_registry=registry,
         controller=controller,
+        default_poll_interval=0.1,
+        default_idle_interval=0.1,
+        default_max_retries=3,
+        default_retry_delay=0.01,
     )
     await executor.start()
     await blackboard.set_current_step(target_step)
@@ -393,6 +403,9 @@ async def test_validation_failure() -> None:
         capability_registry=registry,
         controller=controller,
         default_max_retries=1,
+        default_poll_interval=0.1,
+        default_idle_interval=0.1,
+        default_retry_delay=0.01,
     )
     await executor.start()
     await blackboard.set_current_step(target_step)
