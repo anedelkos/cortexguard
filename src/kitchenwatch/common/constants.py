@@ -23,6 +23,11 @@ DEFAULT_FULL_MANIFEST_PATH = DATA_DIR / "manifests" / "full_dataset_manifest.yam
 DEFAULT_SAMPLE_MANIFEST_PATH = DATA_DIR / "manifests" / "sample_dataset_manifest.yaml"
 FUSED_EVENT_SCHEMA = SCHEMA_DIR / "fused_event_schema.json"
 
+
+# Default smoothing factor for EMA (0 < alpha <= 1)
+# Lower alpha = more smoothing, higher alpha = more responsive
+DEFAULT_ALPHA = 0.1
+
 # --------------------------------------------------------------------
 # Optional: sanity check (useful during debugging)
 # --------------------------------------------------------------------

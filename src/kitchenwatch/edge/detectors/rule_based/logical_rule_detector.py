@@ -22,13 +22,13 @@ class LogicalRuleDetector(BaseDetector):
     # --- CLASS-LEVEL CONSTANTS (Configuration) ---
 
     # S1.1: Number of consecutive failures before a MEDIUM anomaly is raised.
-    MAX_CONSECUTIVE_FAILURES: int = 3
+    _MAX_CONSECUTIVE_FAILURES: int = 3
 
     # S2.3
-    WINDOW_SIZE: int = 5
-    PERSISTENCE_S: float = 1.0
-    VARIANCE_EPSILON: dict[str, float] = {"temp_celsius": 0.01, "force_n": 0.05}
-    SNAPSHOT_HISTORY_K: int = 3
+    _WINDOW_SIZE: int = 5
+    _PERSISTENCE_S: float = 1.0
+    _VARIANCE_EPSILON: dict[str, float] = {"temp_celsius": 0.01, "force_n": 0.05}
+    _SNAPSHOT_HISTORY_K: int = 3
 
     # Key expected in the FusionSnapshot.derived dictionary to track a critical metric status.
     # In this case, we track the success/failure of the physical grasp action.
@@ -45,11 +45,11 @@ class LogicalRuleDetector(BaseDetector):
         # --- Internal State ---
         self._consecutive_failure_count: int = 0
         self._recent_snapshot_values: dict[str, collections.deque[float]] = collections.defaultdict(
-            lambda: collections.deque(maxlen=self.SNAPSHOT_HISTORY_K)
+            lambda: collections.deque(maxlen=self._SNAPSHOT_HISTORY_K)
         )
 
         logger.debug(
-            f"LogicalRuleDetector initialized with consecutive failure limit={self.MAX_CONSECUTIVE_FAILURES}"
+            f"LogicalRuleDetector initialized with consecutive failure limit={self._MAX_CONSECUTIVE_FAILURES}"
         )
 
     async def detect(self, snapshot: FusionSnapshot) -> dict[str, Any]:
@@ -76,7 +76,7 @@ class LogicalRuleDetector(BaseDetector):
         for key, stats in window_stats.items():
             rng = stats["range"]
             std = stats["std"]
-            eps = self.VARIANCE_EPSILON.get(key, 1e-6)
+            eps = self._VARIANCE_EPSILON.get(key, 1e-6)
             if rng <= eps or std <= eps:
                 return self._build_anomaly_event(
                     key=f"{key}_value_freeze",
@@ -94,9 +94,9 @@ class LogicalRuleDetector(BaseDetector):
                     per_key_values.setdefault(k, []).append(float(v))
 
         for key, values in per_key_values.items():
-            if len(values) < max(1, self.WINDOW_SIZE // 2):
+            if len(values) < max(1, self._WINDOW_SIZE // 2):
                 continue
-            eps = self.VARIANCE_EPSILON.get(key, 1e-6)
+            eps = self._VARIANCE_EPSILON.get(key, 1e-6)
             rng = max(values) - min(values)
             if rng <= eps:
                 return self._build_anomaly_event(
@@ -118,7 +118,7 @@ class LogicalRuleDetector(BaseDetector):
 
             if len(dq) == dq.maxlen:
                 rng = max(dq) - min(dq)
-                eps = self.VARIANCE_EPSILON.get(key, 1e-6)
+                eps = self._VARIANCE_EPSILON.get(key, 1e-6)
                 if rng <= eps:
                     return self._build_anomaly_event(
                         key=f"{key}_value_freeze",
@@ -156,12 +156,12 @@ class LogicalRuleDetector(BaseDetector):
         self._consecutive_failure_count += 1
         logger.warning(
             f"System failure detected via derived metric '{self.KEY_SYSTEM_SUCCESS_STATUS}'. "
-            f"Count: {self._consecutive_failure_count} / {self.MAX_CONSECUTIVE_FAILURES}"
+            f"Count: {self._consecutive_failure_count} / {self._MAX_CONSECUTIVE_FAILURES}"
         )
 
-        if self._consecutive_failure_count >= self.MAX_CONSECUTIVE_FAILURES:
+        if self._consecutive_failure_count >= self._MAX_CONSECUTIVE_FAILURES:
             logger.error(
-                f"🛑 CONSECUTIVE FAILURE (S1.1): Count reached {self.MAX_CONSECUTIVE_FAILURES}. "
+                f"🛑 CONSECUTIVE FAILURE (S1.1): Count reached {self._MAX_CONSECUTIVE_FAILURES}. "
                 f"Requesting system pause."
             )
 
@@ -169,11 +169,11 @@ class LogicalRuleDetector(BaseDetector):
             return self._build_anomaly_event(
                 key="repeated_system_failure",
                 severity=AnomalySeverity.MEDIUM,
-                score=min(1.0, self._consecutive_failure_count / self.MAX_CONSECUTIVE_FAILURES),
+                score=min(1.0, self._consecutive_failure_count / self._MAX_CONSECUTIVE_FAILURES),
                 metadata={
                     "failure_key": self.KEY_SYSTEM_SUCCESS_STATUS,
                     "failure_count": self._consecutive_failure_count,
-                    "limit": self.MAX_CONSECUTIVE_FAILURES,
+                    "limit": self._MAX_CONSECUTIVE_FAILURES,
                 },
             )
 

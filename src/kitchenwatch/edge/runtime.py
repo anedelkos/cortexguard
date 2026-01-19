@@ -71,6 +71,8 @@ class RuntimeConfig:
     # Executor settings
     executor_max_retries: int = 3
     executor_retry_delay: float = 0.5
+    executor_poll_interval: float = 0.05
+    executor_idle_interval: float = 0.1
 
     # Anomaly detection settings
     anomaly_check_interval: float = 1.0
@@ -79,16 +81,15 @@ class RuntimeConfig:
     # Sensor fusion settings
     sensor_fusion_rate: float = 0.1  # 10 Hz
 
-    # LLM settings (for plan generation)
-    llm_model: str = "gpt-4"
-    llm_temperature: float = 0.7
-    llm_max_tokens: int = 2000
-
     # Logging
     log_level: str = "INFO"
 
     # Graceful shutdown timeout
     shutdown_timeout: float = 10.0
+
+    # Observability / OTEL
+    otlp_endpoint: str = "http://tempo:4318/v1/traces"
+    service_name: str = "CortexGuard-edge"
 
 
 class EdgeRuntime:
@@ -120,6 +121,7 @@ class EdgeRuntime:
             blackboard=self.blackboard,
             arbiter=self.arbiter,
             safety_agent=self.safety_agent,
+            tick_interval=self.config.orchestrator_tick_interval,
         )
 
         # Step executor
@@ -129,6 +131,8 @@ class EdgeRuntime:
             capability_registry=self.capability_registry,
             default_max_retries=self.config.executor_max_retries,
             default_retry_delay=self.config.executor_retry_delay,
+            default_poll_interval=self.config.executor_poll_interval,
+            default_idle_interval=self.config.executor_idle_interval,
             controller=self.controller,
         )
 
@@ -446,7 +450,8 @@ def get_api_app(profile: str = "default") -> FastAPI:
 
     # Ensure logging is set up before anything else
     setup_logging()
-    setup_opentelemetry_tracing()
+    config = RuntimeConfig()
+    setup_opentelemetry_tracing(config.service_name, config.otlp_endpoint)
 
     # Determine the runtime profile
     runtime_profile = os.getenv("RUNTIME_PROFILE", profile)

@@ -19,11 +19,11 @@ logger = logging.getLogger(__name__)
 tracer = trace.get_tracer("cortexguard.online_learner_state_estimator")
 
 # Anomaly detection thresholds
-SIGMA_THRESHOLD_NOMINAL = 3.0  # Standard deviations for anomaly detection
-SIGMA_THRESHOLD_IMPULSE = 6.0  # High threshold for impulse events (2x nominal)
-MIN_HISTORY_SAMPLES = 10  # Minimum samples needed for statistical significance
-EPSILON = 1e-6  # Small value to avoid division by zero
-MIN_SIGMA = (
+_SIGMA_THRESHOLD_NOMINAL = 3.0  # Standard deviations for anomaly detection
+_SIGMA_THRESHOLD_IMPULSE = 6.0  # High threshold for impulse events (2x nominal)
+_MIN_HISTORY_SAMPLES = 10  # Minimum samples needed for statistical significance
+_EPSILON = 1e-6  # Small value to avoid division by zero
+_MIN_SIGMA = (
     1e-3  # Practical sigma floor to avoid tiny-variance amplification (tune to sensor noise)
 )
 
@@ -57,8 +57,8 @@ class OnlineLearnerStateEstimator:
         learner: BaseOnlineLearner,
         blackboard: Blackboard,
         window_size: int = 50,
-        sigma_threshold: float = SIGMA_THRESHOLD_NOMINAL,
-        min_history: int = MIN_HISTORY_SAMPLES,
+        sigma_threshold: float = _SIGMA_THRESHOLD_NOMINAL,
+        min_history: int = _MIN_HISTORY_SAMPLES,
     ) -> None:
         """
         Initialize state estimator.
@@ -215,7 +215,7 @@ class OnlineLearnerStateEstimator:
                 mu = mean(hist) if hist else 0.0
                 uncertainty[key] = sigma_raw
 
-                sigma_used = max(sigma_raw, MIN_SIGMA)
+                sigma_used = max(sigma_raw, _MIN_SIGMA)
                 z = abs(residual - mu) / sigma_used
                 z_scores[key] = z
 
@@ -419,7 +419,7 @@ class OnlineLearnerStateEstimator:
             flags["max_z_feature"] = max_z_feature  # type: ignore[assignment]
 
         # Statistical Process Control thresholds
-        if max_z_score > SIGMA_THRESHOLD_IMPULSE:
+        if max_z_score > _SIGMA_THRESHOLD_IMPULSE:
             # >6 sigma: Extremely rare (0.0001% probability)
             # Likely a real physical event, not noise
             return "impulse_event", flags

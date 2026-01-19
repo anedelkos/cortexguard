@@ -46,8 +46,8 @@ class PolicyAgent:
     DEFAULT_TICK_INTERVAL = 0.5
     REMEDIATION_TOOL_ID: ClassVar[str] = "system_controls"
     THERMAL_TOOL_ID: ClassVar[str] = "thermal_management"
-    MAX_ANOMALIES_PER_TICK = 3
-    PROCESSED_CACHE_SIZE = 1000
+    _MAX_ANOMALIES_PER_TICK = 3
+    _PROCESSED_CACHE_SIZE = 1000
 
     def __init__(
         self,
@@ -69,7 +69,7 @@ class PolicyAgent:
         self._loop_running: bool = False
         self._task: asyncio.Task[Any] | None = None
 
-        self._processed_anomalies: deque[str] = deque(maxlen=self.PROCESSED_CACHE_SIZE)
+        self._processed_anomalies: deque[str] = deque(maxlen=self._PROCESSED_CACHE_SIZE)
 
         # Metrics for observability
         self._policies_generated = 0
@@ -765,7 +765,7 @@ class PolicyAgent:
 
         processed_this_tick = 0
         for anomaly in sorted_anomalies:
-            if processed_this_tick >= self.MAX_ANOMALIES_PER_TICK:
+            if processed_this_tick >= self._MAX_ANOMALIES_PER_TICK:
                 break
 
             if anomaly.id not in self._processed_anomalies and anomaly.severity in (

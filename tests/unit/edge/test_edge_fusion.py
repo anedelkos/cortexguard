@@ -19,7 +19,8 @@ import pytest
 import torch
 from PIL import Image
 
-from kitchenwatch.edge.edge_fusion import DEFAULT_ALPHA, EdgeFusion
+from kitchenwatch.common.constants import DEFAULT_ALPHA
+from kitchenwatch.edge.edge_fusion import EdgeFusion
 from kitchenwatch.edge.models.blackboard import Blackboard
 from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
 from kitchenwatch.simulation.models.windowed_fused_record import (

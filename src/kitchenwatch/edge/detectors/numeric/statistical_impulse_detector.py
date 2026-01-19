@@ -19,7 +19,7 @@ class StatisticalImpulseDetector(BaseDetector):
     """
 
     # Default threshold for flagging an impulse event (5 standard deviations)
-    DEFAULT_Z_SCORE_THRESHOLD: float = 5.0
+    _DEFAULT_Z_SCORE_THRESHOLD: float = 5.0
 
     # Minimum allowed standard deviation (sigma) to prevent division by zero.
     # Used to ensure the state estimator has learned *something* before detection.
@@ -30,7 +30,7 @@ class StatisticalImpulseDetector(BaseDetector):
     def __init__(
         self,
         state_estimator: OnlineLearnerStateEstimator,
-        z_score_threshold: float = DEFAULT_Z_SCORE_THRESHOLD,
+        z_score_threshold: float = _DEFAULT_Z_SCORE_THRESHOLD,
         min_uncertainty_for_detection: float | None = None,
     ) -> None:
         """
