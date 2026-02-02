@@ -4,13 +4,13 @@ import random
 import pytest
 import pytest_asyncio
 
-from kitchenwatch.common.constants import DATA_DIR
-from kitchenwatch.edge.models.capability_registry import FunctionSchema, RiskLevel
-from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
-from kitchenwatch.edge.models.reasoning_trace_entry import TraceSeverity
-from kitchenwatch.edge.runtime import EdgeRuntime, create_runtime
-from kitchenwatch.edge.safety_agent import SafetyCommand
-from kitchenwatch.simulation.models.windowed_fused_record import SensorReading, WindowedFusedRecord
+from cortexguard.common.constants import DATA_DIR
+from cortexguard.edge.models.capability_registry import FunctionSchema, RiskLevel
+from cortexguard.edge.models.fusion_snapshot import FusionSnapshot
+from cortexguard.edge.models.reasoning_trace_entry import TraceSeverity
+from cortexguard.edge.runtime import EdgeRuntime, create_runtime
+from cortexguard.edge.safety_agent import SafetyCommand
+from cortexguard.simulation.models.windowed_fused_record import SensorReading, WindowedFusedRecord
 from tests.integration.chaos_engine import ChaosEngine
 from tests.integration.scenario_loader import Scenario, load_scenarios
 

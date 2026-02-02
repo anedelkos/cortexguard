@@ -19,11 +19,11 @@ import pytest
 import torch
 from PIL import Image
 
-from kitchenwatch.common.constants import DEFAULT_ALPHA
-from kitchenwatch.edge.edge_fusion import EdgeFusion
-from kitchenwatch.edge.models.blackboard import Blackboard
-from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
-from kitchenwatch.simulation.models.windowed_fused_record import (
+from cortexguard.common.constants import DEFAULT_ALPHA
+from cortexguard.edge.edge_fusion import EdgeFusion
+from cortexguard.edge.models.blackboard import Blackboard
+from cortexguard.edge.models.fusion_snapshot import FusionSnapshot
+from cortexguard.simulation.models.windowed_fused_record import (
     SensorReading,
     WindowedFusedRecord,
 )
@@ -566,7 +566,7 @@ class TestIntegration:
 @pytest.fixture(autouse=True)
 def reset_logging() -> Generator[None, None, None]:
     """Reset logging between tests."""
-    logging.getLogger("kitchenwatch").handlers = []
+    logging.getLogger("cortexguard").handlers = []
     yield
 
 

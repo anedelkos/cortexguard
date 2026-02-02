@@ -41,8 +41,8 @@ done
 
 
 # --- Detect environment ---
-if [ -d "/workspace/kitchenwatch" ]; then
-    ROOT_DIR="/workspace/kitchenwatch"
+if [ -d "/workspace/cortexguard" ]; then
+    ROOT_DIR="/workspace/cortexguard"
     echo "🧩 Running inside container"
 else
     SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"

@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from kitchenwatch.simulation.models.base_record import BaseFusedRecord
-from kitchenwatch.simulation.utils.load_fused_records import load_fused_records
+from cortexguard.simulation.models.base_record import BaseFusedRecord
+from cortexguard.simulation.utils.load_fused_records import load_fused_records
 
 
 def test_load_fused_records_file_not_found(tmp_path: Path) -> None:

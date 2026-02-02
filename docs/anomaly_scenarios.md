@@ -1,4 +1,4 @@
-# 🍳 KitchenWatch Scenario Catalogue (Edge Anomaly Simulation)
+# 🍳 CortexGuard Scenario Catalogue (Edge Anomaly Simulation)
 
 Each scenario has:
 **ID**, **Title**, **Anomalies Injected**, **Goal**, **Expected Edge Response**, **Outcome Metric**

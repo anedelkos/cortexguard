@@ -3,20 +3,20 @@ from typing import Any
 
 import pytest
 
-from kitchenwatch.edge.arbiter import Arbiter
-from kitchenwatch.edge.models.agent_tool_call import AgentToolCall
-from kitchenwatch.edge.models.blackboard import Blackboard
-from kitchenwatch.edge.models.capability_registry import (
+from cortexguard.edge.arbiter import Arbiter
+from cortexguard.edge.models.agent_tool_call import AgentToolCall
+from cortexguard.edge.models.blackboard import Blackboard
+from cortexguard.edge.models.capability_registry import (
     CapabilityRegistry,
     FunctionSchema,
     RiskLevel,
 )
-from kitchenwatch.edge.models.plan import PlanStep, StepStatus
-from kitchenwatch.edge.models.scene_graph import SceneGraph, SceneObject, SceneRelationship
-from kitchenwatch.edge.models.state_estimate import StateEstimate
-from kitchenwatch.edge.orchestrator import Orchestrator
-from kitchenwatch.edge.safety_agent import SafetyAgent
-from kitchenwatch.edge.step_executor import StepExecutor
+from cortexguard.edge.models.plan import PlanStep, StepStatus
+from cortexguard.edge.models.scene_graph import SceneGraph, SceneObject, SceneRelationship
+from cortexguard.edge.models.state_estimate import StateEstimate
+from cortexguard.edge.orchestrator import Orchestrator
+from cortexguard.edge.safety_agent import SafetyAgent
+from cortexguard.edge.step_executor import StepExecutor
 
 
 # --- Dummy controller and classifier ---

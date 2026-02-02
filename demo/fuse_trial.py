@@ -1,10 +1,10 @@
-# src/kitchenwatch/demo/fuse_trial.py
+# src/cortexguard/demo/fuse_trial.py
 import argparse
 from pathlib import Path
 
-from kitchenwatch.common.constants import DEFAULT_FULL_MANIFEST_PATH, DEFAULT_FUSED_DATA_PATH
-from kitchenwatch.simulation.fusion_strategies.windowed import WindowedFusion
-from kitchenwatch.simulation.modalities_fuser import ModalityFuser
+from cortexguard.common.constants import DEFAULT_FULL_MANIFEST_PATH, DEFAULT_FUSED_DATA_PATH
+from cortexguard.simulation.fusion_strategies.windowed import WindowedFusion
+from cortexguard.simulation.modalities_fuser import ModalityFuser
 
 
 def main() -> None:

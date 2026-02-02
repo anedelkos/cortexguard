@@ -5,9 +5,9 @@ from datetime import datetime
 
 import pytest
 
-from kitchenwatch.edge.models.anomaly_event import AnomalyEvent, AnomalySeverity
-from kitchenwatch.edge.models.state_estimate import StateEstimate
-from kitchenwatch.edge.policy.mistral_policy_engine import MistralLLMPolicyEngine
+from cortexguard.edge.models.anomaly_event import AnomalyEvent, AnomalySeverity
+from cortexguard.edge.models.state_estimate import StateEstimate
+from cortexguard.edge.policy.mistral_policy_engine import MistralLLMPolicyEngine
 
 # --- Configuration for Integration Tests ---
 MAX_LATENCY_SECONDS = 20.0

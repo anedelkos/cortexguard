@@ -3,7 +3,7 @@ import logging
 from collections.abc import Iterator
 from typing import Any
 
-from kitchenwatch.simulation.models.windowed_fused_record import SensorReading, WindowedFusedRecord
+from cortexguard.simulation.models.windowed_fused_record import SensorReading, WindowedFusedRecord
 from tests.integration.scenario_loader import AnomalySpec, Scenario
 
 logger = logging.getLogger(__name__)

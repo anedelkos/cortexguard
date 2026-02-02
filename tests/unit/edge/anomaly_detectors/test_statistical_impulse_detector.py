@@ -4,12 +4,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from kitchenwatch.edge.detectors.numeric.statistical_impulse_detector import (
+from cortexguard.edge.detectors.numeric.statistical_impulse_detector import (
     StatisticalImpulseDetector,
 )
-from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
-from kitchenwatch.edge.models.state_estimate import StateEstimate
-from kitchenwatch.edge.online_learner_state_estimator import OnlineLearnerStateEstimator
+from cortexguard.edge.models.fusion_snapshot import FusionSnapshot
+from cortexguard.edge.models.state_estimate import StateEstimate
+from cortexguard.edge.online_learner_state_estimator import OnlineLearnerStateEstimator
 
 
 @pytest.fixture

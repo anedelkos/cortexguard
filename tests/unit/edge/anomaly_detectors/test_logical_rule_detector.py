@@ -5,9 +5,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from kitchenwatch.edge.detectors.rule_based.logical_rule_detector import LogicalRuleDetector
-from kitchenwatch.edge.models.anomaly_event import AnomalySeverity
-from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
+from cortexguard.edge.detectors.rule_based.logical_rule_detector import LogicalRuleDetector
+from cortexguard.edge.models.anomaly_event import AnomalySeverity
+from cortexguard.edge.models.fusion_snapshot import FusionSnapshot
 
 
 @pytest.fixture

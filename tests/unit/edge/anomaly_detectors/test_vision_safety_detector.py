@@ -2,12 +2,12 @@ import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
-from kitchenwatch.core.interfaces.base_detector import BaseDetector
-from kitchenwatch.edge.detectors.vision.vision_safety_detector import (
+from cortexguard.core.interfaces.base_detector import BaseDetector
+from cortexguard.edge.detectors.vision.vision_safety_detector import (
     VisionSafetyDetector,
     VisionSafetyDetectorConfig,
 )
-from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
+from cortexguard.edge.models.fusion_snapshot import FusionSnapshot
 
 
 class DummySnapshot(FusionSnapshot):

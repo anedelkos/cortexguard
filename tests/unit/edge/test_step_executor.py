@@ -4,11 +4,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from kitchenwatch.edge.models.agent_tool_call import AgentToolCall
-from kitchenwatch.edge.models.blackboard import Blackboard
-from kitchenwatch.edge.models.capability_registry import RiskLevel
-from kitchenwatch.edge.models.plan import PlanStep, StepStatus
-from kitchenwatch.edge.step_executor import StepExecutor
+from cortexguard.edge.models.agent_tool_call import AgentToolCall
+from cortexguard.edge.models.blackboard import Blackboard
+from cortexguard.edge.models.capability_registry import RiskLevel
+from cortexguard.edge.models.plan import PlanStep, StepStatus
+from cortexguard.edge.step_executor import StepExecutor
 
 
 class ControllerProtocol(Protocol):

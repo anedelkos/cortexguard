@@ -1,8 +1,8 @@
 import pandas as pd
 import pytest
 
-from kitchenwatch.simulation.fusion_strategies.windowed import WindowedFusion
-from kitchenwatch.simulation.models.windowed_fused_record import SensorReading, WindowedFusedRecord
+from cortexguard.simulation.fusion_strategies.windowed import WindowedFusion
+from cortexguard.simulation.models.windowed_fused_record import SensorReading, WindowedFusedRecord
 
 
 @pytest.fixture

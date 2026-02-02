@@ -7,15 +7,15 @@ from typing import Any
 import pytest
 import yaml
 
-from kitchenwatch.core.interfaces.base_controller import BaseController
-from kitchenwatch.core.interfaces.base_step_classifier import BaseStepClassifier
-from kitchenwatch.edge.models.agent_tool_call import AgentToolCall
-from kitchenwatch.edge.models.anomaly_event import AnomalyEvent, AnomalySeverity
-from kitchenwatch.edge.models.blackboard import Blackboard
-from kitchenwatch.edge.models.capability_registry import CapabilityRegistry, RiskLevel
-from kitchenwatch.edge.models.goal import GoalContext
-from kitchenwatch.edge.models.plan import Plan, PlanStatus, PlanStep, PlanType, StepStatus
-from kitchenwatch.edge.step_executor import StepExecutor
+from cortexguard.core.interfaces.base_controller import BaseController
+from cortexguard.core.interfaces.base_step_classifier import BaseStepClassifier
+from cortexguard.edge.models.agent_tool_call import AgentToolCall
+from cortexguard.edge.models.anomaly_event import AnomalyEvent, AnomalySeverity
+from cortexguard.edge.models.blackboard import Blackboard
+from cortexguard.edge.models.capability_registry import CapabilityRegistry, RiskLevel
+from cortexguard.edge.models.goal import GoalContext
+from cortexguard.edge.models.plan import Plan, PlanStatus, PlanStep, PlanType, StepStatus
+from cortexguard.edge.step_executor import StepExecutor
 
 logger = logging.getLogger(__name__)
 

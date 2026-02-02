@@ -1,5 +1,5 @@
 networks:
-  kitchenwatch_net:
+  cortexguard_net:
     driver: bridge
 
 volumes:
@@ -7,11 +7,11 @@ volumes:
 
 services:
   edge:
-    image: kitchenwatch-edge:latest
+    image: cortexguard-edge:latest
     build:
       context: .
       dockerfile: docker/edge.Dockerfile
-    container_name: kitchenwatch-edge
+    container_name: cortexguard-edge
     depends_on:
       - tempo
     healthcheck:
@@ -26,23 +26,23 @@ services:
       - "8080:8080"
     restart: unless-stopped
     networks:
-      - kitchenwatch_net
+      - cortexguard_net
 
   simulator:
-    image: kitchenwatch-simulator:latest
+    image: cortexguard-simulator:latest
     build:
       context: .
       dockerfile: docker/simulator.Dockerfile
-    container_name: kitchenwatch-simulator
+    container_name: cortexguard-simulator
     depends_on:
       edge:
         condition: service_healthy
-    working_dir: /workspace/kitchenwatch
+    working_dir: /workspace/cortexguard
     command: []
     environment:
       - PYTHONUNBUFFERED=1
       - UV_ENV=prod
-      - FUSED_DIR=/workspace/kitchenwatch/data/fused
+      - FUSED_DIR=/workspace/cortexguard/data/fused
       - LOG_LEVEL=INFO
       - LOG_JSON=true
     # No volume mounts — uses built-in COPY layers
@@ -50,21 +50,21 @@ services:
       - "8080"
     restart: unless-stopped
     networks:
-      - kitchenwatch_net
+      - cortexguard_net
 
   prometheus:
     image: prom/prometheus:latest
-    container_name: kitchenwatch-prometheus
+    container_name: cortexguard-prometheus
     volumes:
       - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml
     ports:
       - "9090:9090"
     networks:
-      - kitchenwatch_net
+      - cortexguard_net
 
   grafana:
     image: grafana/grafana:latest
-    container_name: kitchenwatch-grafana
+    container_name: cortexguard-grafana
     ports:
       - "3000:3000"
     volumes:
@@ -73,11 +73,11 @@ services:
       - ./docker/grafana_dashboard.json:/var/lib/grafana/dashboards/cortexguard-edge.json:ro
       - grafana-data:/var/lib/grafana
     networks:
-      - kitchenwatch_net
+      - cortexguard_net
 
   tempo:
     image: grafana/tempo:latest
-    container_name: kitchenwatch-tempo
+    container_name: cortexguard-tempo
     volumes:
       - ./docker/tempo.yaml:/etc/tempo.yaml:ro
       - ./docker/tempo-data:/var/tempo
@@ -86,4 +86,4 @@ services:
       - "4318:4318"
       - "3100:3100"
     networks:
-      - kitchenwatch_net
+      - cortexguard_net

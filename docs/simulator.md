@@ -1,6 +1,6 @@
 ## Simulator Tasks
 
-KitchenWatch provides convenience Taskfile entries for building and testing the simulator components.
+CortexGuard provides convenience Taskfile entries for building and testing the simulator components.
 
 ### Fuser
 - **Purpose:** Combines raw device data from csv into fused JSONL records.
