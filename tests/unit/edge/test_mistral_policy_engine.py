@@ -6,12 +6,12 @@ from unittest.mock import patch
 
 import pytest
 
-from kitchenwatch.edge.models.anomaly_event import AnomalyEvent, AnomalySeverity
-from kitchenwatch.edge.models.remediation_policy import RemediationPolicy
-from kitchenwatch.edge.models.state_estimate import StateEstimate
+from cortexguard.edge.models.anomaly_event import AnomalyEvent, AnomalySeverity
+from cortexguard.edge.models.remediation_policy import RemediationPolicy
+from cortexguard.edge.models.state_estimate import StateEstimate
 
 # Using the import path specified by the user
-from kitchenwatch.edge.policy.mistral_policy_engine import MistralLLMPolicyEngine
+from cortexguard.edge.policy.mistral_policy_engine import MistralLLMPolicyEngine
 
 # --- Fixtures ---
 
@@ -75,8 +75,8 @@ def tool_catalog() -> str:
 
 
 # Patch the heavy libraries globally for unit tests
-@patch("kitchenwatch.edge.policy.mistral_policy_engine.AutoTokenizer")
-@patch("kitchenwatch.edge.policy.mistral_policy_engine.AutoModelForCausalLM")
+@patch("cortexguard.edge.policy.mistral_policy_engine.AutoTokenizer")
+@patch("cortexguard.edge.policy.mistral_policy_engine.AutoModelForCausalLM")
 class TestMistralLLMInit:
     def test_init_mock_mode(
         self, MockModel: Any, MockTokenizer: Any, caplog: pytest.LogCaptureFixture
@@ -89,7 +89,7 @@ class TestMistralLLMInit:
         assert "LLM is running in MOCK mode" in caplog.text
 
     @patch(
-        "kitchenwatch.edge.policy.mistral_policy_engine.torch.cuda.is_available",
+        "cortexguard.edge.policy.mistral_policy_engine.torch.cuda.is_available",
         return_value=True,
     )
     def test_init_real_cuda_mode(self, mock_cuda: Any, MockModel: Any, MockTokenizer: Any) -> None:
@@ -101,7 +101,7 @@ class TestMistralLLMInit:
         assert "quantization_config" in MockModel.from_pretrained.call_args[1]
 
     @patch(
-        "kitchenwatch.edge.policy.mistral_policy_engine.torch.cuda.is_available",
+        "cortexguard.edge.policy.mistral_policy_engine.torch.cuda.is_available",
         return_value=False,
     )
     def test_init_real_cpu_mode_with_warning(

@@ -1,5 +1,5 @@
 # ============================================
-# KitchenWatch: Pre-commit configuration
+# CortexGuard: Pre-commit configuration
 # Enforces linting, formatting, and type checks
 # across all contributors and CI pipelines.
 # ============================================

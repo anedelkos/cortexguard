@@ -6,14 +6,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from kitchenwatch.core.interfaces.base_detector import BaseDetector
-from kitchenwatch.edge.detectors.anomaly_detector import AnomalyDetector
-from kitchenwatch.edge.models.anomaly_event import AnomalyEvent, AnomalySeverity
-from kitchenwatch.edge.models.blackboard import Blackboard
-from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
+from cortexguard.core.interfaces.base_detector import BaseDetector
+from cortexguard.edge.detectors.anomaly_detector import AnomalyDetector
+from cortexguard.edge.models.anomaly_event import AnomalyEvent, AnomalySeverity
+from cortexguard.edge.models.blackboard import Blackboard
+from cortexguard.edge.models.fusion_snapshot import FusionSnapshot
 
 # --- Path for Patching ---
-ANOMALY_DETECTOR_LOGGER_PATH = "kitchenwatch.edge.detectors.anomaly_detector.logger"
+ANOMALY_DETECTOR_LOGGER_PATH = "cortexguard.edge.detectors.anomaly_detector.logger"
 
 
 # Define the base mock detector

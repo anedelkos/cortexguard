@@ -1,4 +1,4 @@
-# KitchenWatch
+# CortexGuard
 Real-Time Multimodal Anomaly Detection & Fault-Tolerant AI Architecture for Collaborative Robotics
 
 
@@ -10,7 +10,7 @@ A distributed, real-time multimodal anomaly detection and recovery framework for
 
 
 # 🧭 Overview
-KitchenWatch is a real-time, multimodal anomaly detection and recovery system for collaborative robots operating in human environments.
+CortexGuard is a real-time, multimodal anomaly detection and recovery system for collaborative robots operating in human environments.
 It utilizes cutting-edge AI techniques across sensor fusion, anomaly detection, and multi-agent fault tolerance — with separate AWS (training) and GCP (detection) pipelines.
 
 It achieves situational awareness by fusing multiple sensor data with camera feeds and task intent which makes it able to recover from varying urgency faults, either environmental or self-caused using hierarchical anomaly reasoning.
@@ -66,8 +66,8 @@ Edge performs low-latency sensing + many lightweight detectors → a fusion/scor
 # ⚙️ Getting Started
 1️⃣ Setup
 ```
-git clone https://gitlab.com/replikaa/kitchenwatch.git
-cd kitchenwatch
+git clone https://gitlab.com/replikaa/cortexguard.git
+cd cortexguard
 pip install -r requirements.txt
 ```
 
@@ -164,7 +164,7 @@ Use notebooks under /notebooks for:
 
 
 # 🧹 Code Quality
-KitchenWatch enforces production-level quality with:
+CortexGuard enforces production-level quality with:
 * Ruff for linting + formatting
 * mypy for static typing
 * pytest for testing
@@ -173,8 +173,7 @@ KitchenWatch enforces production-level quality with:
 
 
 # 🧑‍💻 Author
-Andreas Nedelkos — Senior AI Engineer
-Passionate about fault-tolerant, human-aware robotics and multimodal intelligence.
+Andreas Nedelkos
 
 # 🏁 License
 MIT License

@@ -7,12 +7,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from kitchenwatch.core.interfaces.base_online_learner import BaseOnlineLearner
-from kitchenwatch.edge.models.blackboard import Blackboard
-from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
-from kitchenwatch.edge.models.scene_graph import SceneGraph, SceneObject, SceneRelationship
-from kitchenwatch.edge.models.state_estimate import StateEstimate
-from kitchenwatch.edge.online_learner_state_estimator import OnlineLearnerStateEstimator
+from cortexguard.core.interfaces.base_online_learner import BaseOnlineLearner
+from cortexguard.edge.models.blackboard import Blackboard
+from cortexguard.edge.models.fusion_snapshot import FusionSnapshot
+from cortexguard.edge.models.scene_graph import SceneGraph, SceneObject, SceneRelationship
+from cortexguard.edge.models.state_estimate import StateEstimate
+from cortexguard.edge.online_learner_state_estimator import OnlineLearnerStateEstimator
 
 
 class DummyLearner(BaseOnlineLearner):

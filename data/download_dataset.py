@@ -1,11 +1,11 @@
 """
-Dataset downloader for KitchenWatch simulation.
+Dataset downloader for CortexGuard simulation.
 
 Downloads and extracts dataset archives defined in the simulation manifest.
 Each trial entry may include a `download_files` block with URLs and target directories.
 
 Usage:
-    python -m kitchenwatch.simulation.download_dataset --manifest demo/full_dataset_manifest.yaml
+    python -m cortexguard.simulation.download_dataset --manifest demo/full_dataset_manifest.yaml
 """
 
 import argparse
@@ -15,11 +15,11 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from kitchenwatch.common.constants import (
+from cortexguard.common.constants import (
     DEFAULT_FULL_MANIFEST_PATH,
     DEFAULT_RAW_DATA_PATH,
 )
-from kitchenwatch.simulation.manifest_loader import ManifestLoader
+from cortexguard.simulation.manifest_loader import ManifestLoader
 
 
 def setup_logger() -> logging.Logger:

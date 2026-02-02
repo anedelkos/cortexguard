@@ -1,11 +1,11 @@
 {
-  "name": "KitchenWatch Dev",
+  "name": "CortexGuard Dev",
   "build": {
     "dockerfile": "Dockerfile.dev",
     "context": ".."
   },
-  "workspaceFolder": "/workspace/kitchenwatch",
-  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace/kitchenwatch,type=bind,consistency=cached",
+  "workspaceFolder": "/workspace/cortexguard",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace/cortexguard,type=bind,consistency=cached",
   "customizations": {
     "vscode": {
       "extensions": [
@@ -19,12 +19,12 @@
       ],
       "settings": {
         "python.venvPath": "/opt/venvs",
-        "python.defaultInterpreterPath": "/opt/venvs/kitchenwatch/bin/python",
+        "python.defaultInterpreterPath": "/opt/venvs/cortexguard/bin/python",
         "python.terminal.activateEnvironment": false
       }
     }
   },
-  "postCreateCommand": "/opt/venvs/kitchenwatch/bin/python -m uv sync --group dev --active && /opt/venvs/kitchenwatch/bin/python -m uv sync --active",
+  "postCreateCommand": "/opt/venvs/cortexguard/bin/python -m uv sync --group dev --active && /opt/venvs/cortexguard/bin/python -m uv sync --active",
   "forwardPorts": [8000, 8888],
   "remoteUser": "vscode"
 }

@@ -6,15 +6,15 @@ from typing import Any, cast
 
 import pytest
 
-from kitchenwatch.edge.mayday_agent import MaydayAgent
-from kitchenwatch.edge.models.agent_tool_call import AgentToolCall
-from kitchenwatch.edge.models.anomaly_event import AnomalyEvent, AnomalySeverity
-from kitchenwatch.edge.models.blackboard import Blackboard
-from kitchenwatch.edge.models.goal import GoalContext
-from kitchenwatch.edge.models.mayday_packet import MaydayPacket, SystemHealth
-from kitchenwatch.edge.models.plan import Plan, PlanSource, PlanStatus, PlanStep, PlanType
-from kitchenwatch.edge.models.reasoning_trace_entry import TraceSeverity
-from kitchenwatch.edge.models.remediation_policy import RemediationPolicy
+from cortexguard.edge.mayday_agent import MaydayAgent
+from cortexguard.edge.models.agent_tool_call import AgentToolCall
+from cortexguard.edge.models.anomaly_event import AnomalyEvent, AnomalySeverity
+from cortexguard.edge.models.blackboard import Blackboard
+from cortexguard.edge.models.goal import GoalContext
+from cortexguard.edge.models.mayday_packet import MaydayPacket, SystemHealth
+from cortexguard.edge.models.plan import Plan, PlanSource, PlanStatus, PlanStep, PlanType
+from cortexguard.edge.models.reasoning_trace_entry import TraceSeverity
+from cortexguard.edge.models.remediation_policy import RemediationPolicy
 
 
 # -------------------------

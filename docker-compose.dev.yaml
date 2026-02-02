@@ -1,5 +1,5 @@
 networks:
-  kitchenwatch_net:
+  cortexguard_net:
     driver: bridge
 
 volumes:
@@ -10,8 +10,8 @@ services:
     build:
       context: .
       dockerfile: docker/edge.Dockerfile
-    container_name: kitchenwatch-edge-dev
-    working_dir: /workspace/kitchenwatch
+    container_name: cortexguard-edge-dev
+    working_dir: /workspace/cortexguard
     depends_on:
       - tempo
     healthcheck:
@@ -25,19 +25,19 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./src:/workspace/kitchenwatch/src
-      - ./data:/workspace/kitchenwatch/data
+      - ./src:/workspace/cortexguard/src
+      - ./data:/workspace/cortexguard/data
     restart: unless-stopped
     networks:
-      - kitchenwatch_net
+      - cortexguard_net
 
 
   simulator:
     build:
       context: .
       dockerfile: docker/simulator.Dockerfile
-    container_name: kitchenwatch-simulator-dev
-    working_dir: /workspace/kitchenwatch
+    container_name: cortexguard-simulator-dev
+    working_dir: /workspace/cortexguard
     depends_on:
       edge:
         condition: service_healthy
@@ -45,34 +45,34 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - UV_ENV=dev
-      - FUSED_DIR=/workspace/kitchenwatch/data/fused
+      - FUSED_DIR=/workspace/cortexguard/data/fused
       - LOG_LEVEL=INFO
       - LOG_JSON=false
     volumes:
       # Mount local folders for live development (overrides COPY in Dockerfile)
-      - ./src:/workspace/kitchenwatch/src
-      - ./demo:/workspace/kitchenwatch/demo
-      - ./data:/workspace/kitchenwatch/data
-      - ./scripts:/workspace/kitchenwatch/scripts
+      - ./src:/workspace/cortexguard/src
+      - ./demo:/workspace/cortexguard/demo
+      - ./data:/workspace/cortexguard/data
+      - ./scripts:/workspace/cortexguard/scripts
     ports:
       - "8081:8080"
     restart: unless-stopped
     networks:
-      - kitchenwatch_net
+      - cortexguard_net
 
   prometheus:
     image: prom/prometheus:latest
-    container_name: kitchenwatch-prometheus
+    container_name: cortexguard-prometheus
     volumes:
       - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml
     ports:
       - "9090:9090"
     networks:
-      - kitchenwatch_net
+      - cortexguard_net
 
   grafana:
     image: grafana/grafana:latest
-    container_name: kitchenwatch-grafana
+    container_name: cortexguard-grafana
     ports:
       - "3000:3000"
     volumes:
@@ -81,11 +81,11 @@ services:
       - ./docker/grafana_dashboard.json:/var/lib/grafana/dashboards/cortexguard-edge.json:ro
       - grafana-data:/var/lib/grafana
     networks:
-      - kitchenwatch_net
+      - cortexguard_net
 
   tempo:
     image: grafana/tempo:latest
-    container_name: kitchenwatch-tempo
+    container_name: cortexguard-tempo
     volumes:
       - ./docker/tempo.yaml:/etc/tempo.yaml:ro
       - ./docker/tempo-data:/var/tempo
@@ -94,4 +94,4 @@ services:
       - "4318:4318"
       - "3100:3100"
     networks:
-      - kitchenwatch_net
+      - cortexguard_net

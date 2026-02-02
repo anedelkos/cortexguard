@@ -1,5 +1,5 @@
 [project]
-name = "KitchenWatch"
+name = "cortexguard"
 version = "0.1.0"
 description = "Real-Time Multimodal Anomaly Detection & Fault-Tolerant AI Architecture for Collaborative Robotics"
 readme = "README.md"
@@ -83,14 +83,14 @@ exclude = [
 ]
 line-length = 100  # line length handled by Black
 target-version = "py312"
-src = ["src/kitchenwatch"]
+src = ["src/cortexguard"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
 ignore = ["E501"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["kitchenwatch"]
+known-first-party = ["cortexguard"]
 
 
 [tool.isort]
@@ -108,7 +108,7 @@ disable_error_code = ["misc", "no-any-unimported"]
 ignore_missing_imports = true
 follow_imports = "silent"
 exclude = "data"
-files = ["src/kitchenwatch"]
+files = ["src/cortexguard"]
 mypy_path = "src"
 
 # Explicitly reinforce strictness
@@ -135,7 +135,7 @@ module = ["torchvision", "torchvision.*", "torch", "torch.*"]
 
 [tool.pytest.ini_options]
 minversion = "7.0"
-addopts = "--strict-markers --maxfail=3 --tb=short --cov=kitchenwatch --cov-report=term-missing"
+addopts = "--strict-markers --maxfail=3 --tb=short --cov=cortexguard --cov-report=term-missing"
 testpaths = ["tests"]
 markers = [
     "llm_slow: marks tests as slow (e.g., requires real LLM or external API calls)",
@@ -149,8 +149,8 @@ ignore = []
 [tool.coverage.run]
 branch = true
 source = ["src"]
-omit = ["tests/*", "docker/*", ".devcontainer/*", "__pycache__/*", "src/kitchenwatch/common/logging_config.py",
-    "src/kitchenwatch/edge/models/*.py", "src/kitchenwatch/core/mocks/*.py", "src/kitchenwatch/core/interfaces/*.py"]
+omit = ["tests/*", "docker/*", ".devcontainer/*", "__pycache__/*", "src/cortexguard/common/logging_config.py",
+    "src/cortexguard/edge/models/*.py", "src/cortexguard/core/mocks/*.py", "src/cortexguard/core/interfaces/*.py"]
 
 [tool.coverage.report]
 fail_under = 80

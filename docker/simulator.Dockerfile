@@ -3,15 +3,15 @@ FROM python:3.12-slim-bookworm
 
 
 # ---- Environment setup ----
-ENV PATH="/opt/venvs/kitchenwatch/bin:$PATH" \
-    VENV_PATH=/opt/venvs/kitchenwatch \
+ENV PATH="/opt/venvs/cortexguard/bin:$PATH" \
+    VENV_PATH=/opt/venvs/cortexguard \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH="/workspace/kitchenwatch/src" \
-    MANIFEST_PATH="/workspace/kitchenwatch/data/manifests/sample_dataset_manifest.yaml" \
-    FUSED_DIR="/workspace/kitchenwatch/data/fused"
+    PYTHONPATH="/workspace/cortexguard/src" \
+    MANIFEST_PATH="/workspace/cortexguard/data/manifests/sample_dataset_manifest.yaml" \
+    FUSED_DIR="/workspace/cortexguard/data/fused"
 
 # ---- Set working directory ----
-WORKDIR /workspace/kitchenwatch
+WORKDIR /workspace/cortexguard
 
 # ---- System dependencies ----
 RUN apt-get update && \

@@ -4,10 +4,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from kitchenwatch.edge.edge_fusion import EdgeFusion
-from kitchenwatch.edge.local_receiver import LocalReceiver
-from kitchenwatch.edge.models.blackboard import Blackboard
-from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
+from cortexguard.edge.edge_fusion import EdgeFusion
+from cortexguard.edge.local_receiver import LocalReceiver
+from cortexguard.edge.models.blackboard import Blackboard
+from cortexguard.edge.models.fusion_snapshot import FusionSnapshot
 
 
 @pytest.mark.asyncio

@@ -8,7 +8,7 @@ These metrics provide high‑value operational visibility across the entire edge
 All metrics are defined in:
 
 ```text
-kitchenwatch.edge.utils.metrics
+cortexguard.edge.utils.metrics
 ```
 
 This document defines:

@@ -5,17 +5,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from kitchenwatch.core.interfaces.base_policy_engine import BasePolicyEngine
-from kitchenwatch.edge.mayday_agent import MaydayAgent
-from kitchenwatch.edge.models.agent_tool_call import AgentToolCall
-from kitchenwatch.edge.models.anomaly_event import AnomalyEvent, AnomalySeverity
-from kitchenwatch.edge.models.blackboard import Blackboard
-from kitchenwatch.edge.models.capability_registry import CapabilityRegistry
-from kitchenwatch.edge.models.fusion_snapshot import FusionSnapshot
-from kitchenwatch.edge.models.plan import PlanStep, StepStatus
-from kitchenwatch.edge.models.remediation_policy import RemediationPolicy
-from kitchenwatch.edge.models.state_estimate import StateEstimate
-from kitchenwatch.edge.policy.policy_agent import PolicyAgent
+from cortexguard.core.interfaces.base_policy_engine import BasePolicyEngine
+from cortexguard.edge.mayday_agent import MaydayAgent
+from cortexguard.edge.models.agent_tool_call import AgentToolCall
+from cortexguard.edge.models.anomaly_event import AnomalyEvent, AnomalySeverity
+from cortexguard.edge.models.blackboard import Blackboard
+from cortexguard.edge.models.capability_registry import CapabilityRegistry
+from cortexguard.edge.models.fusion_snapshot import FusionSnapshot
+from cortexguard.edge.models.plan import PlanStep, StepStatus
+from cortexguard.edge.models.remediation_policy import RemediationPolicy
+from cortexguard.edge.models.state_estimate import StateEstimate
+from cortexguard.edge.policy.policy_agent import PolicyAgent
 
 
 @pytest.fixture
@@ -101,7 +101,7 @@ def create_mock_overheat_policy(
 # --- Tests ---
 
 
-@patch("kitchenwatch.edge.policy.policy_agent.logger", autospec=True)
+@patch("cortexguard.edge.policy.policy_agent.logger", autospec=True)
 def test_agent_initialization_and_metrics(
     mock_sut_logger: MagicMock, mock_deps: dict[str, Any]
 ) -> None:
@@ -124,7 +124,7 @@ async def test_validate_action_success(agent: PolicyAgent, mock_deps: dict[str, 
     assert agent._validate_action(action) is True
 
 
-@patch("kitchenwatch.edge.policy.policy_agent.logger", autospec=True)
+@patch("cortexguard.edge.policy.policy_agent.logger", autospec=True)
 @pytest.mark.asyncio
 async def test_handle_high_severity_anomaly(
     mock_sut_logger: MagicMock, agent: PolicyAgent, mock_deps: dict[str, Any]
@@ -156,7 +156,7 @@ async def test_handle_high_severity_anomaly(
     assert agent.get_metrics()["escalations_triggered"] == 1
 
 
-@patch("kitchenwatch.edge.policy.policy_agent.logger", autospec=True)
+@patch("cortexguard.edge.policy.policy_agent.logger", autospec=True)
 @pytest.mark.asyncio
 async def test_handle_unknown_medium_anomaly_delegation(
     mock_sut_logger: MagicMock, agent: PolicyAgent, mock_deps: dict[str, Any]
@@ -215,7 +215,7 @@ async def test_handle_unknown_medium_anomaly_delegation(
     )
 
 
-@patch("kitchenwatch.edge.policy.policy_agent.logger", autospec=True)
+@patch("cortexguard.edge.policy.policy_agent.logger", autospec=True)
 @pytest.mark.asyncio
 async def test_llm_based_validation_failure_updates_policy(
     mock_sut_logger: MagicMock, agent: PolicyAgent, mock_deps: dict[str, Any]
@@ -272,7 +272,7 @@ async def test_llm_based_validation_failure_updates_policy(
 # --- Anomaly Loop and Sorting Tests ---
 
 
-@patch("kitchenwatch.edge.policy.policy_agent.logger", autospec=True)
+@patch("cortexguard.edge.policy.policy_agent.logger", autospec=True)
 @pytest.mark.asyncio
 async def test_run_loop_stops_on_high_severity(
     mock_sut_logger: MagicMock, agent: PolicyAgent, mock_deps: dict[str, Any]

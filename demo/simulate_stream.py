@@ -8,21 +8,21 @@ from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import Any, TypeVar
 
-from kitchenwatch.common.constants import (
+from cortexguard.common.constants import (
     DEFAULT_FULL_MANIFEST_PATH,
     DEFAULT_FUSED_DATA_PATH,
 )
-from kitchenwatch.common.logging_config import setup_logging
-from kitchenwatch.core.interfaces.base_receiver import BaseReceiver
-from kitchenwatch.edge.edge_fusion import EdgeFusion
-from kitchenwatch.edge.http_receiver import HttpReceiver
-from kitchenwatch.edge.local_receiver import LocalReceiver
-from kitchenwatch.edge.models.blackboard import Blackboard
-from kitchenwatch.simulation.manifest_loader import ManifestLoader
-from kitchenwatch.simulation.models.base_record import BaseFusedRecord
-from kitchenwatch.simulation.models.trial import Trial
-from kitchenwatch.simulation.streamers.local_streamer import LocalStreamer
-from kitchenwatch.simulation.utils.load_fused_records import load_fused_records
+from cortexguard.common.logging_config import setup_logging
+from cortexguard.core.interfaces.base_receiver import BaseReceiver
+from cortexguard.edge.edge_fusion import EdgeFusion
+from cortexguard.edge.http_receiver import HttpReceiver
+from cortexguard.edge.local_receiver import LocalReceiver
+from cortexguard.edge.models.blackboard import Blackboard
+from cortexguard.simulation.manifest_loader import ManifestLoader
+from cortexguard.simulation.models.base_record import BaseFusedRecord
+from cortexguard.simulation.models.trial import Trial
+from cortexguard.simulation.streamers.local_streamer import LocalStreamer
+from cortexguard.simulation.utils.load_fused_records import load_fused_records
 
 RecordT = TypeVar("RecordT")
 

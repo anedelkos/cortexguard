@@ -3,12 +3,12 @@ FROM python:3.12-slim-bookworm AS base
 
 # Set environment defaults
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONPATH="/workspace/kitchenwatch/src" \
+    PYTHONPATH="/workspace/cortexguard/src" \
     LOG_LEVEL=INFO \
     LOG_JSON=true \
     UV_ENV=prod
 
-WORKDIR /workspace/kitchenwatch
+WORKDIR /workspace/cortexguard
 
 # System deps
 RUN apt-get update &&  \
@@ -33,4 +33,4 @@ COPY src ./src
 EXPOSE 8080
 
 # Run the FastAPI app
-CMD ["uvicorn", "kitchenwatch.edge.runtime:get_api_app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uvicorn", "cortexguard.edge.runtime:get_api_app", "--host", "0.0.0.0", "--port", "8080"]

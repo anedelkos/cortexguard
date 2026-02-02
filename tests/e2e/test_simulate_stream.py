@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from kitchenwatch.edge.local_receiver import LocalReceiver
-from kitchenwatch.simulation.manifest_loader import ManifestLoader
-from kitchenwatch.simulation.streamers.local_streamer import LocalStreamer
+from cortexguard.edge.local_receiver import LocalReceiver
+from cortexguard.simulation.manifest_loader import ManifestLoader
+from cortexguard.simulation.streamers.local_streamer import LocalStreamer
 
 
 @pytest.fixture

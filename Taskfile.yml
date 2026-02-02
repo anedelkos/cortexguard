@@ -2,7 +2,7 @@ version: "3"
 
 vars:
   python_version: "3.12"
-  src_dir: "src/kitchenwatch"
+  src_dir: "src/cortexguard"
   test_dir: "tests"
   demo_dir: "demo"
   data_dir: "data"
@@ -40,7 +40,7 @@ tasks:
         echo "Virtualenv active? ${VIRTUAL_ENV:-None}"
         echo "Path variable: $PATH"
         if [ -f "./.venv/bin/activate" ]; then echo "Host .venv exists"; fi
-        if [ -d "/opt/venvs/kitchenwatch" ]; then echo "Container venv exists"; fi
+        if [ -d "/opt/venvs/cortexguard" ]; then echo "Container venv exists"; fi
         if [ -f /.dockerenv ] || grep -qE 'docker|containerd' /proc/1/cgroup; then
           echo "🧱 Running inside a container"
         else
@@ -127,12 +127,12 @@ tasks:
   devcontainer-build:
     desc: "Build the dev container image"
     cmds:
-      - "docker build -f .devcontainer/Dockerfile.dev -t kitchenwatch-dev .."
+      - "docker build -f .devcontainer/Dockerfile.dev -t cortexguard-dev .."
 
   devcontainer-shell:
     desc: "Start an interactive shell inside the dev container"
     cmds:
-      - "docker run --rm -it -v $(PWD):/workspace/kitchenwatch -w /workspace/kitchenwatch kitchenwatch-dev /bin/bash"
+      - "docker run --rm -it -v $(PWD):/workspace/cortexguard -w /workspace/cortexguard cortexguard-dev /bin/bash"
 
   # --- Python cache --------------------------------------------------
   pycache-purge:
@@ -196,12 +196,12 @@ tasks:
 
 # --- Simulator container --------------------------------------------------
   simulator:build:
-    desc: "Build the kitchenwatch-simulator Docker image"
+    desc: "Build the cortexguard-simulator Docker image"
     cmds:
       - "docker compose -f docker-compose.dev.yaml build simulator"
 
   simulator:run-dev:
-    desc: "Run the kitchenwatch-simulator container in development mode"
+    desc: "Run the cortexguard-simulator container in development mode"
     cmds:
       - "docker compose -f docker-compose.dev.yaml run --rm simulator"
 

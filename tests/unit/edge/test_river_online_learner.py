@@ -1,6 +1,6 @@
 import pytest
 
-from kitchenwatch.edge.river_online_learner import RiverOnlineLearner
+from cortexguard.edge.river_online_learner import RiverOnlineLearner
 
 
 @pytest.fixture

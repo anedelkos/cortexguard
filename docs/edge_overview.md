@@ -10,7 +10,7 @@ It acts as the ingestion layer for the simulator for all downstream analytics an
 
 ## Architecture
 The Edge runs as a standalone **FastAPI** service inside a Docker container and communicates with the simulator over HTTP.
-In local development, both services share the same Docker network (`kitchenwatch_net`).
+In local development, both services share the same Docker network (`cortexguard_net`).
 
 
 
@@ -36,7 +36,7 @@ task edge-sim:run-with manifest=data/manifests/sample_dataset_manifest.yaml rate
 * Pretty console output when running locally with LOG_JSON=false
 * Expected output:
 ```
-2025-11-07 14:26:15,836 | INFO     | kitchenwatch.edge.api.ingestion | Received record @ 1637705108636055946with 22 samples
+2025-11-07 14:26:15,836 | INFO     | cortexguard.edge.api.ingestion | Received record @ 1637705108636055946with 22 samples
 2025-11-07 14:26:15,836 | INFO     | __main__ | Sent record #5 to http://edge:8080/api/v1/ingest (202) and got back:{'message': 'record accepted', 'received_count': 5, 'record_type': 'WindowedFusedRecord'}
 
 ```

@@ -3,7 +3,7 @@ from collections.abc import Generator
 
 import pytest
 
-from kitchenwatch.edge.utils.async_priority_queue import AsyncPriorityQueue
+from cortexguard.edge.utils.async_priority_queue import AsyncPriorityQueue
 
 
 @pytest.fixture

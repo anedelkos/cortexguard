@@ -2,7 +2,7 @@ from typing import Any
 
 import pytest
 
-from kitchenwatch.edge.http_receiver import HttpReceiver
+from cortexguard.edge.http_receiver import HttpReceiver
 
 
 def test_edge_http_receiver(monkeypatch: pytest.MonkeyPatch) -> None:

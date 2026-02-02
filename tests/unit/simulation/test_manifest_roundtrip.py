@@ -2,8 +2,8 @@ from pathlib import Path
 
 import yaml
 
-from kitchenwatch.common.constants import DEFAULT_SAMPLE_MANIFEST_PATH
-from kitchenwatch.simulation.manifest_loader import ManifestLoader
+from cortexguard.common.constants import DEFAULT_SAMPLE_MANIFEST_PATH
+from cortexguard.simulation.manifest_loader import ManifestLoader
 
 
 def test_manifest_roundtrip(tmp_path: Path) -> None:

@@ -4,11 +4,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from kitchenwatch.core.interfaces.base_controller import BaseController
-from kitchenwatch.edge.arbiter import Arbiter
-from kitchenwatch.edge.models.agent_tool_call import AgentToolCall
-from kitchenwatch.edge.models.blackboard import Blackboard
-from kitchenwatch.edge.models.capability_registry import CapabilityRegistry, RiskLevel
+from cortexguard.core.interfaces.base_controller import BaseController
+from cortexguard.edge.arbiter import Arbiter
+from cortexguard.edge.models.agent_tool_call import AgentToolCall
+from cortexguard.edge.models.blackboard import Blackboard
+from cortexguard.edge.models.capability_registry import CapabilityRegistry, RiskLevel
 
 
 @pytest.mark.asyncio

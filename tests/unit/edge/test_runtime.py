@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock
 import pytest
 import pytest_asyncio
 
-from kitchenwatch.edge.policy.mistral_policy_engine import MistralLLMPolicyEngine
-from kitchenwatch.edge.runtime import EdgeRuntime, RuntimeConfig, create_runtime
+from cortexguard.edge.policy.mistral_policy_engine import MistralLLMPolicyEngine
+from cortexguard.edge.runtime import EdgeRuntime, RuntimeConfig, create_runtime
 
 
 @pytest_asyncio.fixture

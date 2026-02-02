@@ -1,9 +1,9 @@
 import json
 from pathlib import Path
 
-from kitchenwatch.simulation.manifest_loader import ManifestLoader
-from kitchenwatch.simulation.models.base_record import BaseFusedRecord
-from kitchenwatch.simulation.streamers.local_streamer import LocalStreamer
+from cortexguard.simulation.manifest_loader import ManifestLoader
+from cortexguard.simulation.models.base_record import BaseFusedRecord
+from cortexguard.simulation.streamers.local_streamer import LocalStreamer
 
 
 def test_manifest_lookup_integration(tmp_path: Path) -> None:

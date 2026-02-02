@@ -4,13 +4,13 @@ FROM python:3.12-slim AS base
 # Environment setup
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    VENV_PATH=/opt/venvs/kitchenwatch \
+    VENV_PATH=/opt/venvs/cortexguard \
     UV_ENV=dev \
-    UV_VENV_PATH=/opt/venvs/kitchenwatch \
-    PATH="/opt/venvs/kitchenwatch/bin:$PATH"
+    UV_VENV_PATH=/opt/venvs/cortexguard \
+    PATH="/opt/venvs/cortexguard/bin:$PATH"
 
 # Working directory
-WORKDIR /workspace/kitchenwatch
+WORKDIR /workspace/cortexguard
 
 
 # ---- Shell utilities and Taskfile support ----
@@ -44,4 +44,4 @@ USER vscode
 CMD ["/bin/bash"]
 
 # ---- Activate environment----
-RUN echo 'source /opt/venvs/kitchenwatch/bin/activate' >> /home/vscode/.bashrc
+RUN echo 'source /opt/venvs/cortexguard/bin/activate' >> /home/vscode/.bashrc

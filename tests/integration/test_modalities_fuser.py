@@ -4,9 +4,9 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from kitchenwatch.simulation.fusion_strategies.windowed import WindowedFusion
-from kitchenwatch.simulation.modalities_fuser import ModalityFuser
-from kitchenwatch.simulation.models.trial import Trial
+from cortexguard.simulation.fusion_strategies.windowed import WindowedFusion
+from cortexguard.simulation.modalities_fuser import ModalityFuser
+from cortexguard.simulation.models.trial import Trial
 
 
 @pytest.fixture
@@ -58,7 +58,7 @@ def tmp_trial(tmp_path: Path) -> tuple[Trial, Path]:
 @pytest.fixture
 def manifest_file(tmp_trial: tuple[Trial, Path], tmp_path: Path) -> Path:
     """Write a minimal manifest YAML for the trial."""
-    from kitchenwatch.simulation.manifest_loader import ManifestLoader
+    from cortexguard.simulation.manifest_loader import ManifestLoader
 
     trial, _ = tmp_trial
     manifest_path = tmp_path / "manifest.yaml"
@@ -92,7 +92,7 @@ def test_integration_fuse_and_save_trial(
     assert isinstance(first_record["sensor_window"], list)
 
     # Manifest updated
-    from kitchenwatch.simulation.manifest_loader import ManifestLoader
+    from cortexguard.simulation.manifest_loader import ManifestLoader
 
     loader = ManifestLoader(manifest_file)
     loader.load()

@@ -1,0 +1,38 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Debug Pytest",
+            "type": "python",
+            "request": "launch",
+            "program": "/opt/venvs/cortexguard/bin/pytest",
+            "args": [
+                "-s",
+                "tests"
+            ],
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/.env",
+            "justMyCode": true
+        }
+    ]
+}
+
+
+// {
+//     "version": "0.2.0",
+//     "configurations": [
+//         {
+//             "name": "Python: Debug pytest",
+//             "type": "python",
+//             "request": "launch",
+//             "program": "${workspaceFolder}/.venv-local/bin/pytest",
+//             "args": [
+//                 "--maxfail=1",
+//                 "--disable-warnings",
+//                 "tests/"
+//             ],
+//             "console": "integratedTerminal",
+//             "envFile": "${workspaceFolder}/.env"
+//         }
+//     ]
+// }
