@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from collections.abc import Awaitable
 from typing import Protocol, TypeVar, runtime_checkable
 

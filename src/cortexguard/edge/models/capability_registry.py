@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 from enum import Enum
 from pathlib import Path
@@ -117,7 +119,7 @@ class CapabilityRegistry(BaseModel):
         return True, risk
 
     @classmethod
-    def load_from_yaml(cls, config_path: Path | None = None) -> "CapabilityRegistry":
+    def load_from_yaml(cls, config_path: Path | None = None) -> CapabilityRegistry:
         """
         Loads the capabilities from the provided YAML configuration file.
         If config_path is None, it defaults to 'capability_registry.yaml' in the

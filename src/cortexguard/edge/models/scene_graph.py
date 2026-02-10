@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import UTC, datetime
 from typing import Any
 
@@ -14,7 +16,7 @@ class SceneObject(BaseModel):
     properties: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("location_2d")
-    def _check_bbox(cls: "SceneObject", v: list[float] | None) -> list[float] | None:
+    def _check_bbox(cls: SceneObject, v: list[float] | None) -> list[float] | None:
         if v is None:
             return v
         if len(v) != 4:
@@ -22,7 +24,7 @@ class SceneObject(BaseModel):
         return v
 
     @field_validator("pose_3d")
-    def _check_pose(cls: "SceneObject", v: list[float] | None) -> list[float] | None:
+    def _check_pose(cls: SceneObject, v: list[float] | None) -> list[float] | None:
         if v is None:
             return v
         if len(v) != 6:

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 
 from river import linear_model, preprocessing
