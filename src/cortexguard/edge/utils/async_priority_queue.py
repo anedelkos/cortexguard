@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import heapq
 from datetime import datetime

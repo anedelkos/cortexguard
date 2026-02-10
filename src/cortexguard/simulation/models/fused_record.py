@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pydantic import Field
 
 from cortexguard.simulation.models.base_record import BaseFusedRecord

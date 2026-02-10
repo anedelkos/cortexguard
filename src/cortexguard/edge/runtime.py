@@ -13,6 +13,8 @@ Architectural Pattern: Composition Root
 - Follows Dependency Inversion Principle (DIP)
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import signal
@@ -358,7 +360,7 @@ class EdgeRuntime:
         return health
 
     @asynccontextmanager
-    async def managed(self) -> AsyncIterator["EdgeRuntime"]:
+    async def managed(self) -> AsyncIterator[EdgeRuntime]:
         """
         Context manager for automatic lifecycle management.
         """

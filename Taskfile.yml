@@ -155,7 +155,7 @@ tasks:
 # --- Simulator and demo --------------------------------------------------
 
   simulate:download:
-    desc: Download and extract robot dataset
+    desc: "Download and extract robot dataset"
     cmds:
       - "PYTHONPATH=src python data/download_dataset.py"
 
@@ -182,7 +182,7 @@ tasks:
       - "bash demo/run_demo.sh"
 
   simulate:local:
-    desc: Run simulation script directly in the local venv
+    desc: "Run simulation script directly in the local venv"
     vars:
       manifest: '{{.manifest | default "data/manifests/sample_dataset_manifest.yaml"}}'
       rate: '{{.rate | default "1.0"}}'
@@ -206,7 +206,7 @@ tasks:
       - "docker compose -f docker-compose.dev.yaml run --rm simulator"
 
   simulator:run-with:
-    desc: Run the simulator with custom manifest, rate, or repeat args
+    desc: "Run the simulator with custom manifest, rate, or repeat args"
     vars:
       manifest: '{{.manifest | default "data/manifests/sample_dataset_manifest.yaml"}}'
       rate: '{{.rate | default "1.0"}}'
@@ -216,17 +216,17 @@ tasks:
     cmds:
       - >
         docker compose -f docker-compose.dev.yaml run --rm simulator
-        --manifest {{.manifest}} --rate {{.rate}} --repeat {{.repeat}} -- endpoint {{.endpoint}} --verbose {{.verbose}}
+        --manifest {{.manifest}} --rate {{.rate}} --repeat {{.repeat}} --endpoint {{.endpoint}} --verbose {{.verbose}}
 
   simulator:clean:
-    desc: Stop and remove simulator containers, volumes, and networks
+    desc: "Stop and remove simulator containers, volumes, and networks"
     cmds:
       - "docker compose -f docker-compose.dev.yaml down -v --remove-orphans"
 
 
 # --- Edge % simulator containers --------------------------------------------------
   edge-sim:up:
-    desc: Build and start Edge + Simulator stack (dev)
+    desc: "Build and start Edge + Simulator stack (dev)"
     vars:
       manifest: '{{.manifest | default "data/manifests/sample_dataset_manifest.yaml"}}'
       rate: '{{.rate | default "1.0"}}'
@@ -238,12 +238,12 @@ tasks:
 
 
   edge-sim:build:
-    desc: Build Edge + Simulator images
+    desc: "Build Edge + Simulator images"
     cmds:
       - docker compose -f docker-compose.dev.yaml build
 
   edge-sim:run-with:
-    desc: Run Edge + Simulator stack with custom args
+    desc: "Run Edge + Simulator stack with custom args"
     vars:
       manifest: '{{.manifest | default "data/manifests/sample_dataset_manifest.yaml"}}'
       rate: '{{.rate | default "1.0"}}'
@@ -259,7 +259,7 @@ tasks:
 
 
   edge-sim:down:
-    desc: Stop containers and remove volumes
+    desc: "Stop containers and remove volumes"
     cmds:
       - "docker compose -f docker-compose.dev.yaml down -v"
 
