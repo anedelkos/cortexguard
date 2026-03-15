@@ -92,7 +92,7 @@ def make_plan(
         plan_type=PlanType.RECIPE,
         steps=steps,
         status=PlanStatus.PENDING,
-        created_at=datetime.now(),
+        created_at=datetime.now(UTC),
     )
 
 
@@ -136,6 +136,7 @@ async def test_advance_plan_completes_successful_plan(
     assert step is not None
     assert step.id == "step_1"
     step.status = StepStatus.COMPLETED
+    await blackboard.set_current_step(step)
 
     # Advance to step 2
     await orchestrator._advance_plan_or_handle_failure()
@@ -145,6 +146,7 @@ async def test_advance_plan_completes_successful_plan(
     assert step is not None
     assert step.id == "step_2"
     step.status = StepStatus.COMPLETED
+    await blackboard.set_current_step(step)
 
     # Advance, which should complete the plan
     await orchestrator._advance_plan_or_handle_failure()
@@ -165,6 +167,7 @@ async def test_advance_plan_pauses_after_failed_step(
     step = await blackboard.get_current_step()
     assert step is not None
     step.status = StepStatus.FAILED
+    await blackboard.set_current_step(step)
 
     await orchestrator._advance_plan_or_handle_failure()
     current_plan = await blackboard.get_current_plan()
@@ -199,6 +202,7 @@ async def test_run_loop_starts_and_completes_plan(
     step = await blackboard.get_current_step()
     assert step is not None
     step.status = StepStatus.COMPLETED
+    await blackboard.set_current_step(step)
 
     await asyncio.sleep(0.03)  # Wait for advance
 
@@ -206,6 +210,7 @@ async def test_run_loop_starts_and_completes_plan(
     step = await blackboard.get_current_step()
     assert step is not None
     step.status = StepStatus.COMPLETED
+    await blackboard.set_current_step(step)
 
     await asyncio.sleep(0.03)  # Wait for completion
     await orchestrator.stop()
@@ -280,6 +285,7 @@ async def test_preemption_resumes_previous_plan(
     step = await blackboard.get_current_step()
     assert step is not None
     step.status = StepStatus.COMPLETED
+    await blackboard.set_current_step(step)
     # Orchestrator._advance_plan_or_handle_failure() will:
     # 1. Read index 0 from Blackboard.
     # 2. Increment index to 1.
@@ -289,7 +295,8 @@ async def test_preemption_resumes_previous_plan(
 
     # Check state after advancement
     current_plan = await blackboard.get_current_plan()
-    assert current_plan is low_plan
+    assert current_plan is not None
+    assert current_plan.plan_id == low_plan.plan_id
     # Assert index is now 1 on the Blackboard
     assert await blackboard.get_step_index_for_plan("low_priority_plan") == 1
 
@@ -327,6 +334,7 @@ async def test_preemption_resumes_previous_plan(
     step = await blackboard.get_current_step()
     assert step is not None
     step.status = StepStatus.COMPLETED
+    await blackboard.set_current_step(step)
     # Advances urgent plan index from 0 to 1
     await orchestrator._advance_plan_or_handle_failure()
     assert await blackboard.get_step_index_for_plan("urgent_plan") == 1
@@ -335,6 +343,7 @@ async def test_preemption_resumes_previous_plan(
     step = await blackboard.get_current_step()
     assert step is not None
     step.status = StepStatus.COMPLETED
+    await blackboard.set_current_step(step)
     # Advances urgent plan. Since index 2 >= len(steps) (which is 2), it completes the plan.
     # It also calls clear_step_index_for_plan("urgent_plan")
     await orchestrator._advance_plan_or_handle_failure()

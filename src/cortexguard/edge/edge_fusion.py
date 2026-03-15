@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+import inspect
 import logging
 import statistics
 import time
 import uuid
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any, cast
 from zoneinfo import ZoneInfo
@@ -198,6 +201,7 @@ class EdgeFusion:
     _VISUAL_OPACITY_THRESHOLD = 0.5  # 0.0-1.0 opacity threshold for vision smoke
     _SMOKE_SET_CONSECUTIVE = 2  # require 2 consecutive windows to set
     _SMOKE_CLEAR_CONSECUTIVE = 2  # require 2 consecutive windows to clear
+    _SMOKE_MAX_SCORE = 5  # Tune based on window frequency
     _DRIFT_FAIL_MM = 10.0
     _FORCE_MIN_PCT = 20.0
     _FORCE_DROP_PCT = 30.0
@@ -242,6 +246,7 @@ class EdgeFusion:
         # EMA state: sensor_key -> smoothed_value
         self._ema_state: dict[str, float] = {}
         self._last_snapshot: FusionSnapshot | None = None
+        self._last_processed_timestamp_ns: int = 0
 
         # smoke fusion state (hysteresis)
         self._smoke_state: bool = False
@@ -253,13 +258,67 @@ class EdgeFusion:
         self._records_processed = 0
         self._last_arrival_ns: int | None = None
 
+        self._lock = asyncio.Lock()
+        self._executor = ThreadPoolExecutor(max_workers=4)
+
+        self._smoke_score = 0
+
+    def close(self) -> None:
+        """
+        Shutdown the executor and cleanup resources.
+
+        Should be called when EdgeFusion is no longer needed to prevent
+        resource leaks. Can be called multiple times safely.
+
+        Raises:
+            None - suppresses exceptions to ensure cleanup
+        """
+        if self._executor is not None:
+            try:
+                self._executor.shutdown(wait=True)
+            except Exception as e:
+                self._logger.warning(f"Error shutting down executor: {e}")
+
+    async def __aenter__(self) -> EdgeFusion:
+        """
+        Async context manager entry.
+
+        Returns:
+            Self for use in async with statement
+
+        Example:
+            async with EdgeFusion(blackboard) as fusion:
+                snapshot = await fusion.process_record(record)
+        """
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: Any,
+    ) -> None:
+        """
+        Async context manager exit - ensures executor is shut down.
+
+        Args:
+            exc_type: Exception type if exception occurred, None otherwise
+            exc_val: Exception value if exception occurred
+            exc_tb: Exception traceback if exception occurred
+
+        Returns:
+            None (does not suppress exceptions)
+        """
+        self.close()
+
     async def _detect_smoke(
         self, record: WindowedFusedRecord, vision_objects: list[Any] | None
     ) -> bool:
-        """Detect smoke from smoke and camera sensors"""
+        """Detect smoke using a bounded counter for robust hysteresis."""
         last_smoke_ppm = next(
             (r.smoke_ppm for r in reversed(record.sensor_window) if r.smoke_ppm is not None), None
         )
+
         visual_smoke = False
         if vision_objects:
             for v in vision_objects:
@@ -267,37 +326,29 @@ class EdgeFusion:
                 if label == "smoke":
                     visual_smoke = True
                     break
-                # tolerate opacity in properties (0.0-1.0)
-                props = v.get("properties") or {}
-                try:
-                    opacity = float(props.get("opacity", 0.0))
-                except Exception:
-                    opacity = 0.0
+                opacity = float((v.get("properties") or {}).get("opacity", 0.0))
                 if opacity >= self._VISUAL_OPACITY_THRESHOLD:
                     visual_smoke = True
                     break
 
-        # 3) raw flag: either numeric sensor above threshold OR visual evidence
         raw_smoke_flag = (
             last_smoke_ppm is not None and last_smoke_ppm >= self._SMOKE_PPM_THRESHOLD
         ) or visual_smoke
 
-        # 4) hysteresis: update consecutive counters and decide smoke_detected
-        if raw_smoke_flag:
-            self._smoke_consec_set += 1
-            self._smoke_consec_clear = 0
-        else:
-            self._smoke_consec_clear += 1
-            self._smoke_consec_set = 0
+        # Integration-based hysteresis (Leaky Bucket)
+        async with self._lock:
+            if raw_smoke_flag:
+                self._smoke_score = min(self._SMOKE_MAX_SCORE, self._smoke_score + 1)
+            else:
+                self._smoke_score = max(0, self._smoke_score - 1)
 
-        if self._smoke_consec_set >= self._SMOKE_SET_CONSECUTIVE:
-            smoke_detected = True
-        elif self._smoke_consec_clear >= self._SMOKE_CLEAR_CONSECUTIVE:
-            smoke_detected = False
-        else:
-            smoke_detected = self._smoke_state
+            # High threshold to trigger, low threshold to clear
+            if self._smoke_score >= self._SMOKE_SET_CONSECUTIVE:
+                self._smoke_state = True
+            elif self._smoke_score == 0:
+                self._smoke_state = False
 
-        return smoke_detected
+            return self._smoke_state
 
     def _compute_misgrasp_derived(
         self, record: WindowedFusedRecord, vision_objects: list[dict[str, Any]] | None
@@ -357,64 +408,90 @@ class EdgeFusion:
             "grasp_success": bool(grasp_success),
         }
 
-    def _compute_comm_lag_and_tag(self, record: WindowedFusedRecord) -> tuple[int, bool]:
-        """
-        Compute comm lag from record.arrival_time_ns.
-        Returns (lag_ms, timing_degraded).
-        """
+    async def _compute_comm_lag_and_tag(self, record: WindowedFusedRecord) -> tuple[int, bool]:
+        """Monotonic communication lag calculation."""
         arrival_ns = getattr(record, "arrival_time_ns", None)
-        if arrival_ns is None:
-            return 0, False
+        async with self._lock:
+            if arrival_ns is None or self._last_arrival_ns is None:
+                self._last_arrival_ns = arrival_ns
+                return 0, False
 
-        if self._last_arrival_ns is None:
+            # Ensure we handle potential system clock jumps
+            arrival_gap_ns = max(0, arrival_ns - self._last_arrival_ns)
+
+            lag_ms = arrival_gap_ns // 1_000_000
+            timing_degraded = lag_ms > self._SOFT_DEGRADE_MS
+
             self._last_arrival_ns = arrival_ns
-            return 0, False
+            return int(lag_ms), bool(timing_degraded)
 
-        arrival_gap_ns = arrival_ns - self._last_arrival_ns
-        if arrival_gap_ns < 0:
-            arrival_gap_ns = 0
+    async def _update_ema(self, record: WindowedFusedRecord) -> dict[str, float] | None:
+        """Returns a copy of the updated EMA state."""
+        async with self._lock:
+            if self._last_processed_timestamp_ns > record.timestamp_ns:
+                self._logger.warning(
+                    f"Dropping out-of-order record: {record.timestamp_ns} "
+                    f"(last processed: {self._last_processed_timestamp_ns})"
+                )
+                return None
 
-        lag_ms = arrival_gap_ns // 1_000_000
-        timing_degraded = lag_ms > self._SOFT_DEGRADE_MS
+            self._last_processed_timestamp_ns = record.timestamp_ns
 
-        self._last_arrival_ns = arrival_ns
-        return lag_ms, timing_degraded
+            with tracer.start_as_current_span("fusion.ema_update"):
+                for sample in record.sensor_window:
+                    self._update_ema_state(sample)
+                    self._samples_processed += 1
 
-    async def _update_ema(self, record: WindowedFusedRecord) -> None:
-        with tracer.start_as_current_span("fusion.ema_update"):
-            for sample in record.sensor_window:
-                self._update_ema_state(sample)
-                self._samples_processed += 1
-        self._records_processed += 1
+            self._records_processed += 1
+            return self._ema_state.copy()
 
     async def _compute_image_embedding(self, record: WindowedFusedRecord) -> tuple[Any, Any]:
-        image_embedding = None
-        with tracer.start_as_current_span("fusion.image_embedding"):
-            if self.embedder and getattr(record, "rgb_path", None):
-                try:
-                    img = Image.open(record.rgb_path).convert("RGB")
-                    image_embedding = self.embedder.embed(img)
-                except Exception as e:
-                    self._logger.warning(f"Failed to embed image {record.rgb_path}: {e}")
-
-        if image_embedding is None:
+        if not self.embedder or not getattr(record, "rgb_path", None):
             return None, None
-        if isinstance(image_embedding, torch.Tensor):
-            return image_embedding, image_embedding.cpu().numpy().tolist()
+
+        embedder = self.embedder
+
+        with tracer.start_as_current_span("fusion.image_embedding"):
+            try:
+                loop = asyncio.get_running_loop()
+
+                def load_and_embed() -> torch.Tensor:
+                    img = Image.open(record.rgb_path).convert("RGB")
+                    return embedder.embed(img)
+
+                image_embedding = await loop.run_in_executor(self._executor, load_and_embed)
+            except Exception as e:
+                self._logger.warning(f"Failed to embed image {record.rgb_path}: {e}")
+                return None, None
+
+        if torch.is_tensor(image_embedding):
+            return image_embedding, image_embedding.detach().cpu().numpy().tolist()
         return image_embedding, image_embedding
 
     async def _run_vision_inference(
         self, record: WindowedFusedRecord, embedding: Any
     ) -> tuple[list[Any], Any]:
         with tracer.start_as_current_span("fusion.vision_inference"):
-            return self.vision_inference(record, embedding)
+            if inspect.iscoroutinefunction(self.vision_inference):
+                result = await self.vision_inference(record, embedding)
+                return cast(tuple[list[Any], Any], result)
+            else:
+                loop = asyncio.get_running_loop()
+                result = await loop.run_in_executor(
+                    self._executor,
+                    lambda: self.vision_inference(record, embedding),
+                )
+                return cast(tuple[list[Any], Any], result)
 
     async def _build_and_publish_scene_graph(
-        self, record: WindowedFusedRecord, vision_objects: list[Any] | None
+        self,
+        record: WindowedFusedRecord,
+        vision_objects: list[Any] | None,
+        ema_snapshot: dict[str, float],
     ) -> Any:
         with tracer.start_as_current_span("fusion.scene_graph"):
             ts = datetime.fromtimestamp(record.timestamp_ns / 1e9, tz=ZoneInfo("UTC"))
-            scene_graph = _build_scene_graph_from_vision(ts, vision_objects or [], self._ema_state)
+            scene_graph = _build_scene_graph_from_vision(ts, vision_objects or [], ema_snapshot)
             try:
                 await self._blackboard.set_scene_graph(scene_graph)
             except AttributeError:
@@ -422,7 +499,10 @@ class EdgeFusion:
             return scene_graph
 
     async def _compute_derived_features(
-        self, record: WindowedFusedRecord, vision_objects: list[Any] | None
+        self,
+        record: WindowedFusedRecord,
+        vision_objects: list[Any] | None,
+        ema_snapshot: dict[str, float],
     ) -> tuple[float | None, bool, dict[str, Any]]:
         with tracer.start_as_current_span("fusion.derived_features"):
             last_temp = next(
@@ -435,12 +515,11 @@ class EdgeFusion:
             )
 
             smoke_detected = await self._detect_smoke(record, vision_objects)
-            self._smoke_state = smoke_detected
 
-            derived = self._ema_state.copy()
+            derived = ema_snapshot.copy()
             derived.update(self._compute_misgrasp_derived(record, vision_objects))
 
-            lag_ms, timing_degraded = self._compute_comm_lag_and_tag(record)
+            lag_ms, timing_degraded = await self._compute_comm_lag_and_tag(record)
             derived["comm_lag_ms"] = lag_ms
             derived["timing_degraded"] = timing_degraded
 
@@ -464,7 +543,7 @@ class EdgeFusion:
             except Exception as e:
                 self._logger.exception(f"StateEstimator failed: {e}")
 
-    async def process_record(self, record: WindowedFusedRecord) -> FusionSnapshot:
+    async def process_record(self, record: WindowedFusedRecord) -> FusionSnapshot | None:
         """
         Process a windowed sensor record and update fusion state.
 
@@ -473,7 +552,7 @@ class EdgeFusion:
         influence the EMA more than earlier ones.
 
         Args:
-            record: Windowed fused sensor data from simulator
+            record: Windowed fused sensor data
 
         Returns:
             FusionSnapshot with smoothed sensor values and derived features
@@ -485,7 +564,10 @@ class EdgeFusion:
             span.set_attribute("has_rgb", bool(getattr(record, "rgb_path", None)))
 
             # 1. EMA update
-            await self._update_ema(record)
+            ema_snapshot = await self._update_ema(record)
+            if ema_snapshot is None:
+                # Out-of-order record, skip processing
+                return None
 
             # 2. Image embedding
             image_embedding, serialized_embedding = await self._compute_image_embedding(record)
@@ -496,11 +578,13 @@ class EdgeFusion:
             )
 
             # 4. Scene graph
-            scene_graph = await self._build_and_publish_scene_graph(record, vision_objects)
+            scene_graph = await self._build_and_publish_scene_graph(
+                record, vision_objects, ema_snapshot
+            )
 
             # 5. Derived features
             last_temp, smoke_detected, derived = await self._compute_derived_features(
-                record, vision_objects
+                record, vision_objects, ema_snapshot
             )
 
             # 6. Build snapshot
@@ -511,7 +595,7 @@ class EdgeFusion:
                     "temp_celsius": last_temp,
                     "smoke_detected": smoke_detected,
                     "raw": record.sensor_window,
-                    "ema_smoothed": self._ema_state.copy(),
+                    "ema_smoothed": ema_snapshot,
                     "window_stats": self._compute_window_stats(record.sensor_window),
                     "image_embedding": serialized_embedding,
                     "vision_objects": vision_objects,
@@ -523,7 +607,9 @@ class EdgeFusion:
                 derived=derived,
             )
 
-            self._last_snapshot = snapshot
+            async with self._lock:
+                self._last_snapshot = snapshot
+
             await self._blackboard.update_fusion_snapshot(snapshot)
 
             # 7. State estimator
@@ -552,7 +638,7 @@ class EdgeFusion:
                 continue
 
             # Only process numeric values (int, float)
-            if not isinstance(value, (int, float)):
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
                 self._logger.debug(f"Skipping non-numeric field: {key}={type(value).__name__}")
                 continue
 
@@ -567,32 +653,28 @@ class EdgeFusion:
                 new_ema = self._alpha * float(value) + (1 - self._alpha) * old_ema
                 self._ema_state[key] = new_ema
 
-    def reset_ema_state(self) -> None:
-        """
-        Reset EMA state to initial conditions.
-
-        Useful for:
-        - Testing/debugging
-        - Switching between different operating modes
-        - Recovery from anomalous sensor behavior
-        """
-        self._ema_state.clear()
-        self._last_snapshot = None
-        self._samples_processed = 0
-        self._records_processed = 0
+    async def reset_ema_state(self) -> None:
+        """Reset EMA state to initial conditions."""
+        async with self._lock:
+            self._ema_state.clear()
+            self._last_snapshot = None
+            self._samples_processed = 0
+            self._records_processed = 0
         self._logger.info("EMA state reset")
 
-    def get_ema_state(self) -> dict[str, float]:
+    async def get_ema_state(self) -> dict[str, float]:
         """Get current EMA state (for debugging/monitoring)."""
-        return self._ema_state.copy()
+        async with self._lock:
+            return self._ema_state.copy()
 
-    def get_metrics(self) -> dict[str, int]:
+    async def get_metrics(self) -> dict[str, int]:
         """Get processing metrics."""
-        return {
-            "records_processed": self._records_processed,
-            "samples_processed": self._samples_processed,
-            "ema_state_size": len(self._ema_state),
-        }
+        async with self._lock:
+            return {
+                "records_processed": self._records_processed,
+                "samples_processed": self._samples_processed,
+                "ema_state_size": len(self._ema_state),
+            }
 
     def _compute_window_stats(self, window: list[Any]) -> dict[str, dict[str, float]]:
         """
@@ -608,7 +690,11 @@ class EdgeFusion:
 
         for sample in window:
             for key, value in sample.model_dump().items():
-                if key != "timestamp_ns" and isinstance(value, (int, float)):
+                if (
+                    key != "timestamp_ns"
+                    and not isinstance(value, bool)
+                    and isinstance(value, (int, float))
+                ):
                     stats[key].append(float(value))
 
         result: dict[str, dict[str, float]] = {}

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
@@ -219,7 +219,7 @@ def make_policy(
     anomaly = AnomalyEvent(
         id="anom-1",
         key="test_anomaly",
-        timestamp=datetime.now(),
+        timestamp=datetime.now(UTC),
         severity=AnomalySeverity.HIGH,
         score=0.99,
         contributing_detectors=["detector-a"],
@@ -235,7 +235,7 @@ def make_policy(
     if with_replay:
         anomaly.metadata = dict(anomaly.metadata or {})
         anomaly.metadata["replay"] = {
-            "window": {"start_ts": datetime.now(), "end_ts": None},
+            "window": {"start_ts": datetime.now(UTC), "end_ts": None},
             "compressed_data": "dummy-compressed-base64",
             "format": "lz4",
         }
@@ -248,7 +248,7 @@ def make_policy(
         risk_assessment="HIGH",
         corrective_steps=[step],
         escalation_required=True,
-        created_at=datetime.now(),
+        created_at=datetime.now(UTC),
     )
 
     # If caller wants to exercise the "no model_dump" fallback, return a plain object
@@ -276,7 +276,7 @@ def remediation_policy() -> RemediationPolicy:
     anomaly = AnomalyEvent(
         id="anom-1",
         key="test_anomaly",
-        timestamp=datetime.now(),
+        timestamp=datetime.now(UTC),
         severity=AnomalySeverity.HIGH,
         score=0.99,
         contributing_detectors=["detector-a"],
@@ -294,7 +294,7 @@ def remediation_policy() -> RemediationPolicy:
         risk_assessment="HIGH",
         corrective_steps=[step],
         escalation_required=True,
-        created_at=datetime.now(),
+        created_at=datetime.now(UTC),
     )
 
 
@@ -385,7 +385,7 @@ async def test_send_escalation_retries_on_timeout_and_succeeds() -> None:
         trigger_event=AnomalyEvent(
             id="a1",
             key="k",
-            timestamp=datetime.now(),
+            timestamp=datetime.now(UTC),
             severity=AnomalySeverity.MEDIUM,
             score=0.5,
             contributing_detectors=[],
@@ -395,7 +395,7 @@ async def test_send_escalation_retries_on_timeout_and_succeeds() -> None:
         risk_assessment="low",
         corrective_steps=[],
         escalation_required=True,
-        created_at=datetime.now(),
+        created_at=datetime.now(UTC),
     )
     packet = await agent.build_packet_from_policy(
         policy=policy,
@@ -434,7 +434,7 @@ async def test_send_escalation_exhausts_retries_and_returns_none() -> None:
         trigger_event=AnomalyEvent(
             id="a2",
             key="k2",
-            timestamp=datetime.now(),
+            timestamp=datetime.now(UTC),
             severity=AnomalySeverity.MEDIUM,
             score=0.5,
             contributing_detectors=[],
@@ -444,7 +444,7 @@ async def test_send_escalation_exhausts_retries_and_returns_none() -> None:
         risk_assessment="low",
         corrective_steps=[],
         escalation_required=True,
-        created_at=datetime.now(),
+        created_at=datetime.now(UTC),
     )
     packet = await agent.build_packet_from_policy(
         policy=policy,

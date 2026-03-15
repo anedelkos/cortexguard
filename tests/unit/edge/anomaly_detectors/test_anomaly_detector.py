@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -74,7 +74,7 @@ def mock_blackboard() -> Blackboard:
 @pytest.fixture
 def mock_snapshot() -> FusionSnapshot:
     """Fixture for a mock FusionSnapshot."""
-    return FusionSnapshot(id="test_snap_123", timestamp=datetime.now(), derived={}, sensors={})
+    return FusionSnapshot(id="test_snap_123", timestamp=datetime.now(UTC), derived={}, sensors={})
 
 
 @pytest.fixture

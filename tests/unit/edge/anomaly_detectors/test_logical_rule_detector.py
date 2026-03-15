@@ -1,6 +1,6 @@
 import logging
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -44,7 +44,7 @@ def mock_snapshot() -> Callable[[bool | None], FusionSnapshot]:
 
         return FusionSnapshot(
             id="111",
-            timestamp=datetime.now(),
+            timestamp=datetime.now(UTC),
             sensors=sensors,
             derived=derived_data,
         )

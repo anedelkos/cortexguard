@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, cast
 
 from opentelemetry import trace
@@ -146,7 +146,7 @@ class MaydayAgent:
         Uses model_dump / compact serializers where available on models.
         Emits PACKET_BUILT and PACKET_REDACTED traces.
         """
-        start = datetime.now()
+        start = datetime.now(UTC)
 
         # Gather compact context from blackboard
         state = await blackboard.get_latest_state_estimate()
@@ -219,7 +219,7 @@ class MaydayAgent:
         packet = MaydayPacket(
             trace_id=trace_id_val,
             device_id=self._device_id,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(UTC),
             anomalies=list(anomalies.values()) if anomalies else [],
             current_plan_id=getattr(current_plan, "plan_id", None),
             current_step=getattr(current_step, "id", None),
@@ -232,7 +232,7 @@ class MaydayAgent:
             replay_data=replay_data,
         )
 
-        duration_ms = int((datetime.now() - start).total_seconds() * 1000)
+        duration_ms = int((datetime.now(UTC) - start).total_seconds() * 1000)
         # PACKET_BUILT trace
         try:
             await self._trace_sink.post_trace_entry(

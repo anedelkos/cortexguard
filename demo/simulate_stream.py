@@ -88,112 +88,121 @@ def main() -> None:
     logger.info(f"🔗 Edge endpoint: {args.endpoint}")
 
     receiver: BaseReceiver[Any]
-    if args.endpoint:
-        receiver = HttpReceiver(edge_url=args.endpoint, verbose=args.verbose, logger=logger)
-    else:
-        blackboard = Blackboard()
-        edge_fusion = EdgeFusion(blackboard)
-        receiver = LocalReceiver(verbose=args.verbose, edge_fusion=edge_fusion)
+    edge_fusion = None
+    try:
+        if args.endpoint:
+            receiver = HttpReceiver(edge_url=args.endpoint, verbose=args.verbose, logger=logger)
+        else:
+            blackboard = Blackboard()
+            edge_fusion = EdgeFusion(blackboard)
+            receiver = LocalReceiver(verbose=args.verbose, edge_fusion=edge_fusion)
 
-    def make_sync_ingest(func: Callable[[RecordT], Any]) -> Callable[[RecordT], None]:
-        """
-        Wrap a receiver ingest function.
-        - If it's async: run it via asyncio.run()
-        - If it's sync: call it directly
-        """
+        def make_sync_ingest(func: Callable[[RecordT], Any]) -> Callable[[RecordT], None]:
+            """
+            Wrap a receiver ingest function.
+            - If it's async: run it via asyncio.run()
+            - If it's sync: call it directly
+            """
 
-        # Pre-check whether the function is async
-        is_async = inspect.iscoroutinefunction(func)
+            # Pre-check whether the function is async
+            is_async = inspect.iscoroutinefunction(func)
 
-        def wrapper(record: RecordT) -> None:
-            if is_async:
-                coro = func(record)
-                # mypy requires explicit Coroutine type
-                assert isinstance(coro, Coroutine)
-                asyncio.run(coro)
-            else:
-                func(record)
+            def wrapper(record: RecordT) -> None:
+                if is_async:
+                    coro = func(record)
+                    # mypy requires explicit Coroutine type
+                    assert isinstance(coro, Coroutine)
+                    asyncio.run(coro)
+                else:
+                    func(record)
 
-        return wrapper
+            return wrapper
 
-    logger.info(f"📡 Initializing streamer with receiver: {type(receiver).__name__}")
-    streamer = LocalStreamer(
-        rate_hz=args.rate, handle_record=make_sync_ingest(receiver.ingest), logger=logger
-    )
+        logger.info(f"📡 Initializing streamer with receiver: {type(receiver).__name__}")
+        streamer = LocalStreamer(
+            rate_hz=args.rate, handle_record=make_sync_ingest(receiver.ingest), logger=logger
+        )
 
-    # --- Helper: stream a single trial file ---
-    def stream_trial_file(file_path: Path, trial_id: str | None = None) -> None:
-        if not file_path.exists():
-            logger.error(f"Missing fused file: {file_path}")
-            return
-        name = trial_id or file_path.stem
-        logger.info(f"▶️  Streaming trial: {name}")
-        records: list[BaseFusedRecord] = load_fused_records(file_path)
-        streamer.stream(records)
+        # --- Helper: stream a single trial file ---
+        def stream_trial_file(file_path: Path, trial_id: str | None = None) -> None:
+            if not file_path.exists():
+                logger.error(f"Missing fused file: {file_path}")
+                return
+            name = trial_id or file_path.stem
+            logger.info(f"▶️  Streaming trial: {name}")
+            records: list[BaseFusedRecord] = load_fused_records(file_path)
+            streamer.stream(records)
 
-    # --- Manifest-based streaming ---
-    if args.manifest.exists():
-        loader = ManifestLoader(args.manifest)
-        trials: list[Trial] = loader.load()
+        # --- Manifest-based streaming ---
+        if args.manifest.exists():
+            loader = ManifestLoader(args.manifest)
+            trials: list[Trial] = loader.load()
 
-        def manifest_cycle() -> None:
-            if args.trial_id:
-                trial = next((t for t in trials if t.trial_id == args.trial_id), None)
-                if not trial:
-                    logger.error(f"Trial ID '{args.trial_id}' not found in manifest.")
-                    return
-                if not trial.fused_file:
-                    logger.error(f"Trial '{trial.trial_id}' has no fused file path.")
-                    return
-                stream_trial_file(trial.fused_file, trial.trial_id)
-            else:
-                for trial in trials:
-                    if not trial.fused_file:
-                        logger.warning(f"Skipping trial {trial.trial_id} (no fused file).")
-                        continue
-                    stream_trial_file(trial.fused_file, trial.trial_id)
-
-        # --- Repeat logic ---
-        iteration = 0
-        while args.repeat == 0 or iteration < args.repeat:
-            iteration += 1
-            logger.info(f"🔁 Manifest cycle {iteration}")
-            manifest_cycle()
-            if args.repeat != 0:
-                logger.info(f"✅ Completed cycle {iteration}/{args.repeat}")
-            time.sleep(0.5)
-
-    # --- Dataset fallback mode ---
-    else:
-        logger.warning("Manifest not found — using dataset fallback mode.")
-        dataset = args.dataset
-
-        def dataset_cycle() -> None:
-            if dataset.is_file():
-                stream_trial_file(dataset)
-            elif dataset.is_dir():
-                files = sorted(dataset.glob("*.jsonl"))
+            def manifest_cycle() -> None:
                 if args.trial_id:
-                    files = [f for f in files if args.trial_id in f.stem]
-                if not files:
-                    logger.error(f"No .jsonl files found matching trial '{args.trial_id or '*'}'.")
-                    return
-                for f in files:
-                    stream_trial_file(f)
-            else:
-                logger.error("Invalid dataset path; must be a file or directory.")
+                    trial = next((t for t in trials if t.trial_id == args.trial_id), None)
+                    if not trial:
+                        logger.error(f"Trial ID '{args.trial_id}' not found in manifest.")
+                        return
+                    if not trial.fused_file:
+                        logger.error(f"Trial '{trial.trial_id}' has no fused file path.")
+                        return
+                    stream_trial_file(trial.fused_file, trial.trial_id)
+                else:
+                    for trial in trials:
+                        if not trial.fused_file:
+                            logger.warning(f"Skipping trial {trial.trial_id} (no fused file).")
+                            continue
+                        stream_trial_file(trial.fused_file, trial.trial_id)
 
-        # --- Repeat logic ---
-        iteration = 0
-        while args.repeat == 0 or iteration < args.repeat:
-            iteration += 1
-            logger.info(f"🔁 Dataset cycle {iteration}")
-            dataset_cycle()
-            if args.repeat != 0:
-                logger.info(f"✅ Completed cycle {iteration}/{args.repeat}")
-            time.sleep(0.5)
+            # --- Repeat logic ---
+            iteration = 0
+            while args.repeat == 0 or iteration < args.repeat:
+                iteration += 1
+                logger.info(f"🔁 Manifest cycle {iteration}")
+                manifest_cycle()
+                if args.repeat != 0:
+                    logger.info(f"✅ Completed cycle {iteration}/{args.repeat}")
+                time.sleep(0.5)
 
-    logger.info("🎉 All streaming cycles completed successfully.")
+        # --- Dataset fallback mode ---
+        else:
+            logger.warning("Manifest not found — using dataset fallback mode.")
+            dataset = args.dataset
+
+            def dataset_cycle() -> None:
+                if dataset.is_file():
+                    stream_trial_file(dataset)
+                elif dataset.is_dir():
+                    files = sorted(dataset.glob("*.jsonl"))
+                    if args.trial_id:
+                        files = [f for f in files if args.trial_id in f.stem]
+                    if not files:
+                        logger.error(
+                            f"No .jsonl files found matching trial '{args.trial_id or '*'}'."
+                        )
+                        return
+                    for f in files:
+                        stream_trial_file(f)
+                else:
+                    logger.error("Invalid dataset path; must be a file or directory.")
+
+            # --- Repeat logic ---
+            iteration = 0
+            while args.repeat == 0 or iteration < args.repeat:
+                iteration += 1
+                logger.info(f"🔁 Dataset cycle {iteration}")
+                dataset_cycle()
+                if args.repeat != 0:
+                    logger.info(f"✅ Completed cycle {iteration}/{args.repeat}")
+                time.sleep(0.5)
+
+        logger.info("🎉 All streaming cycles completed successfully.")
+
+    finally:
+        # Cleanup EdgeFusion if initialized
+        if edge_fusion is not None:
+            edge_fusion.close()
 
 
 if __name__ == "__main__":

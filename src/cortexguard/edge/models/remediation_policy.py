@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
+from enum import Enum
 
 from pydantic import BaseModel, Field
 
 from cortexguard.edge.models.anomaly_event import AnomalyEvent
 from cortexguard.edge.models.goal import GoalContext
 from cortexguard.edge.models.plan import Plan, PlanSource, PlanStep, PlanType
+
+
+class PolicySource(str, Enum):
+    RULES = "Rules"
+    LLM = "LLM"
+    FALLBACK = "Fallback"
 
 
 class RemediationPolicy(BaseModel):
@@ -22,6 +29,8 @@ class RemediationPolicy(BaseModel):
         default_factory=lambda: str(uuid.uuid4()),
         description="Unique ID for this policy execution.",
     )
+
+    source: PolicySource = PolicySource.RULES
 
     # Context: What caused this policy?
     trigger_event: AnomalyEvent = Field(
@@ -61,7 +70,7 @@ class RemediationPolicy(BaseModel):
         trace_id: str | None = None,
         created_at: datetime | None = None,
     ) -> Plan:
-        created_at = created_at or datetime.now()
+        created_at = created_at or datetime.now(UTC)
         return Plan(
             context=goal,
             plan_type=PlanType.REMEDIATION,

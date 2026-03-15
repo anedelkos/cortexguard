@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import torch
@@ -13,7 +13,7 @@ from cortexguard.core.interfaces.base_policy_engine import BasePolicyEngine
 from cortexguard.edge.models.agent_tool_call import AgentToolCall
 from cortexguard.edge.models.anomaly_event import AnomalyEvent
 from cortexguard.edge.models.plan import PlanStep, StepStatus
-from cortexguard.edge.models.remediation_policy import RemediationPolicy
+from cortexguard.edge.models.remediation_policy import PolicySource, RemediationPolicy
 from cortexguard.edge.models.state_estimate import StateEstimate
 
 logger = logging.getLogger(__name__)
@@ -207,12 +207,13 @@ class MistralLLMPolicyEngine(BasePolicyEngine):
             return RemediationPolicy(
                 # Policy Fields from LLM Output
                 policy_id="llm-" + str(uuid4()),
+                source=PolicySource.LLM,
                 reasoning_trace=data.get("reasoning_trace", "No reasoning provided by LLM."),
                 risk_assessment=data.get("risk_assessment", "UNKNOWN"),
                 corrective_steps=corrective_steps,
                 escalation_required=data.get("escalation_required", False),
                 trigger_event=event,
-                created_at=datetime.now(),
+                created_at=datetime.now(UTC),
             )
 
         except Exception as e:
@@ -222,6 +223,7 @@ class MistralLLMPolicyEngine(BasePolicyEngine):
             # Fallback: Create a fail-safe policy
             return RemediationPolicy(
                 policy_id=str(uuid4()),
+                source=PolicySource.FALLBACK,
                 trigger_event=event,
                 reasoning_trace=f"CRITICAL PARSING FAILURE: LLM response was invalid JSON. Error: {e}",
                 risk_assessment="HIGH - System safety cannot be guaranteed.",
@@ -364,7 +366,7 @@ class MistralLLMPolicyEngine(BasePolicyEngine):
             raw_response = self._mock_llm_call(prompt, event, action_catalog_json)
         else:
             # Use an executor to run the synchronous LLM call without blocking the event loop
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             raw_response = await loop.run_in_executor(None, self._run_real_llm_call, prompt)
 
         return self._parse_llm_response(raw_response, event)

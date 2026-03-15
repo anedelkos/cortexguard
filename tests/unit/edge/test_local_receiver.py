@@ -19,27 +19,31 @@ async def test_local_receiver_calls_edge_fusion() -> None:
     # Create EdgeFusion instance with mocked process_record
     fusion = EdgeFusion(bb)
 
-    # Create a mock that returns a FusionSnapshot
-    mock_process = AsyncMock(return_value=MagicMock(spec=FusionSnapshot))
+    try:
+        # Create a mock that returns a FusionSnapshot
+        mock_process = AsyncMock(return_value=MagicMock(spec=FusionSnapshot))
 
-    # Replace the method using object.__setattr__ to avoid method-assign error
-    object.__setattr__(fusion, "process_record", mock_process)
+        # Replace the method using object.__setattr__ to avoid method-assign error
+        object.__setattr__(fusion, "process_record", mock_process)
 
-    receiver = LocalReceiver(edge_fusion=fusion, verbose=True)
+        receiver = LocalReceiver(edge_fusion=fusion, verbose=True)
 
-    class DummyRecord:
-        timestamp_ns: int = 1234567890
-        n_samples: int = 5
+        class DummyRecord:
+            timestamp_ns: int = 1234567890
+            n_samples: int = 5
 
-        def model_dump(self) -> dict[str, Any]:
-            return {"timestamp_ns": self.timestamp_ns, "n_samples": self.n_samples}
+            def model_dump(self) -> dict[str, Any]:
+                return {"timestamp_ns": self.timestamp_ns, "n_samples": self.n_samples}
 
-    record = DummyRecord()
+        record = DummyRecord()
 
-    await receiver.ingest(record)
+        await receiver.ingest(record)
 
-    mock_process.assert_awaited_once_with(record)
-    assert receiver.received_count == 1
+        mock_process.assert_awaited_once_with(record)
+        assert receiver.received_count == 1
+    finally:
+        # Cleanup
+        fusion.close()
 
 
 @pytest.mark.asyncio
@@ -54,18 +58,25 @@ async def test_local_receiver_handles_exception(
             """Mock process_record that raises an exception."""
             raise RuntimeError("fusion fail")
 
-    receiver = LocalReceiver(edge_fusion=DummyFusion(bb), verbose=True)
+    fusion = DummyFusion(bb)
+    try:
+        receiver = LocalReceiver(edge_fusion=fusion, verbose=True)
 
-    class DummyRecord:
-        timestamp_ns: int = 1234567890
+        class DummyRecord:
+            timestamp_ns: int = 1234567890
 
-        def model_dump(self) -> dict[str, Any]:
-            return {"timestamp_ns": self.timestamp_ns}
+            def model_dump(self) -> dict[str, Any]:
+                return {"timestamp_ns": self.timestamp_ns}
 
-    record = DummyRecord()
+        record = DummyRecord()
 
-    caplog.set_level(logging.DEBUG)
-    await receiver.ingest(record)
+        caplog.set_level(logging.DEBUG)
+        await receiver.ingest(record)
 
-    assert any("Failed to process record in EdgeFusion" in rec.message for rec in caplog.records)
-    assert receiver.received_count == 1
+        assert any(
+            "Failed to process record in EdgeFusion" in rec.message for rec in caplog.records
+        )
+        assert receiver.received_count == 1
+    finally:
+        # Cleanup
+        fusion.close()

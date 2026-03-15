@@ -14,6 +14,9 @@ class StateEstimate(BaseModel):
     timestamp: datetime = Field(..., description="Timestamp of the estimate generation.")
     label: str = Field(..., description="High-level state label (e.g., 'nominal', 'slipping').")
     confidence: float = Field(..., description="Confidence score (0.0 to 1.0).")
+    observations: dict[str, float] = Field(
+        default_factory=dict, description="Raw observed sensor values"
+    )
     residuals: dict[str, float] = Field(
         default_factory=dict, description="Observed deviations per sensor."
     )

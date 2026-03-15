@@ -173,6 +173,7 @@ class OnlineLearnerStateEstimator:
         return scene_graph_frame
 
     def _compute_residuals_and_stats(self, features: dict[str, float]) -> tuple[
+        dict[str, float],  # observations,
         dict[str, float],  # residuals
         dict[str, float],  # uncertainty
         dict[str, float],  # z_scores
@@ -180,6 +181,7 @@ class OnlineLearnerStateEstimator:
         str | None,  # max_z_feature
         dict[str, float],  # features_for_update
     ]:
+        observations = {}
         residuals = {}
         uncertainty = {}
         z_scores = {}
@@ -194,6 +196,7 @@ class OnlineLearnerStateEstimator:
                 if observed is None:
                     continue
 
+                observations[key] = observed
                 self._seen_per_feature[key] = self._seen_per_feature.get(key, 0) + 1
                 features_for_update[key] = observed
 
@@ -235,6 +238,7 @@ class OnlineLearnerStateEstimator:
                     max_z_feature = key
 
         return (
+            observations,
             residuals,
             uncertainty,
             z_scores,
@@ -283,6 +287,7 @@ class OnlineLearnerStateEstimator:
         timestamp: datetime.datetime | float | int,
         label: str,
         confidence: float,
+        observations: dict[str, float],
         residuals: dict[str, float],
         uncertainty: dict[str, float],
         z_scores: dict[str, float],
@@ -297,6 +302,7 @@ class OnlineLearnerStateEstimator:
             timestamp=ts,
             label=label,
             confidence=confidence,
+            observations=observations,
             residuals=residuals,
             uncertainty=uncertainty,
             z_scores=z_scores,
@@ -346,6 +352,7 @@ class OnlineLearnerStateEstimator:
 
             # 3. Predict + residuals + stats
             (
+                observations,
                 residuals,
                 uncertainty,
                 z_scores,
@@ -383,6 +390,7 @@ class OnlineLearnerStateEstimator:
                 now,
                 label,
                 confidence,
+                observations,
                 residuals,
                 uncertainty,
                 z_scores,
@@ -462,6 +470,7 @@ class OnlineLearnerStateEstimator:
             label="nominal",
             confidence=1.0,
             residuals={},
+            observations={},
             uncertainty={},
             ttd=None,
             ttf=None,

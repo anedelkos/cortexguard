@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -71,7 +71,7 @@ def create_mock_overheat_policy(
             key="overheat_warning",
             severity=AnomalySeverity.MEDIUM,
             metadata={},
-            timestamp=datetime.now(),
+            timestamp=datetime.now(UTC),
             score=0.8,
             contributing_detectors=["temp_sensor_monitor"],
         ),
@@ -131,7 +131,7 @@ async def test_handle_high_severity_anomaly(
 ) -> None:
     """Test rules-based policy generation for HIGH severity (Critical Shutdown)."""
 
-    current_ts = datetime.now()
+    current_ts = datetime.now(UTC)
 
     anomaly = AnomalyEvent(
         id="A001",
@@ -163,7 +163,7 @@ async def test_handle_unknown_medium_anomaly_delegation(
 ) -> None:
     """Test delegation to BasePolicyEngine for unknown MEDIUM anomaly."""
 
-    current_ts = datetime.now()
+    current_ts = datetime.now(UTC)
 
     anomaly = AnomalyEvent(
         id="A003",
@@ -222,7 +222,7 @@ async def test_llm_based_validation_failure_updates_policy(
 ) -> None:
     """LLM-generated policies with invalid actions are marked as CRITICAL risk."""
 
-    current_ts = datetime.now()
+    current_ts = datetime.now(UTC)
 
     anomaly = AnomalyEvent(
         id="A005",
@@ -279,7 +279,7 @@ async def test_run_loop_stops_on_high_severity(
 ) -> None:
     """Test that the loop processes high severity and breaks immediately."""
 
-    current_ts = datetime.now()
+    current_ts = datetime.now(UTC)
 
     anomaly_high = AnomalyEvent(
         id="A006",
@@ -327,7 +327,7 @@ async def test_generate_policy_uses_snapshot_summary(monkeypatch, mock_deps):
     # Build a minimal snapshot with scene_graph_summary
     snapshot = FusionSnapshot(
         id="s1",
-        timestamp=datetime.now(),
+        timestamp=datetime.now(UTC),
         sensors={"scene_graph_summary": [{"id": "o1", "label": "knife"}]},
         derived={},
     )
@@ -335,13 +335,13 @@ async def test_generate_policy_uses_snapshot_summary(monkeypatch, mock_deps):
         id="X",
         key="unknown",
         severity=AnomalySeverity.MEDIUM,
-        timestamp=datetime.now(),
+        timestamp=datetime.now(UTC),
         metadata={},
         score=0.5,
         contributing_detectors=[],
     )
     state = StateEstimate(
-        timestamp=datetime.now(),
+        timestamp=datetime.now(UTC),
         label="nominal",
         confidence=1.0,
         residuals={},
@@ -390,13 +390,13 @@ async def test_generate_policy_falls_back_to_full_scene_graph(monkeypatch, mock_
         id="Y",
         key="unknown",
         severity=AnomalySeverity.MEDIUM,
-        timestamp=datetime.now(),
+        timestamp=datetime.now(UTC),
         metadata={},
         score=0.5,
         contributing_detectors=[],
     )
     state = StateEstimate(
-        timestamp=datetime.now(),
+        timestamp=datetime.now(UTC),
         label="nominal",
         confidence=1.0,
         residuals={},
@@ -429,7 +429,7 @@ async def test_supervisor_invalid_action_forces_escalation(monkeypatch, mock_dep
         id="Z",
         key="unknown",
         severity=AnomalySeverity.MEDIUM,
-        timestamp=datetime.now(),
+        timestamp=datetime.now(UTC),
         metadata={},
         score=0.5,
         contributing_detectors=[],
@@ -474,13 +474,13 @@ async def test_policy_engine_error_handling(monkeypatch, mock_deps):
         id="E1",
         key="unknown",
         severity=AnomalySeverity.MEDIUM,
-        timestamp=datetime.now(),
+        timestamp=datetime.now(UTC),
         metadata={},
         score=0.5,
         contributing_detectors=[],
     )
     state = StateEstimate(
-        timestamp=datetime.now(),
+        timestamp=datetime.now(UTC),
         label="nominal",
         confidence=1.0,
         residuals={},
@@ -507,14 +507,14 @@ async def test_run_loop_processes_and_breaks_on_high(monkeypatch, mock_deps):
         id="H1",
         key="h",
         severity=AnomalySeverity.HIGH,
-        timestamp=datetime.now(),
+        timestamp=datetime.now(UTC),
         metadata={},
         score=1.0,
         contributing_detectors=[],
     )
     mock_deps["blackboard"].get_active_anomalies.return_value = {high.id: high}
     mock_deps["blackboard"].get_latest_state_estimate.return_value = StateEstimate(
-        timestamp=datetime.now(),
+        timestamp=datetime.now(UTC),
         label="idle",
         confidence=1.0,
         residuals={},
