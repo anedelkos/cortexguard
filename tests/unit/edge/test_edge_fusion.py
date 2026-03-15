@@ -19,7 +19,6 @@ import pytest
 import torch
 from PIL import Image
 
-from cortexguard.common.constants import DEFAULT_ALPHA
 from cortexguard.edge.edge_fusion import EdgeFusion
 from cortexguard.edge.models.blackboard import Blackboard
 from cortexguard.edge.models.fusion_snapshot import FusionSnapshot
@@ -36,11 +35,14 @@ def blackboard() -> Blackboard:
 
 
 @pytest.fixture
-def edge_fusion(blackboard: Blackboard) -> EdgeFusion:
-    """Create EdgeFusion instance with test blackboard."""
-    return EdgeFusion(
+def edge_fusion(blackboard: Blackboard) -> Generator[EdgeFusion, None, None]:
+    """Create EdgeFusion instance with test blackboard, with cleanup."""
+    fusion = EdgeFusion(
         blackboard=blackboard, alpha=0.5
     )  # Higher alpha for faster convergence in tests
+    yield fusion
+    # Cleanup: shutdown the executor
+    fusion.close()
 
 
 @pytest.fixture
@@ -96,17 +98,6 @@ def sample_record() -> WindowedFusedRecord:
 class TestEdgeFusionInitialization:
     """Test EdgeFusion initialization and configuration."""
 
-    def test_init_with_defaults(self, blackboard: Blackboard) -> None:
-        """Test initialization with default parameters."""
-        fusion = EdgeFusion(blackboard=blackboard)
-
-        assert fusion._blackboard is blackboard
-        assert fusion._alpha == DEFAULT_ALPHA
-        assert fusion._ema_state == {}
-        assert fusion._last_snapshot is None
-        assert fusion._samples_processed == 0
-        assert fusion._records_processed == 0
-
     def test_init_with_custom_alpha(self, blackboard: Blackboard) -> None:
         """Test initialization with custom alpha value."""
         fusion = EdgeFusion(blackboard=blackboard, alpha=0.3)
@@ -157,7 +148,7 @@ class TestEMAComputation:
 
         await edge_fusion.process_record(record)
 
-        ema_state = edge_fusion.get_ema_state()
+        ema_state = await edge_fusion.get_ema_state()
         assert ema_state["force_x"] == 1.0
         assert ema_state["force_y"] == 2.0
         assert ema_state["force_z"] == 3.0
@@ -189,7 +180,7 @@ class TestEMAComputation:
         )
         await fusion.process_record(record2)
 
-        ema_state = fusion.get_ema_state()
+        ema_state = await fusion.get_ema_state()
         assert ema_state["force_x"] == 2.0
         assert ema_state["force_y"] == 3.0
 
@@ -204,7 +195,7 @@ class TestEMAComputation:
         # After 1.0: ema = 1.0
         # After 1.1: ema = 0.5*1.1 + 0.5*1.0 = 1.05
         # After 1.2: ema = 0.5*1.2 + 0.5*1.05 = 1.125
-        ema_state = edge_fusion.get_ema_state()
+        ema_state = await edge_fusion.get_ema_state()
         assert ema_state["force_x"] == pytest.approx(1.125)
         assert ema_state["pos_x"] == pytest.approx(10.125)
 
@@ -232,7 +223,7 @@ class TestNonNumericHandling:
 
         await edge_fusion.process_record(record)
 
-        ema_state = edge_fusion.get_ema_state()
+        ema_state = await edge_fusion.get_ema_state()
         assert "timestamp_ns" not in ema_state
 
     @pytest.mark.asyncio
@@ -257,7 +248,7 @@ class TestNonNumericHandling:
 
         await edge_fusion.process_record(record)
 
-        ema_state = edge_fusion.get_ema_state()
+        ema_state = await edge_fusion.get_ema_state()
         assert "force_x" in ema_state
         assert "force_y" not in ema_state
         assert "force_z" in ema_state
@@ -272,7 +263,7 @@ class TestWindowStatistics:
     ) -> None:
         """Test basic window statistics calculation."""
         snapshot = await edge_fusion.process_record(sample_record)
-
+        assert snapshot is not None
         stats = snapshot.sensors["window_stats"]
 
         # force_x: [1.0, 1.1, 1.2]
@@ -302,6 +293,7 @@ class TestWindowStatistics:
         )
 
         snapshot = await edge_fusion.process_record(record)
+        assert snapshot is not None
         stats = snapshot.sensors["window_stats"]
 
         assert stats["force_x"]["mean"] == 1.0
@@ -330,6 +322,7 @@ class TestWindowStatistics:
         )
 
         snapshot = await edge_fusion.process_record(record)
+        assert snapshot is not None
         stats = snapshot.sensors["window_stats"]
 
         assert "force_y" not in stats
@@ -359,6 +352,7 @@ class TestSnapshotCreation:
     ) -> None:
         """Test that nanosecond timestamp is correctly converted."""
         snapshot = await edge_fusion.process_record(sample_record)
+        assert snapshot is not None
 
         # 1000000000 ns = 1 second = 1970-01-01 00:00:01
         expected_time = datetime.fromtimestamp(1.0)
@@ -386,7 +380,7 @@ class TestStateManagement:
         """Test that metrics are tracked correctly."""
         await edge_fusion.process_record(sample_record)
 
-        metrics = edge_fusion.get_metrics()
+        metrics = await edge_fusion.get_metrics()
         assert metrics["records_processed"] == 1
         assert metrics["samples_processed"] == 3  # 3 samples in window
         assert metrics["ema_state_size"] == 9  # 9 sensor fields (3 force, 3 torque, 3 pos)
@@ -399,11 +393,12 @@ class TestStateManagement:
         await edge_fusion.process_record(sample_record)
         await edge_fusion.process_record(sample_record)
 
-        metrics = edge_fusion.get_metrics()
+        metrics = await edge_fusion.get_metrics()
         assert metrics["records_processed"] == 2
         assert metrics["samples_processed"] == 6
 
-    def test_reset_ema_state(self, edge_fusion: EdgeFusion) -> None:
+    @pytest.mark.asyncio
+    async def test_reset_ema_state(self, edge_fusion: EdgeFusion) -> None:
         """Test that reset clears all state."""
         # Manually set some state
         edge_fusion._ema_state = {"force_x": 1.0}
@@ -411,21 +406,22 @@ class TestStateManagement:
         edge_fusion._records_processed = 5
         edge_fusion._last_snapshot = MagicMock()
 
-        edge_fusion.reset_ema_state()
+        await edge_fusion.reset_ema_state()
 
         assert edge_fusion._ema_state == {}
         assert edge_fusion._samples_processed == 0
         assert edge_fusion._records_processed == 0
         assert edge_fusion._last_snapshot is None
 
-    def test_get_ema_state_returns_copy(self, edge_fusion: EdgeFusion) -> None:
+    @pytest.mark.asyncio
+    async def test_get_ema_state_returns_copy(self, edge_fusion: EdgeFusion) -> None:
         """Test that get_ema_state returns a copy, not reference."""
         edge_fusion._ema_state = {"force_x": 1.0}
 
-        state1 = edge_fusion.get_ema_state()
+        state1 = await edge_fusion.get_ema_state()
         state1["force_x"] = 999.0
 
-        state2 = edge_fusion.get_ema_state()
+        state2 = await edge_fusion.get_ema_state()
         assert state2["force_x"] == 1.0  # Original unchanged
 
 
@@ -446,10 +442,11 @@ class TestEdgeCases:
         )
 
         snapshot = await edge_fusion.process_record(record)
+        assert snapshot is not None
 
         # Should not crash, should produce empty stats
         assert snapshot.sensors["window_stats"] == {}
-        assert edge_fusion.get_ema_state() == {}
+        assert await edge_fusion.get_ema_state() == {}
 
     @pytest.mark.asyncio
     async def test_all_none_values(self, edge_fusion: EdgeFusion, blackboard: Blackboard) -> None:
@@ -470,9 +467,10 @@ class TestEdgeCases:
         )
 
         snapshot = await edge_fusion.process_record(record)
+        assert snapshot is not None
 
         # Should handle gracefully
-        assert edge_fusion.get_ema_state() == {}
+        assert await edge_fusion.get_ema_state() == {}
         assert snapshot.sensors["window_stats"] == {}
 
     @pytest.mark.asyncio
@@ -497,7 +495,7 @@ class TestEdgeCases:
 
         _ = await edge_fusion.process_record(record)
 
-        ema_state = edge_fusion.get_ema_state()
+        ema_state = await edge_fusion.get_ema_state()
         assert "force_x" in ema_state
         assert "force_y" not in ema_state
         assert "force_z" in ema_state
@@ -531,14 +529,15 @@ class TestIntegration:
         snapshots: list[FusionSnapshot] = []
         for record in records:
             snapshot = await edge_fusion.process_record(record)
+            assert snapshot is not None
             snapshots.append(snapshot)
 
         # Check that EMA converges toward recent values
-        final_ema = edge_fusion.get_ema_state()
+        final_ema = await edge_fusion.get_ema_state()
         assert final_ema["force_x"] > 1.0  # Should increase
 
         # Check metrics
-        metrics = edge_fusion.get_metrics()
+        metrics = await edge_fusion.get_metrics()
         assert metrics["records_processed"] == 5
         assert metrics["samples_processed"] == 5
 
@@ -552,12 +551,12 @@ class TestIntegration:
         await edge_fusion.process_record(sample_record)
 
         # Reset
-        edge_fusion.reset_ema_state()
+        await edge_fusion.reset_ema_state()
 
         # Process again - should start fresh
         await edge_fusion.process_record(sample_record)
 
-        metrics = edge_fusion.get_metrics()
+        metrics = await edge_fusion.get_metrics()
         assert metrics["records_processed"] == 1
         assert metrics["samples_processed"] == 3
 

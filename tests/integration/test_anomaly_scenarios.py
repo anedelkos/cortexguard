@@ -1,5 +1,6 @@
 import logging
 import random
+from collections import deque
 
 import pytest
 import pytest_asyncio
@@ -266,7 +267,7 @@ async def test_anomaly_scenario(runtime: EdgeRuntime, scenario: Scenario) -> Non
             # Drive policy and assert system-level decision: either recover or escalate
             await runtime.policy_agent._process_active_anomalies_tick()
             recovery = getattr(runtime.blackboard, "recovery_status", False)
-            traces = getattr(runtime.blackboard, "reasoning_traces", []) or []
+            traces = getattr(runtime.blackboard, "reasoning_traces", deque()) or deque()
             logger.info("policy recovery=%s traces=%s", recovery, traces)
             assert recovery or any(
                 "ESCALATE" in getattr(t, "event_type", "") for t in traces

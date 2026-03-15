@@ -236,6 +236,7 @@ class StepExecutor(BaseExecutor):
 
             step.status = StepStatus.RUNNING
             step.attempts = attempt
+            await self._blackboard.set_current_step(step)
 
             execution_success = await self._execute_direct_call(function_name, arguments)
 
@@ -250,6 +251,8 @@ class StepExecutor(BaseExecutor):
             if completion_status == StepStatus.COMPLETED:
                 step.status = StepStatus.COMPLETED
                 step.completed_at = datetime.now(UTC)
+                await self._blackboard.set_current_step(step)
+
                 await self._trace_sink.post_trace_entry(
                     source=self,
                     event_type="STEP_COMPLETED",
@@ -260,11 +263,13 @@ class StepExecutor(BaseExecutor):
 
             if attempt < max_attempts:
                 step.status = StepStatus.PENDING
+                await self._blackboard.set_current_step(step)
                 await asyncio.sleep(retry_delay)
                 continue
             else:
                 step.status = StepStatus.FAILED
                 step.completed_at = datetime.now(UTC)
+                await self._blackboard.set_current_step(step)
                 await self._trace_sink.post_trace_entry(
                     source=self,
                     event_type="STEP_FAILED",

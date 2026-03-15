@@ -1,6 +1,6 @@
 import json
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import patch
 
@@ -22,7 +22,7 @@ def temp_high_event() -> AnomalyEvent:
         id="anomaly_1",
         key="TEMP_HIGH",
         severity=AnomalySeverity.HIGH,
-        timestamp=datetime.now(),
+        timestamp=datetime.now(UTC),
         metadata={"current_temp": 150.5, "target_temp": 120.0},
         score=1.0,
         contributing_detectors=[],
@@ -35,7 +35,7 @@ def other_event() -> AnomalyEvent:
         id="anomaly_2",
         key="OTHER_ERROR",
         severity=AnomalySeverity.LOW,
-        timestamp=datetime.now(),
+        timestamp=datetime.now(UTC),
         metadata={},
         score=0.5,
         contributing_detectors=[],
@@ -45,7 +45,7 @@ def other_event() -> AnomalyEvent:
 @pytest.fixture
 def state_estimate() -> StateEstimate:
     return StateEstimate(
-        timestamp=datetime.now(),
+        timestamp=datetime.now(UTC),
         label="NORMAL",
         confidence=1.0,
         residuals={},

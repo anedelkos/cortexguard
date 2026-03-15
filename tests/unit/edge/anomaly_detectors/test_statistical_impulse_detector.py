@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
@@ -24,7 +24,7 @@ def mock_state_estimator() -> OnlineLearnerStateEstimator:
 @pytest.fixture
 def mock_snapshot() -> FusionSnapshot:
     """Fixture for a simple mock FusionSnapshot."""
-    return FusionSnapshot(id="111", timestamp=datetime.now(), derived={}, sensors={})
+    return FusionSnapshot(id="111", timestamp=datetime.now(UTC), derived={}, sensors={})
 
 
 # Helper function to configure the mock estimator's return value
@@ -35,7 +35,7 @@ def set_estimator_return(
 ) -> None:
     """Sets the return value for the mock estimator's update method."""
     mock_state = StateEstimate(
-        timestamp=datetime.now(),
+        timestamp=datetime.now(UTC),
         label="mock",
         confidence=1.0,
         residuals=residuals,

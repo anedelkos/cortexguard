@@ -160,9 +160,8 @@ class SafetyAgent:
         nearest = None
 
         # 1) check numeric residual/derived in state if present
-        if "vision_nearest_human_m" in state.residuals:
-            # residuals may be observed - expected; if you store observed elsewhere, use that instead
-            nearest = state.residuals.get("vision_nearest_human_m")
+        if "vision_nearest_human_m" in state.observations:
+            nearest = state.observations.get("vision_nearest_human_m")
         # 2) fallback to z_scores or symbolic if you store observed in flags or symbolic names
         # 3) fallback to scene graph if provided
         if nearest is None and scene is not None:

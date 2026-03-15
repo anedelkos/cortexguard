@@ -264,7 +264,9 @@ class Orchestrator:
                     span.set_attribute(
                         "current_plan_id", plan_id if plan_id is not None else "None"
                     )
-                    span.set_attribute("queue_size", len(self._plan_queue))
+                    queue_size = await self._plan_queue.size()
+                    span.set_attribute("queue_size", queue_size)
+
                     try:
                         logger.debug(
                             f"Tick: current plan = {self._current_plan.plan_id if self._current_plan else 'None'}"

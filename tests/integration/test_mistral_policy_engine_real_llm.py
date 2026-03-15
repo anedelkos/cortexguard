@@ -1,7 +1,7 @@
 import asyncio
 import json
 import os
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pytest
 
@@ -23,7 +23,7 @@ def anomaly_event_fixture() -> AnomalyEvent:
         id="anomaly_1",
         key="TEMP_HIGH",
         severity=AnomalySeverity.HIGH,
-        timestamp=datetime.now(),
+        timestamp=datetime.now(UTC),
         metadata={
             "sensor_id": "temp_sensor_001",
             "current_temp": 150.5,
@@ -41,7 +41,7 @@ def state_estimate_fixture() -> StateEstimate:
     Provides a detailed state estimate context for testing.
     """
     return StateEstimate(
-        timestamp=datetime.now(),
+        timestamp=datetime.now(UTC),
         label="HIGH_TEMPERATURE_DEVIATION",
         confidence=0.98,
         residuals={

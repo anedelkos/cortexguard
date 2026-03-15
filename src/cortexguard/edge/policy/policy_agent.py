@@ -5,7 +5,7 @@ import logging
 import time
 from collections import deque
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, ClassVar
 from uuid import uuid4
 
@@ -20,7 +20,7 @@ from cortexguard.edge.models.capability_registry import CapabilityRegistry
 from cortexguard.edge.models.fusion_snapshot import FusionSnapshot
 from cortexguard.edge.models.mayday_packet import SystemHealth
 from cortexguard.edge.models.plan import Plan, PlanSource, PlanStep, StepStatus
-from cortexguard.edge.models.remediation_policy import RemediationPolicy
+from cortexguard.edge.models.remediation_policy import PolicySource, RemediationPolicy
 from cortexguard.edge.models.state_estimate import StateEstimate
 from cortexguard.edge.utils.metrics import (
     anomalies_total,
@@ -72,6 +72,7 @@ class PolicyAgent:
         self._task: asyncio.Task[Any] | None = None
 
         self._processed_anomalies: deque[str] = deque(maxlen=self._PROCESSED_CACHE_SIZE)
+        self._processed_lock = asyncio.Lock()
 
         # Metrics for observability
         self._policies_generated = 0
@@ -278,12 +279,13 @@ class PolicyAgent:
 
         return RemediationPolicy(
             policy_id=str(uuid4()),
+            source=PolicySource.RULES,
             trigger_event=anomaly,
             reasoning_trace=reasoning,
             risk_assessment="LOW - Emergency Halt Only",
             corrective_steps=policy_steps,
             escalation_required=True,
-            created_at=datetime.now(),
+            created_at=datetime.now(UTC),
         )
 
     def _policy_for_overheat(
@@ -321,12 +323,13 @@ class PolicyAgent:
 
         return RemediationPolicy(
             policy_id=str(uuid4()),
+            source=PolicySource.RULES,
             trigger_event=anomaly,
             reasoning_trace=reasoning,
             risk_assessment="MEDIUM - Requires Active Management",
             corrective_steps=policy_steps,
             escalation_required=False,
-            created_at=datetime.now(),
+            created_at=datetime.now(UTC),
         )
 
     # --- LLM DELEGATION ---
@@ -364,7 +367,7 @@ class PolicyAgent:
             )
 
             # 3. Generate the policy
-            start = datetime.now()
+            start = datetime.now(UTC)
             await self._trace_sink.post_trace_entry(
                 source=self,
                 event_type="POLICY_LLM_REQUEST",
@@ -394,7 +397,7 @@ class PolicyAgent:
                     active_plan_context=active_plan_context,
                     vision_context=vision_context,
                 )
-                duration_ms = int((datetime.now() - start).total_seconds() * 1000)
+                duration_ms = int((datetime.now(UTC) - start).total_seconds() * 1000)
                 span.set_attribute("llm.duration_ms", duration_ms)
 
                 await self._trace_sink.post_trace_entry(
@@ -434,12 +437,13 @@ class PolicyAgent:
                 ]
                 policy = RemediationPolicy(
                     policy_id=str(uuid4()),
+                    source=PolicySource.FALLBACK,
                     trigger_event=anomaly,
                     reasoning_trace=fail_reason,
                     risk_assessment="HIGH - System safety cannot be guaranteed.",
                     corrective_steps=fail_steps,
                     escalation_required=True,
-                    created_at=datetime.now(),
+                    created_at=datetime.now(UTC),
                 )
 
             return policy
@@ -449,6 +453,7 @@ class PolicyAgent:
     ) -> RemediationPolicy:
         policy = RemediationPolicy(
             policy_id=str(uuid4()),
+            source=PolicySource.RULES,
             trigger_event=anomaly,
             reasoning_trace="Sensor freeze detected; reducing system speed to 50%.",
             risk_assessment="LOW",
@@ -464,7 +469,7 @@ class PolicyAgent:
                 )
             ],
             escalation_required=False,
-            created_at=datetime.now(),
+            created_at=datetime.now(UTC),
         )
 
         return policy
@@ -590,6 +595,7 @@ class PolicyAgent:
         policy_id = f"fallback-{anomaly.id}"
         return RemediationPolicy(
             policy_id=policy_id,
+            source=PolicySource.FALLBACK,
             corrective_steps=steps,
             escalation_required=True,
             risk_assessment="fallback",
@@ -680,7 +686,7 @@ class PolicyAgent:
             metadata={
                 "policy_id": policy.policy_id,
                 "anomaly_id": anomaly.id,
-                "source": "LLM" if policy.policy_id.startswith("llm-") else "Rules",
+                "source": getattr(policy, "source", None),
                 "risk_assessment": policy.risk_assessment,
                 "escalation_required": escalation,
                 "full_reasoning_trace": policy.reasoning_trace,
@@ -711,11 +717,12 @@ class PolicyAgent:
             span.set_attribute("anomaly.severity", anomaly.severity.name)
             span.set_attribute("anomaly.id", anomaly.id)
 
-            if anomaly.id in self._processed_anomalies:
-                return
+            async with self._processed_lock:
+                if anomaly.id in self._processed_anomalies:
+                    return
 
-            self._processed_anomalies.append(anomaly.id)
-            self._anomalies_processed += 1
+                self._processed_anomalies.append(anomaly.id)
+                self._anomalies_processed += 1
 
             # 1. Fetch context
             context, active_plan = await self._fetch_context_for_anomaly(anomaly)

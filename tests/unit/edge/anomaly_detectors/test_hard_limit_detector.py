@@ -1,6 +1,6 @@
 import logging
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, cast
 from unittest.mock import MagicMock
 
@@ -24,7 +24,7 @@ def snapshot_factory() -> Callable[[dict[str, Any]], FusionSnapshot]:
     def _create(sensors: dict[str, Any]) -> FusionSnapshot:
         return FusionSnapshot(
             id="111",
-            timestamp=datetime.now(),
+            timestamp=datetime.now(UTC),
             sensors=sensors,
             derived={},  # Not used by HardLimitDetector
         )

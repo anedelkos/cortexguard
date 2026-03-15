@@ -208,6 +208,7 @@ class EdgeRuntime:
         self._running = False
         self._stop_event = asyncio.Event()
         self._subsystems_started = False
+        self._edge_fusion_context: EdgeFusion | None = None
 
         logger.info("EdgeRuntime initialized with config: %s", self.config)
 
@@ -222,6 +223,9 @@ class EdgeRuntime:
         logger.info("Starting EdgeRuntime...")
 
         try:
+            # Enter EdgeFusion context manager
+            self._edge_fusion_context = await self.edge_fusion.__aenter__()
+
             # Start all subsystems
             logger.info("Starting subsystems...")
             await self._start_subsystems()
@@ -264,34 +268,25 @@ class EdgeRuntime:
             raise RuntimeError("One or more subsystems failed to start")
 
     async def stop(self) -> None:
-        """
-        Stop all subsystems gracefully.
-        """
-        if not self._subsystems_started:
-            logger.warning("EdgeRuntime not started, nothing to stop")
-            return
-
-        logger.info("Stopping EdgeRuntime...")
+        """Stop all subsystems gracefully."""
+        logger.info("Stop signal received. Flushing state...")
         self._running = False
         self._stop_event.set()
 
+        # Always attempt to stop subsystems even if _subsystems_started is False
+        logger.info("Stopping EdgeRuntime subsystems...")
         try:
-            # Stop subsystems with timeout
             stop_tasks = []
 
-            # 1. Stop execution layer first (prevent new work)
             if self.executor:
                 stop_tasks.append(self.executor.stop())
             if self.orchestrator:
                 stop_tasks.append(self.orchestrator.stop())
-
-            # 2. Stop Reasoning/Detection layer
             if self.anomaly_detector:
                 stop_tasks.append(self.anomaly_detector.stop())
             if self.policy_agent:
                 stop_tasks.append(self.policy_agent.stop())
 
-            # Wait for graceful shutdown with timeout
             await asyncio.wait_for(
                 asyncio.gather(*stop_tasks, return_exceptions=True),
                 timeout=self.config.shutdown_timeout,
@@ -304,6 +299,15 @@ class EdgeRuntime:
         except Exception as e:
             logger.exception("Error during shutdown: %s", e)
         finally:
+            # Cleanup EdgeFusion context
+            if self._edge_fusion_context is not None:
+                try:
+                    await self.edge_fusion.__aexit__(None, None, None)
+                except Exception as e:
+                    logger.exception("Error cleaning up EdgeFusion context: %s", e)
+                finally:
+                    self._edge_fusion_context = None
+
             self._subsystems_started = False
 
     async def run_until_stopped(self) -> None:
@@ -383,19 +387,14 @@ class EdgeRuntime:
                 "current_plan_id": None,
             }
 
-        # 1. Get the current plan via its getter
         current_plan = await self.blackboard.get_current_plan()
-
-        # 2. Access the metrics counts under the Blackboard's internal lock.
-        async with self.blackboard._lock:
-            anomaly_count = len(self.blackboard.active_anomalies)
-            failed_plan_count = len(self.blackboard.failed_plans)
+        metrics = await self.blackboard.get_metrics()
 
         return {
             "uptime": "TODO",  # Track start time
             "plans_executed": "TODO",  # Track in orchestrator
-            "anomalies_detected": anomaly_count,
-            "failed_plans": failed_plan_count,
+            "anomalies_detected": metrics["active_anomalies_count"],
+            "failed_plans": metrics["failed_plans_count"],
             "current_plan_id": current_plan.plan_id if current_plan else None,
         }
 

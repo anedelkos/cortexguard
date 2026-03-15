@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -296,23 +296,26 @@ async def test_step_retry_on_controller_failure() -> None:
 
     # 2. Start the background loop and submit the step
     await executor.start()
-
     # This makes the step visible to the background executor loop.
     await blackboard.set_current_step(retry_step)
 
-    # 3. Wait for the background loop to finish the step (CRITICAL FIX)
+    # 3. Wait for the background loop to finish the step
     timeout = 1.0
     start_time = asyncio.get_event_loop().time()
+    current_status = StepStatus.PENDING
 
     # Poll until the step status is terminal (COMPLETED or FAILED)
     while (
-        retry_step.status == StepStatus.PENDING
+        current_status not in (StepStatus.COMPLETED, StepStatus.FAILED)
         and (asyncio.get_event_loop().time() - start_time) < timeout
     ):
         # Wait slightly longer than the executor's poll interval (0.05s) to ensure the loop runs
         await asyncio.sleep(0.06)
+        current_step = await blackboard.get_current_step()
+        if current_step is not None:
+            current_status = current_step.status
 
-        # Stop the executor loop
+    # Stop the executor loop
     await executor.stop()
 
     # 4. Assertions
@@ -322,8 +325,10 @@ async def test_step_retry_on_controller_failure() -> None:
     assert failing_controller.executed[0][0] == "PLACE_ITEM"
     assert failing_controller.executed[1][0] == "PLACE_ITEM"
 
-    assert retry_step.status == StepStatus.COMPLETED
-    assert retry_step.attempts == 2
+    final_step = await blackboard.get_current_step()
+    assert final_step is not None
+    assert final_step.status == StepStatus.COMPLETED
+    assert final_step.attempts == 2
 
     trace = blackboard.reasoning_traces
     execution_fail_entries = [e for e in trace if e.event_type == "EXECUTION_FAILED"]
@@ -352,7 +357,7 @@ async def test_execution_blocked_by_anomaly() -> None:
     anomaly = AnomalyEvent(
         id="CRITICAL_TEMP_001",
         key="CRITICAL_TEMP",
-        timestamp=datetime.now(),
+        timestamp=datetime.now(UTC),
         severity=AnomalySeverity.MEDIUM,
         score=0.9,
         contributing_detectors=["temp_sensor_detector_v1"],

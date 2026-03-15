@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
@@ -178,7 +178,7 @@ def make_policy(
     anomaly = AnomalyEvent(
         id="anom-1",
         key="test_anomaly",
-        timestamp=datetime.now(),
+        timestamp=datetime.now(UTC),
         severity=AnomalySeverity.HIGH,
         score=0.99,
         contributing_detectors=["detector-a"],
@@ -193,7 +193,7 @@ def make_policy(
     if with_replay:
         anomaly.metadata = dict(anomaly.metadata or {})
         anomaly.metadata["replay"] = {
-            "window": {"start_ts": datetime.now(), "end_ts": None},
+            "window": {"start_ts": datetime.now(UTC), "end_ts": None},
             "compressed_data": "dummy-compressed-base64",
             "format": "lz4",
         }
@@ -205,7 +205,7 @@ def make_policy(
         risk_assessment="HIGH",
         corrective_steps=[step],
         escalation_required=True,
-        created_at=datetime.now(),
+        created_at=datetime.now(UTC),
     )
 
     if not include_model_dump:
