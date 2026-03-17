@@ -95,7 +95,7 @@ class StepExecutor(BaseExecutor):
             )
             return False
 
-        # Defensive handling for older implementations that might return None
+        # execute() may return None; treat as validation failure
         if validate_result is None:
             await self._trace_sink.post_trace_entry(
                 source=self,

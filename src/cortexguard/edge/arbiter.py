@@ -108,7 +108,7 @@ class Arbiter:
                     self._append_and_publish(entry)
                     return False
 
-                # validate_result may be None (older implementations); handle defensively
+                # validate_call may return None; deny by default
                 if validate_result is None:
                     reasoning_text = "Validation API returned no result; denying by default"
                     severity = TraceSeverity.HIGH

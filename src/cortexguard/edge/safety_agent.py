@@ -125,7 +125,7 @@ class SafetyAgent:
     def _rule_human_hand_near_hazard(
         self, state: StateEstimate, scene: SceneGraph | None
     ) -> SafetyCommand:
-        """Rule 2: Check for human-robot hazards using SceneGraph proximity."""
+        """Rule 2: Check for human-device hazards using SceneGraph proximity."""
         if not scene:
             return SafetyCommand(action="NOMINAL")
 

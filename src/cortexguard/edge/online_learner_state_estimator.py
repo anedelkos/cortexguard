@@ -34,24 +34,9 @@ class OnlineLearnerStateEstimator:
     """
     State estimator that translates statistical deviations into system states.
 
-    Architecture Philosophy:
-    This component is intentionally unit-agnostic and domain-agnostic.
-    It operates purely on statistical signal properties (Z-scores) rather than
-    domain-specific thresholds. This makes it robust to:
-    - Unknown datasets (RobotFeeding vs others)
-    - Mixed units (forces, positions, temperatures)
-    - Sensor drift and calibration issues
-
-    Design Pattern: Statistical Process Control (SPC)
-    - Uses sliding window for online statistics
-    - Z-score normalization for scale-invariant anomaly detection
-    - Confidence decreases with deviation from expected behavior
-
-    Production Considerations (not implemented):
-    - Multi-scale anomaly detection (multiple window sizes)
-    - Adaptive thresholds based on signal characteristics
-    - Contextual anomaly detection (different thresholds per intent)
-    - Time-series forecasting for predictive anomalies
+    Operates on statistical signal properties (Z-scores) rather than domain-specific
+    thresholds, using a sliding-window Statistical Process Control (SPC) approach for
+    scale-invariant anomaly detection across mixed sensor modalities.
     """
 
     def __init__(
