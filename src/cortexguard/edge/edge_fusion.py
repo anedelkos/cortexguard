@@ -184,13 +184,6 @@ class EdgeFusion:
     - α near 0: Heavy smoothing (slow response)
     - α near 1: Light smoothing (fast response)
 
-    Production Considerations (not implemented):
-    - Adaptive alpha based on signal characteristics
-    - Outlier rejection before EMA update
-    - Multi-rate fusion (different α per sensor)
-    - State persistence for warm restarts
-    - Kalman filtering for better noise handling
-
     Design Choice: EMA over Kalman
     - EMA: Simple, low compute, no model required
     - Kalman: More accurate but needs process/measurement models
@@ -280,16 +273,7 @@ class EdgeFusion:
                 self._logger.warning(f"Error shutting down executor: {e}")
 
     async def __aenter__(self) -> EdgeFusion:
-        """
-        Async context manager entry.
-
-        Returns:
-            Self for use in async with statement
-
-        Example:
-            async with EdgeFusion(blackboard) as fusion:
-                snapshot = await fusion.process_record(record)
-        """
+        """Async context manager entry."""
         return self
 
     async def __aexit__(
@@ -298,17 +282,7 @@ class EdgeFusion:
         exc_val: BaseException | None,
         exc_tb: Any,
     ) -> None:
-        """
-        Async context manager exit - ensures executor is shut down.
-
-        Args:
-            exc_type: Exception type if exception occurred, None otherwise
-            exc_val: Exception value if exception occurred
-            exc_tb: Exception traceback if exception occurred
-
-        Returns:
-            None (does not suppress exceptions)
-        """
+        """Async context manager exit — shuts down the executor."""
         self.close()
 
     async def _detect_smoke(
@@ -621,34 +595,18 @@ class EdgeFusion:
             return snapshot
 
     def _update_ema_state(self, sample: Any) -> None:
-        """
-        Update EMA state with a single sensor sample.
-
-        Skips:
-        - Timestamp fields
-        - None values
-        - Non-numeric values
-
-        Args:
-            sample: Single sensor reading (Pydantic model)
-        """
+        """Update EMA state with a single sensor sample."""
         for key, value in sample.model_dump().items():
-            # Skip metadata and null values
             if key == "timestamp_ns" or value is None:
                 continue
 
-            # Only process numeric values (int, float)
             if isinstance(value, bool) or not isinstance(value, (int, float)):
                 self._logger.debug(f"Skipping non-numeric field: {key}={type(value).__name__}")
                 continue
 
-            # Initialize or update EMA
             if key not in self._ema_state:
-                # First observation: initialize EMA
                 self._ema_state[key] = float(value)
             else:
-                # Subsequent: apply EMA formula
-                # new = α * observation + (1-α) * old
                 old_ema = self._ema_state[key]
                 new_ema = self._alpha * float(value) + (1 - self._alpha) * old_ema
                 self._ema_state[key] = new_ema

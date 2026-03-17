@@ -157,7 +157,6 @@ class Orchestrator:
         if not self._current_plan:
             return None
 
-        # Checks if any plan in the queue has a *lower* priority number (higher priority)
         next_plan = await self._plan_queue.pop_if_priority_lower_than(
             self._current_plan.context.priority
         )

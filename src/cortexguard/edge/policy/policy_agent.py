@@ -232,10 +232,7 @@ class PolicyAgent:
             return False, details
 
     def _get_llm_action_catalog(self) -> str:
-        """
-        Fetches the complete list of physical tools and their capability schemas
-        from the CapabilityRegistry, formatted as a JSON string for the LLM prompt.
-        """
+        """Return capability schemas from the registry as a JSON string for the LLM prompt."""
         try:
             return self._capability_registry.get_llm_tool_catalog()
         except Exception as e:
@@ -357,7 +354,7 @@ class PolicyAgent:
             action_catalog_json = self._get_llm_action_catalog()
 
             # 2. Pass Working Memory (Active Plan) to the Policy Engine for context
-            # Defensive check for 'current_step_id' which was reported as a missing attribute.
+            # current_step_id may not be set on older plan states
             current_step_id = getattr(active_plan, "current_step_id", "Unknown")
 
             active_plan_context = (

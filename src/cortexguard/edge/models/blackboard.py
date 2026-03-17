@@ -113,12 +113,7 @@ class Blackboard:
             return self.current_step.model_copy(deep=True) if self.current_step else None
 
     async def clear_current_plan(self) -> None:
-        """
-        Clear active plan and step.
-
-        For COMPLETED plans, also clear the step index.
-        For PREEMPTED/FAILED plans, preserve the index so they can resume.
-        """
+        """Clear active plan and step; preserves step index for PREEMPTED/FAILED plans."""
         async with self._lock:
             if self.current_plan:
                 # Only clear index if plan completed successfully

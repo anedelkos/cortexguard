@@ -108,7 +108,7 @@ class EdgeRuntime:
 
         # --- CORE AGENT SUBSYSTEMS ---
         # Create controller & registry
-        self.controller = MockController()  # or real robot controller
+        self.controller = MockController()  # or real hardware controller
         self.cloud_agent = MockCloudAgentClient()
         self.capability_registry = CapabilityRegistry()
         self.step_classifier = MockStepClassifier()

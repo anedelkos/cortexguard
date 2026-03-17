@@ -60,8 +60,7 @@ class HardLimitDetector(BaseDetector):
             Anomaly dictionary if a limit is breached, otherwise empty dict.
         """
 
-        # Exponential Moving Average (EMA) acts as a low-pass filter. While it smooths out noise,
-        # it mathematically introduces phase delay. Using raw sensor data to avoid any lag and react immediately.
+        # Use raw sensor values to avoid EMA phase delay.
         sensors = snapshot.sensors
 
         current_temp = sensors.get(self.KEY_TEMP_SENSOR)

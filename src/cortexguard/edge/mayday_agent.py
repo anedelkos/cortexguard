@@ -102,7 +102,6 @@ class MaydayAgent:
         """
         Return a dict[str, object] representation of a StateEstimate or None.
         Uses model_dump if available, falls back to to_dict or __dict__.
-        Casts to the narrower dict[str, object] type for mypy.
         """
         if state is None:
             return None

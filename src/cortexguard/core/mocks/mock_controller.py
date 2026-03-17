@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class MockController(BaseController):
-    """A mock robot controller for development and testing."""
+    """A mock hardware controller for development and testing."""
 
     def __init__(
         self,
