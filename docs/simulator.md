@@ -11,6 +11,6 @@ CortexGuard provides convenience Taskfile entries for building and testing the s
 
 ### Streamer
 - **Purpose:** Streams fused records to a local or remote edge receiver.
-- **Entry:** `task simulate:streame`
+- **Entry:** `task simulate:stream`
 - **Usage:** Runs the simulation loop using fused data and manifest files.
 - **Script:** wraps `demo/simulate_stream.py`
