@@ -10,7 +10,7 @@ Each scenario has:
 ### S0.1 — Human in Safety Radius
 - **Anomalies:** `human_intrusion(severity=critical, distance_m=0.2)`
 - **Goal:** Verify fast detection of human presence and immediate stop.
-- **Expected Response:** Robot halts all motion within 200 ms, logs safety event, sends status to cloud.
+- **Expected Response:** System halts all motion within 200 ms, logs safety event, sends status to cloud.
 - **Metric:** detection latency, false negatives = 0.
 
 ### S0.2 — Overheat + Smoke Combo
@@ -41,7 +41,7 @@ Each scenario has:
 - **Expected Response:** Vision flag “unavailable”; fusion continues with F/T; trigger “vision degraded” warning.
 - **Metric:** detection accuracy, correct fallback to proprioception.
 
-### S1.3 — Human Crosses Robot Path
+### S1.3 — Human Crosses System Path
 - **Anomalies:** `human_path_conflict(TTI_s=0.4)`
 - **Goal:** Predict collision, preempt motion safely.
 - **Expected Response:** Slowdown or replan; confirm predictive detection.
@@ -51,9 +51,9 @@ Each scenario has:
 
 ## 🔹 Tier 2 — Operational Anomalies (Recoverable Locally)
 
-### S2.1 — Burger Slip on Grill
+### S2.1 — Item Slip During Processing
 - **Anomalies:** `ext_motion(delta_mm=60)`, optional `vision_occlusion(area_pct=30%)`
-- **Goal:** Verify object drift detection and auto “re-grip_patty” trigger.
+- **Goal:** Verify object drift detection and auto re-grip trigger.
 - **Expected Response:** Local step classifier fails current step; re-executes re-grip plan.
 - **Metric:** recovery success rate.
 
@@ -107,10 +107,10 @@ Each scenario has:
 - **Expected Response:** Stop motion → alert → safety broadcast.
 - **Metric:** correct safety prioritization (human > environment).
 
-### S4.3 — Grill Overheat While Re-Stacking
-- **Anomalies:** `temp_spike(+40°C)` during action sequence `re-stack_ingredients`
+### S4.3 — Overheat During Assembly
+- **Anomalies:** `temp_spike(+40°C)` during action sequence `re-stack_components`
 - **Goal:** Verify the step classifier halts current plan and prioritizes cooling task.
-- **Expected Response:** Recipe paused, fire-mitigation plan triggered.
+- **Expected Response:** Task paused, thermal-mitigation plan triggered.
 - **Metric:** plan interruption correctness.
 
 ---
@@ -144,7 +144,7 @@ Each scenario has:
 | `scenario_id` | "S2.1" | unique reference |
 | `seed` | 42 | deterministic replay |
 | `duration_s` | 30 | total simulation time |
-| `baseline_recipe` | "make_burger" | context for actions |
+| `baseline_recipe` | "assemble_item" | context for actions |
 | `anomalies` | list[dict] | injected anomalies |
 | `expected_outcome` | "recovery_success" / "hard_stop" / "escalate_to_cloud" | expected result |
 | `tier` | 0–5 | safety priority |

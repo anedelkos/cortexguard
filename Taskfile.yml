@@ -152,6 +152,17 @@ tasks:
       - "echo 'Done.'"
 
 
+# --- Edge (host) ----------------------------------------------------------
+  edge:run:
+    desc: "Run the Edge API server on the host (no Docker)"
+    vars:
+      host: '{{.host | default "0.0.0.0"}}'
+      port: '{{.port | default "8080"}}'
+      profile: '{{.profile | default "default"}}'
+    cmds:
+      - "PYTHONPATH=src RUNTIME_PROFILE={{.profile}} {{.uv_run}} uvicorn cortexguard.edge.runtime:get_api_app --host {{.host}} --port {{.port}} --factory"
+
+
 # --- Simulator and demo --------------------------------------------------
 
   simulate:download:
