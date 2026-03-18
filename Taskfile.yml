@@ -127,7 +127,7 @@ tasks:
   devcontainer-build:
     desc: "Build the dev container image"
     cmds:
-      - "docker build -f .devcontainer/Dockerfile.dev -t cortexguard-dev .."
+      - "docker build -f .devcontainer/Dockerfile.dev -t cortexguard-dev ."
 
   devcontainer-shell:
     desc: "Start an interactive shell inside the dev container"
