@@ -42,7 +42,7 @@ class Arbiter:
         self._lock = asyncio.Lock()
 
     async def request_action(
-        self, caller_id: str, action: AgentToolCall, reason: str | None = None
+        self, _caller_id: str, action: AgentToolCall, reason: str | None = None
     ) -> bool:
         """
         Authorize and (best-effort) execute an action.
