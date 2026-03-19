@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import signal
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -209,6 +210,7 @@ class EdgeRuntime:
         self._stop_event = asyncio.Event()
         self._subsystems_started = False
         self._edge_fusion_context: EdgeFusion | None = None
+        self._start_time: float | None = None
 
         logger.info("EdgeRuntime initialized with config: %s", self.config)
 
@@ -232,6 +234,7 @@ class EdgeRuntime:
 
             self._subsystems_started = True
             self._running = True
+            self._start_time = time.monotonic()
             logger.info("✅ EdgeRuntime started successfully")
 
         except Exception as e:
@@ -374,14 +377,17 @@ class EdgeRuntime:
         finally:
             await self.stop()
 
-    async def get_metrics(self) -> dict[str, int | str | None]:
+    async def get_metrics(self) -> dict[str, int | float | str | None]:
         """
         Get runtime metrics for monitoring.
         """
+        uptime = round(time.monotonic() - self._start_time, 1) if self._start_time else 0.0
+        plans_executed = self.orchestrator._plans_executed if self.orchestrator else 0
+
         if not self.blackboard:
             return {
-                "uptime": "TODO",
-                "plans_executed": "TODO",
+                "uptime_seconds": uptime,
+                "plans_executed": plans_executed,
                 "anomalies_detected": 0,
                 "failed_plans": 0,
                 "current_plan_id": None,
@@ -391,8 +397,8 @@ class EdgeRuntime:
         metrics = await self.blackboard.get_metrics()
 
         return {
-            "uptime": "TODO",  # Track start time
-            "plans_executed": "TODO",  # Track in orchestrator
+            "uptime_seconds": uptime,
+            "plans_executed": plans_executed,
             "anomalies_detected": metrics["active_anomalies_count"],
             "failed_plans": metrics["failed_plans_count"],
             "current_plan_id": current_plan.plan_id if current_plan else None,
@@ -494,9 +500,8 @@ def get_api_app(profile: str = "default") -> FastAPI:
         return await runtime.health_check()
 
     @app.get("/runtime-metrics")
-    async def get_metrics() -> dict[str, int | str | None]:
+    async def get_metrics() -> dict[str, int | float | str | None]:
         """Exposes key runtime metrics (anomalies, plans, etc.)."""
-        # Delegating to EdgeRuntime's method which returns dict[str, int | str | None]
         return await runtime.get_metrics()
 
     logger.info("FastAPI Application configured and wired to EdgeRuntime.")
