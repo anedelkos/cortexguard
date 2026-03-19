@@ -18,7 +18,7 @@ from cortexguard.edge.models.state_estimate import StateEstimate
 
 logger = logging.getLogger(__name__)
 
-MODEL_ID = "mistralai/Mistral-7B-Instruct-v0.2"
+_DEFAULT_MODEL_ID = "mistralai/Mistral-7B-Instruct-v0.2"
 
 
 class MistralLLMPolicyEngine(BasePolicyEngine):
@@ -30,9 +30,9 @@ class MistralLLMPolicyEngine(BasePolicyEngine):
     with a list of available action primitives (capabilities and arguments).
     """
 
-    def __init__(self, use_mock: bool = False):
+    def __init__(self, use_mock: bool = False, model_id: str = _DEFAULT_MODEL_ID):
         self._use_mock = use_mock
-        self._model_name = MODEL_ID
+        self._model_name = model_id
         # Verify CUDA availability based on your installed PyTorch
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.tokenizer = None
@@ -45,7 +45,7 @@ class MistralLLMPolicyEngine(BasePolicyEngine):
                     "Please ensure PyTorch/CUDA are linked correctly."
                 )
 
-            logger.info(f"Loading LLM {MODEL_ID} onto {self.device}...")
+            logger.info(f"Loading LLM {model_id} onto {self.device}...")
 
             # --- Configuration for RTX 3060 VRAM Efficiency (4-bit Quantization) ---
             bnb_config = BitsAndBytesConfig(  # type: ignore [no-untyped-call]
@@ -55,10 +55,10 @@ class MistralLLMPolicyEngine(BasePolicyEngine):
             )
 
             self.tokenizer = AutoTokenizer.from_pretrained(  # type: ignore [no-untyped-call]
-                MODEL_ID, revision="main"
+                model_id, revision="main"
             )  # nosec B615 # type: ignore [no-untyped-call]
             self.model = AutoModelForCausalLM.from_pretrained(  # nosec B615 # type: ignore [no-untyped-call]
-                MODEL_ID,
+                model_id,
                 revision="main",
                 device_map="auto",  # Automatically maps layers across GPU/CPU
                 # Apply quantization only if running on CUDA

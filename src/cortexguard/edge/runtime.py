@@ -17,11 +17,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import signal
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import partial
 from typing import Any
 
@@ -91,8 +92,18 @@ class RuntimeConfig:
     shutdown_timeout: float = 10.0
 
     # Observability / OTEL
-    otlp_endpoint: str = "http://tempo:4318/v1/traces"
+    otlp_endpoint: str = field(
+        default_factory=lambda: os.getenv("OTLP_ENDPOINT", "http://tempo:4318/v1/traces")
+    )
     service_name: str = "CortexGuard-edge"
+
+    # Device identity
+    device_id: str = field(default_factory=lambda: os.getenv("DEVICE_ID", "mock_01"))
+
+    # Policy engine
+    policy_model_id: str = field(
+        default_factory=lambda: os.getenv("POLICY_MODEL_ID", "mistralai/Mistral-7B-Instruct-v0.2")
+    )
 
 
 class EdgeRuntime:
@@ -189,11 +200,12 @@ class EdgeRuntime:
         # --- REASONING SUBSYSTEM (Policy Agent) ---
         # 1. Instantiate the Policy Engine (LLM)
         self.policy_engine: BasePolicyEngine = MistralLLMPolicyEngine(
-            use_mock=True  # Use mock for safe/fast edge deployment
+            use_mock=True,  # Use mock for safe/fast edge deployment
+            model_id=self.config.policy_model_id,
         )
         self.mayday_agent = MaydayAgent(
             cloud_agent_client=self.cloud_agent,
-            device_id="mock_01",
+            device_id=self.config.device_id,
             trace_sink=TraceSink(blackboard=self.blackboard),
         )
 
