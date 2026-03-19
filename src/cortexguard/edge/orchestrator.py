@@ -55,6 +55,7 @@ class Orchestrator:
         self._current_plan: Plan | None = None
         self._loop_running: bool = False
         self._task: asyncio.Task[None] | None = None
+        self._plans_executed: int = 0
 
     # ---------------------
     # Plan Queue Methods
@@ -423,6 +424,7 @@ class Orchestrator:
                 else:
                     # --- COMPLETE PLAN ---
                     logger.info(f"Plan completed: {plan_id} successfully")
+                    self._plans_executed += 1
                     self._current_plan.status = PlanStatus.COMPLETED
                     await self._blackboard.set_current_plan(self._current_plan)
                     # 4. Clear the index state from the Blackboard
