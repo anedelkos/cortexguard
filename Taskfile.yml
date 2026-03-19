@@ -72,9 +72,14 @@ tasks:
     cmds:
       - "{{.uv_run}} safety check || true"
 
+  vulture:
+    desc: "Run Vulture dead code detection"
+    cmds:
+      - "{{.uv_run}} vulture {{.src_dir}} --min-confidence 80"
+
   check:
-    desc: "Run full static analysis (Ruff + Mypy + Safety)"
-    deps: [lint, typecheck, safety]
+    desc: "Run full static analysis (Ruff + Mypy + Safety + Vulture)"
+    deps: [lint, typecheck, safety, vulture]
 
   # --- Testing -------------------------------------------------------
   test:

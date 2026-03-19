@@ -111,6 +111,15 @@ repos:
         args: ["--fail-under", "30", "--exclude", "tests,scripts,demo"]
 
   # --------------------------------------------
+  # Vulture — Dead code detection
+  # --------------------------------------------
+  - repo: https://github.com/jendrikseipp/vulture
+    rev: v2.14
+    hooks:
+      - id: vulture
+        args: ["--min-confidence", "80"]
+
+  # --------------------------------------------
   # nbstripout - Strips output cells from notebooks before committing.
   # --------------------------------------------
   - repo: https://github.com/kynan/nbstripout
