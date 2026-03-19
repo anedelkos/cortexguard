@@ -94,10 +94,13 @@ repos:
   # --------------------------------------------
   # Deptry - Detects unused, missing, or miscategorized dependencies.
   # --------------------------------------------
-  - repo: https://github.com/fpgmaas/deptry
-    rev: 0.23.1
+  - repo: local
     hooks:
       - id: deptry
+        name: deptry
+        entry: uv run deptry
+        language: system
+        pass_filenames: false
         args: ["src", "-nb"]
 
   # --------------------------------------------
@@ -141,7 +144,7 @@ repos:
           - -c
           - |
             rm -f .coverage*  # clean up any leftover coverage files
-            PYTHONPATH=src COVERAGE_NO_PARALLEL=true pytest -v --cov=src --cov-report=term-missing tests
+            PYTHONPATH=src COVERAGE_NO_PARALLEL=true uv run pytest -v --cov=src --cov-report=term-missing tests
 
 
   # --------------------------------------------

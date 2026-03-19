@@ -51,6 +51,11 @@ class PolicyAgent:
     _MAX_ANOMALIES_PER_TICK = 3
     _PROCESSED_CACHE_SIZE = 1000
 
+    # LLM circuit breaker defaults
+    _LLM_TIMEOUT_S: float = 30.0
+    _LLM_FAILURE_THRESHOLD: int = 3
+    _LLM_COOLDOWN_S: float = 60.0
+
     def __init__(
         self,
         blackboard: Blackboard,
@@ -78,6 +83,10 @@ class PolicyAgent:
         self._policies_generated = 0
         self._anomalies_processed = 0
         self._escalations_triggered = 0
+
+        # LLM circuit breaker state
+        self._llm_consecutive_failures: int = 0
+        self._llm_circuit_open_until: float = 0.0
 
         # Policy Dispatch Table: Maps ANOMALY KEY to a specific handler function.
         # Handlers are now guaranteed to return RemediationPolicy
@@ -329,6 +338,26 @@ class PolicyAgent:
             created_at=datetime.now(UTC),
         )
 
+    # --- LLM CIRCUIT BREAKER ---
+
+    def _is_llm_circuit_open(self) -> bool:
+        return time.monotonic() < self._llm_circuit_open_until
+
+    def _record_llm_success(self) -> None:
+        if self._llm_consecutive_failures > 0:
+            logger.info("LLM circuit breaker reset after successful call.")
+        self._llm_consecutive_failures = 0
+
+    def _record_llm_failure(self) -> None:
+        self._llm_consecutive_failures += 1
+        if self._llm_consecutive_failures >= self._LLM_FAILURE_THRESHOLD:
+            self._llm_circuit_open_until = time.monotonic() + self._LLM_COOLDOWN_S
+            logger.warning(
+                "LLM circuit breaker opened after %d consecutive failures. " "Cooldown: %.0fs.",
+                self._llm_consecutive_failures,
+                self._LLM_COOLDOWN_S,
+            )
+
     # --- LLM DELEGATION ---
 
     async def _generate_unknown_medium_policy(
@@ -342,6 +371,13 @@ class PolicyAgent:
         Delegates to LLM for unknown medium severity anomalies, providing
         the current active plan as 'Working Memory' context.
         """
+        if self._is_llm_circuit_open():
+            logger.warning(
+                "LLM circuit open; skipping LLM call for anomaly %s and returning fallback.",
+                anomaly.key,
+            )
+            return self._build_safe_fallback_policy(anomaly)
+
         with tracer.start_as_current_span("policy_agent.llm_request") as span:
             span.set_attribute("model", self._policy_engine.model_name())
 
@@ -386,16 +422,20 @@ class PolicyAgent:
                 )
 
             try:
-                policy = await self._policy_engine.generate_policy(
-                    event=anomaly,
-                    context=context,
-                    # Arguments passed to LLM engine must match the required signature (LSP)
-                    action_catalog_json=action_catalog_json,
-                    active_plan_context=active_plan_context,
-                    vision_context=vision_context,
+                policy = await asyncio.wait_for(
+                    self._policy_engine.generate_policy(
+                        event=anomaly,
+                        context=context,
+                        # Arguments passed to LLM engine must match the required signature (LSP)
+                        action_catalog_json=action_catalog_json,
+                        active_plan_context=active_plan_context,
+                        vision_context=vision_context,
+                    ),
+                    timeout=self._LLM_TIMEOUT_S,
                 )
                 duration_ms = int((datetime.now(UTC) - start).total_seconds() * 1000)
                 span.set_attribute("llm.duration_ms", duration_ms)
+                self._record_llm_success()
 
                 await self._trace_sink.post_trace_entry(
                     source=self,
@@ -408,6 +448,7 @@ class PolicyAgent:
                 # Log and trace the LLM failure, then return a conservative fail-safe policy
                 logger.exception("LLM policy generation failed: %s", e)
                 span.add_event("LLM_FALLBACK", {"error": str(e)})
+                self._record_llm_failure()
                 await self._trace_sink.post_trace_entry(
                     source=self,
                     event_type="POLICY_LLM_ERROR",
@@ -843,11 +884,13 @@ class PolicyAgent:
             except asyncio.CancelledError:
                 logger.debug("Policy Agent task cancelled")
 
-    def get_metrics(self) -> dict[str, int]:
+    def get_metrics(self) -> dict[str, int | bool]:
         """Get agent metrics for monitoring."""
         return {
             "policies_generated": self._policies_generated,
             "anomalies_processed": self._anomalies_processed,
             "escalations_triggered": self._escalations_triggered,
             "processed_cache_size": len(self._processed_anomalies),
+            "llm_circuit_open": self._is_llm_circuit_open(),
+            "llm_consecutive_failures": self._llm_consecutive_failures,
         }
