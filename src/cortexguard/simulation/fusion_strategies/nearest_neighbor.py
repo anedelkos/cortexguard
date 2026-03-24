@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 
@@ -43,12 +43,14 @@ class NearestNeighborFusion(BaseFusionStrategy):
                 "pos_z",
             ]
 
-            nearby = sensor_df.loc[window_mask, numeric_cols]
+            nearby = cast(pd.DataFrame, sensor_df[window_mask][numeric_cols])
 
             if nearby.empty:
                 continue
 
-            averaged = nearby.mean(numeric_only=True).to_dict()
+            averaged: dict[str, Any] = cast(
+                dict[str, Any], nearby.mean(numeric_only=True).to_dict()
+            )
 
             fused.append(
                 {
