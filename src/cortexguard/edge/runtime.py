@@ -24,6 +24,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from functools import partial
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
@@ -53,6 +54,7 @@ from cortexguard.edge.models.capability_registry import CapabilityRegistry
 from cortexguard.edge.observability.opentelemetry_tracing import setup_opentelemetry_tracing
 from cortexguard.edge.online_learner_state_estimator import OnlineLearnerStateEstimator
 from cortexguard.edge.orchestrator import Orchestrator
+from cortexguard.edge.persistence.persistence_manager import PersistenceManager
 from cortexguard.edge.policy.mistral_policy_engine import MistralLLMPolicyEngine
 from cortexguard.edge.policy.policy_agent import PolicyAgent
 from cortexguard.edge.river_online_learner import RiverOnlineLearner
@@ -103,6 +105,19 @@ class RuntimeConfig:
     # Policy engine
     policy_model_id: str = field(
         default_factory=lambda: os.getenv("POLICY_MODEL_ID", "mistralai/Mistral-7B-Instruct-v0.2")
+    )
+
+    # Persistence
+    persistence_enabled: bool = field(
+        default_factory=lambda: os.getenv("PERSISTENCE_ENABLED", "false").lower() == "true"
+    )
+    persistence_file_path: str = field(
+        default_factory=lambda: os.getenv(
+            "PERSISTENCE_FILE_PATH", "/var/lib/cortexguard/blackboard.json"
+        )
+    )
+    persistence_snapshot_interval: float = field(
+        default_factory=lambda: float(os.getenv("PERSISTENCE_SNAPSHOT_INTERVAL", "5.0"))
     )
 
 
@@ -217,6 +232,15 @@ class EdgeRuntime:
             mayday_agent=self.mayday_agent,
         )
 
+        # Persistence
+        self.persistence_manager: PersistenceManager | None = None
+        if self.config.persistence_enabled:
+            self.persistence_manager = PersistenceManager(
+                blackboard=self.blackboard,
+                file_path=Path(self.config.persistence_file_path),
+                snapshot_interval=self.config.persistence_snapshot_interval,
+            )
+
         # Runtime state
         self._running = False
         self._stop_event = asyncio.Event()
@@ -239,6 +263,11 @@ class EdgeRuntime:
         try:
             # Enter EdgeFusion context manager
             self._edge_fusion_context = await self.edge_fusion.__aenter__()
+
+            # Start persistence and restore Blackboard state before subsystems launch
+            if self.persistence_manager is not None:
+                await self.persistence_manager.start()
+                await self.persistence_manager.restore()
 
             # Start all subsystems
             logger.info("Starting subsystems...")
@@ -314,6 +343,13 @@ class EdgeRuntime:
         except Exception as e:
             logger.exception("Error during shutdown: %s", e)
         finally:
+            # Flush final persistence snapshot AFTER subsystems stop (captures terminal state)
+            if self.persistence_manager is not None:
+                try:
+                    await self.persistence_manager.stop()
+                except Exception as e:
+                    logger.exception("Error stopping PersistenceManager: %s", e)
+
             # Cleanup EdgeFusion context
             if self._edge_fusion_context is not None:
                 try:
