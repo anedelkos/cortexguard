@@ -13,6 +13,7 @@ from cortexguard.edge.models.blackboard import Blackboard
 from cortexguard.edge.models.capability_registry import CapabilityRegistry
 from cortexguard.edge.models.plan import PlanStep, StepStatus
 from cortexguard.edge.models.reasoning_trace_entry import TraceSeverity
+from cortexguard.edge.utils.metrics import steps_total
 from cortexguard.edge.utils.tracing import BaseTraceSink, TraceSink
 
 logger = logging.getLogger(__name__)
@@ -206,6 +207,7 @@ class StepExecutor(BaseExecutor):
                 metadata={"step_id": step.id},
                 severity=TraceSeverity.CRITICAL,
             )
+            steps_total.labels(outcome="aborted").inc()
             return
 
         if step.status != StepStatus.PENDING:
@@ -232,6 +234,7 @@ class StepExecutor(BaseExecutor):
                     metadata={"step_id": step.id, "attempt": attempt},
                     severity=TraceSeverity.CRITICAL,
                 )
+                steps_total.labels(outcome="aborted").inc()
                 return
 
             step.status = StepStatus.RUNNING
@@ -259,6 +262,7 @@ class StepExecutor(BaseExecutor):
                     reasoning_text=f"Step {step.id} successfully completed.",
                     metadata={"step_id": step.id},
                 )
+                steps_total.labels(outcome="completed").inc()
                 return
 
             if attempt < max_attempts:
@@ -276,6 +280,7 @@ class StepExecutor(BaseExecutor):
                     reasoning_text=f"Step {step.id} permanently failed.",
                     metadata={"step_id": step.id},
                 )
+                steps_total.labels(outcome="retry_exhausted").inc()
                 return
 
     async def _executor_loop(self) -> None:

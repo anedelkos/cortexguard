@@ -1,0 +1,65 @@
+groups:
+  - name: cortexguard.slo
+    interval: 30s
+    rules:
+      - alert: LLMCircuitBreakerOpen
+        expr: cortexguard_llm_circuit_open == 1
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "LLM circuit breaker is open — falling back to safe policy"
+          description: "LLM circuit has been tripped after consecutive failures. Unknown/medium anomalies will receive fallback policy."
+
+      - alert: DetectionLoopLatencySLOBreach
+        expr: |
+          histogram_quantile(0.95,
+            rate(cortexguard_component_duration_ms_bucket{component="anomaly_detector_tick"}[5m])
+          ) > 200
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Detection loop p95 latency exceeds 200ms SLO"
+
+      - alert: PlanFailureRateHigh
+        expr: |
+          rate(cortexguard_plans_total{status="failed"}[5m])
+          / rate(cortexguard_plans_total[5m]) > 0.1
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "More than 10% of plans are failing"
+
+      - alert: MaydayCloudDegraded
+        expr: cortexguard_mayday_consecutive_failures >= 2
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Mayday cloud escalations experiencing consecutive failures"
+
+      - alert: PlanQueueBacklog
+        expr: cortexguard_plan_queue_length > 5
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Plan queue has {{ $value }} pending plans for over 1 minute"
+
+      - alert: IngestionErrorRateHigh
+        expr: rate(cortexguard_http_requests_total{status_code=~"5.."}[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Ingestion endpoint returning 5xx errors at {{ $value }}/s"
+
+      - alert: AnomaliesNotClearing
+        expr: cortexguard_active_anomalies > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value }} active anomalies have not cleared in 5 minutes"

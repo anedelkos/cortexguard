@@ -14,6 +14,7 @@ from cortexguard.edge.models.blackboard import Blackboard
 from cortexguard.edge.models.fusion_snapshot import FusionSnapshot
 from cortexguard.edge.models.reasoning_trace_entry import TraceSeverity
 from cortexguard.edge.utils.metrics import (
+    active_anomalies,
     anomalies_total,
     component_duration_ms,
     detector_failures_total,
@@ -223,6 +224,7 @@ class AnomalyDetector:
                 await self._emit_and_store_active_anomalies(active_flags, snapshot, current_intent)
 
                 self._active_anomaly_keys = newly_active_keys
+                active_anomalies.set(len(newly_active_keys))
 
                 if newly_active_keys:
                     self._anomalies_detected += 1

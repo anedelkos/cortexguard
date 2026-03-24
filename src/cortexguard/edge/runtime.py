@@ -27,7 +27,9 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 
 from cortexguard.common.logging_config import setup_logging
 from cortexguard.core.interfaces.base_online_learner import BaseOnlineLearner
@@ -60,6 +62,7 @@ from cortexguard.edge.policy.policy_agent import PolicyAgent
 from cortexguard.edge.river_online_learner import RiverOnlineLearner
 from cortexguard.edge.safety_agent import SafetyAgent
 from cortexguard.edge.step_executor import StepExecutor
+from cortexguard.edge.utils.metrics import http_requests_total
 from cortexguard.edge.utils.tracing import TraceSink
 
 logger = logging.getLogger(__name__)
@@ -528,6 +531,13 @@ def get_api_app(profile: str = "default") -> FastAPI:
         description="Edge ingestion endpoint for fused records from the simulator.",
         lifespan=lifespan,  # Set the custom lifespan handler
     )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(
+        request: Request, exc: RequestValidationError
+    ) -> Response:
+        http_requests_total.labels(method="POST", status_code="422").inc()
+        return await request_validation_exception_handler(request, exc)
 
     # --- Router Wiring and Dependency Injection ---
 

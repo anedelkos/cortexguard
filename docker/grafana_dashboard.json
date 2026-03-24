@@ -38,7 +38,7 @@
         "defaults": { "unit": "none" },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 1 },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
       "id": 2,
       "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
       "targets": [
@@ -58,7 +58,7 @@
         "defaults": { "unit": "none" },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 1 },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
       "id": 3,
       "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
       "targets": [
@@ -78,7 +78,7 @@
         "defaults": { "unit": "percentunit" },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 1 },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
       "id": 4,
       "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
       "targets": [
@@ -93,116 +93,361 @@
     },
 
     {
-      "collapsed": false,
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": { "unit": "none" },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "id": 24,
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "valueMappings": [
+          { "options": { "0": { "text": "Closed", "color": "green" }, "1": { "text": "Open", "color": "red" } }, "type": "value" }
+        ]
+      },
+      "targets": [
+        {
+          "expr": "cortexguard_llm_circuit_open",
+          "legendFormat": "LLM circuit",
+          "refId": "A"
+        }
+      ],
+      "title": "LLM Circuit Breaker",
+      "type": "stat"
+    },
+
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 2 },
+              { "color": "red", "value": 3 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+      "id": 25,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "targets": [
+        {
+          "expr": "cortexguard_mayday_consecutive_failures",
+          "legendFormat": "Consecutive failures",
+          "refId": "A"
+        }
+      ],
+      "title": "Mayday Consecutive Failures",
+      "type": "stat"
+    },
+
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": { "unit": "reqps" },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+      "id": 26,
+      "targets": [
+        {
+          "expr": "rate(cortexguard_http_requests_total{status_code=\"202\"}[1m])",
+          "legendFormat": "Ingestion rate",
+          "refId": "A"
+        }
+      ],
+      "title": "Ingestion Rate",
+      "type": "timeseries"
+    },
+
+    {
+      "collapsed": true,
       "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "id": 30,
+      "panels": [
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {
+            "defaults": { "unit": "reqps" },
+            "overrides": []
+          },
+          "gridPos": { "h": 6, "w": 6, "x": 0, "y": 6 },
+          "id": 31,
+          "targets": [
+            {
+              "expr": "rate(cortexguard_http_requests_total[1m])",
+              "legendFormat": "{{status_code}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Ingestion Request Rate",
+          "type": "timeseries"
+        },
+
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {
+            "defaults": { "unit": "percent" },
+            "overrides": []
+          },
+          "gridPos": { "h": 6, "w": 6, "x": 6, "y": 6 },
+          "id": 32,
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+          "targets": [
+            {
+              "expr": "100 * rate(cortexguard_http_requests_total{status_code=~\"4..|5..\"}[5m]) / rate(cortexguard_http_requests_total[5m])",
+              "legendFormat": "Error rate %",
+              "refId": "A"
+            }
+          ],
+          "title": "Ingestion Error Rate %",
+          "type": "stat"
+        },
+
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {
+            "defaults": { "unit": "ms" },
+            "overrides": []
+          },
+          "gridPos": { "h": 6, "w": 6, "x": 12, "y": 6 },
+          "id": 33,
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, rate(cortexguard_http_request_duration_ms_bucket[5m]))",
+              "legendFormat": "p95 latency",
+              "refId": "A"
+            }
+          ],
+          "title": "Ingestion p95 Latency",
+          "type": "stat"
+        },
+
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {
+            "defaults": { "unit": "ms" },
+            "overrides": []
+          },
+          "gridPos": { "h": 6, "w": 6, "x": 18, "y": 6 },
+          "id": 34,
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.99, rate(cortexguard_http_request_duration_ms_bucket[5m]))",
+              "legendFormat": "p99 latency",
+              "refId": "A"
+            }
+          ],
+          "title": "Ingestion p99 Latency",
+          "type": "timeseries"
+        }
+      ],
+      "title": "HTTP RED",
+      "type": "row"
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 12 },
       "id": 10,
       "panels": [],
-      "title": "Subsystem Latencies",
+      "title": "Subsystem Latency Percentiles",
       "type": "row"
     },
 
     {
       "datasource": "Prometheus",
-      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 6 },
+      "fieldConfig": {
+        "defaults": { "unit": "ms" },
+        "overrides": []
+      },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 13 },
       "id": 11,
       "targets": [
         {
-          "expr": "rate(cortexguard_component_duration_ms_bucket{component=\"fusion_process_record\"}[1m])",
-          "legendFormat": "Fusion",
+          "expr": "histogram_quantile(0.50, rate(cortexguard_component_duration_ms_bucket{component=\"fusion_process_record\"}[2m]))",
+          "legendFormat": "p50",
           "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(cortexguard_component_duration_ms_bucket{component=\"fusion_process_record\"}[2m]))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(cortexguard_component_duration_ms_bucket{component=\"fusion_process_record\"}[2m]))",
+          "legendFormat": "p99",
+          "refId": "C"
         }
       ],
       "title": "Fusion Latency (ms)",
-      "type": "heatmap"
+      "type": "timeseries"
     },
 
     {
       "datasource": "Prometheus",
-      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 6 },
+      "fieldConfig": {
+        "defaults": { "unit": "ms" },
+        "overrides": []
+      },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 13 },
       "id": 12,
       "targets": [
         {
-          "expr": "rate(cortexguard_component_duration_ms_bucket{component=\"estimator_update\"}[1m])",
-          "legendFormat": "Estimator",
+          "expr": "histogram_quantile(0.50, rate(cortexguard_component_duration_ms_bucket{component=\"estimator_update\"}[2m]))",
+          "legendFormat": "p50",
           "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(cortexguard_component_duration_ms_bucket{component=\"estimator_update\"}[2m]))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(cortexguard_component_duration_ms_bucket{component=\"estimator_update\"}[2m]))",
+          "legendFormat": "p99",
+          "refId": "C"
         }
       ],
       "title": "Estimator Update Latency (ms)",
-      "type": "heatmap"
+      "type": "timeseries"
     },
 
     {
       "datasource": "Prometheus",
-      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 12 },
+      "fieldConfig": {
+        "defaults": { "unit": "ms" },
+        "overrides": []
+      },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 19 },
       "id": 13,
       "targets": [
         {
-          "expr": "rate(cortexguard_component_duration_ms_bucket{component=\"anomaly_detector_tick\"}[1m])",
-          "legendFormat": "AnomalyDetector",
+          "expr": "histogram_quantile(0.50, rate(cortexguard_component_duration_ms_bucket{component=\"anomaly_detector_tick\"}[2m]))",
+          "legendFormat": "p50",
           "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(cortexguard_component_duration_ms_bucket{component=\"anomaly_detector_tick\"}[2m]))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(cortexguard_component_duration_ms_bucket{component=\"anomaly_detector_tick\"}[2m]))",
+          "legendFormat": "p99",
+          "refId": "C"
         }
       ],
       "title": "AnomalyDetector Tick Latency (ms)",
-      "type": "heatmap"
+      "type": "timeseries"
     },
 
     {
       "datasource": "Prometheus",
-      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 12 },
+      "fieldConfig": {
+        "defaults": { "unit": "ms" },
+        "overrides": []
+      },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 19 },
       "id": 14,
       "targets": [
         {
-          "expr": "rate(cortexguard_component_duration_ms_bucket{component=\"policy_agent_tick\"}[1m])",
-          "legendFormat": "PolicyAgent",
+          "expr": "histogram_quantile(0.50, rate(cortexguard_component_duration_ms_bucket{component=\"policy_agent_tick\"}[2m]))",
+          "legendFormat": "p50",
           "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(cortexguard_component_duration_ms_bucket{component=\"policy_agent_tick\"}[2m]))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(cortexguard_component_duration_ms_bucket{component=\"policy_agent_tick\"}[2m]))",
+          "legendFormat": "p99",
+          "refId": "C"
         }
       ],
       "title": "PolicyAgent Tick Latency (ms)",
-      "type": "heatmap"
+      "type": "timeseries"
     },
 
     {
       "datasource": "Prometheus",
-      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 18 },
+      "fieldConfig": {
+        "defaults": { "unit": "ms" },
+        "overrides": []
+      },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 25 },
       "id": 15,
       "targets": [
         {
-          "expr": "rate(cortexguard_component_duration_ms_bucket{component=\"policy_generation\"}[1m])",
-          "legendFormat": "Policy Generation",
+          "expr": "histogram_quantile(0.50, rate(cortexguard_component_duration_ms_bucket{component=\"policy_generation\"}[2m]))",
+          "legendFormat": "p50",
           "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(cortexguard_component_duration_ms_bucket{component=\"policy_generation\"}[2m]))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(cortexguard_component_duration_ms_bucket{component=\"policy_generation\"}[2m]))",
+          "legendFormat": "p99",
+          "refId": "C"
         }
       ],
       "title": "Policy Generation Latency (ms)",
-      "type": "heatmap"
+      "type": "timeseries"
     },
 
     {
       "datasource": "Prometheus",
-      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 18 },
+      "fieldConfig": {
+        "defaults": { "unit": "ms" },
+        "overrides": []
+      },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 25 },
       "id": 16,
       "targets": [
         {
-          "expr": "rate(cortexguard_component_duration_ms_bucket{component=\"orchestrator_tick\"}[1m])",
-          "legendFormat": "Orchestrator",
+          "expr": "histogram_quantile(0.50, rate(cortexguard_component_duration_ms_bucket{component=\"orchestrator_tick\"}[2m]))",
+          "legendFormat": "p50",
           "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(cortexguard_component_duration_ms_bucket{component=\"orchestrator_tick\"}[2m]))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(cortexguard_component_duration_ms_bucket{component=\"orchestrator_tick\"}[2m]))",
+          "legendFormat": "p99",
+          "refId": "C"
         }
       ],
       "title": "Orchestrator Tick Latency (ms)",
-      "type": "heatmap"
+      "type": "timeseries"
     },
 
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 24 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 31 },
       "id": 20,
       "panels": [],
-      "title": "Counters",
+      "title": "Flow Rates and Outcomes",
       "type": "row"
     },
 
     {
       "datasource": "Prometheus",
-      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 25 },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 32 },
       "id": 21,
       "targets": [
         {
@@ -217,7 +462,7 @@
 
     {
       "datasource": "Prometheus",
-      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 25 },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 32 },
       "id": 22,
       "targets": [
         {
@@ -232,7 +477,7 @@
 
     {
       "datasource": "Prometheus",
-      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 25 },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 32 },
       "id": 23,
       "targets": [
         {
@@ -243,6 +488,226 @@
       ],
       "title": "Policy Escalations",
       "type": "stat"
+    },
+
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": { "unit": "reqps" },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 32 },
+      "id": 40,
+      "targets": [
+        {
+          "expr": "rate(cortexguard_plans_total[1m])",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Plan Completion Rate",
+      "type": "timeseries"
+    },
+
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": { "unit": "percent" },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 36 },
+      "id": 41,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "targets": [
+        {
+          "expr": "rate(cortexguard_plans_total{status=\"completed\"}[5m]) / rate(cortexguard_plans_total[5m])",
+          "legendFormat": "Plan success ratio",
+          "refId": "A"
+        }
+      ],
+      "title": "Plan Success Ratio",
+      "type": "stat"
+    },
+
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": { "unit": "reqps" },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 36 },
+      "id": 42,
+      "targets": [
+        {
+          "expr": "rate(cortexguard_llm_requests_total[5m])",
+          "legendFormat": "{{outcome}}",
+          "refId": "A"
+        }
+      ],
+      "title": "LLM Request Rate by Outcome",
+      "type": "timeseries"
+    },
+
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": { "unit": "reqps" },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 36 },
+      "id": 43,
+      "targets": [
+        {
+          "expr": "rate(cortexguard_mayday_escalations_total[5m])",
+          "legendFormat": "{{outcome}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Mayday Escalation Outcomes",
+      "type": "timeseries"
+    },
+
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": { "unit": "reqps" },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 36 },
+      "id": 44,
+      "targets": [
+        {
+          "expr": "rate(cortexguard_steps_total[1m])",
+          "legendFormat": "{{outcome}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Step Outcome Rate",
+      "type": "timeseries"
+    },
+
+    {
+      "collapsed": true,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 40 },
+      "id": 50,
+      "panels": [
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ms",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 150 },
+                  { "color": "red", "value": 200 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 6, "w": 6, "x": 0, "y": 41 },
+          "id": 51,
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, rate(cortexguard_component_duration_ms_bucket{component=\"anomaly_detector_tick\"}[1h]))",
+              "legendFormat": "Detection p95",
+              "refId": "A"
+            }
+          ],
+          "title": "Detection Loop SLO (p95 < 200ms)",
+          "type": "stat"
+        },
+
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "yellow", "value": 95 },
+                  { "color": "green", "value": 99 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 6, "w": 6, "x": 6, "y": 41 },
+          "id": 52,
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+          "targets": [
+            {
+              "expr": "100 * rate(cortexguard_plans_total{status=\"completed\"}[1h]) / rate(cortexguard_plans_total[1h])",
+              "legendFormat": "Plan success rate",
+              "refId": "A"
+            }
+          ],
+          "title": "Plan Success Rate SLO (> 95%)",
+          "type": "stat"
+        },
+
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {
+            "defaults": { "unit": "none" },
+            "overrides": []
+          },
+          "gridPos": { "h": 6, "w": 6, "x": 12, "y": 41 },
+          "id": 53,
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "valueMappings": [
+              { "options": { "0": { "text": "Closed", "color": "green" }, "1": { "text": "Open", "color": "red" } }, "type": "value" }
+            ]
+          },
+          "targets": [
+            {
+              "expr": "cortexguard_llm_circuit_open",
+              "legendFormat": "LLM circuit",
+              "refId": "A"
+            }
+          ],
+          "title": "LLM Circuit Health SLO",
+          "type": "stat"
+        },
+
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "yellow", "value": 95 },
+                  { "color": "green", "value": 99 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 6, "w": 6, "x": 18, "y": 41 },
+          "id": 54,
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+          "targets": [
+            {
+              "expr": "100 * (1 - rate(cortexguard_http_requests_total{status_code=~\"5..\"}[1h]) / rate(cortexguard_http_requests_total[1h]))",
+              "legendFormat": "HTTP error budget",
+              "refId": "A"
+            }
+          ],
+          "title": "HTTP Error Budget",
+          "type": "stat"
+        }
+      ],
+      "title": "SLO Error Budgets",
+      "type": "row"
     }
   ],
 
