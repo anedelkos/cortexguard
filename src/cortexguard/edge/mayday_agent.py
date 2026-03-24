@@ -16,7 +16,8 @@ from cortexguard.edge.models.reasoning_trace_entry import TraceSeverity
 from cortexguard.edge.models.remediation_policy import RemediationPolicy
 from cortexguard.edge.utils.metrics import (
     component_duration_ms,
-    policy_escalations_total,
+    mayday_consecutive_failures,
+    mayday_escalations_total,
 )
 
 # Import the tracing protocol (BaseTraceSink) and TraceSink concrete class
@@ -344,6 +345,8 @@ class MaydayAgent:
 
                 self._consecutive_failures = 0
                 self._health_state = 0
+                mayday_escalations_total.labels(outcome="success").inc()
+                mayday_consecutive_failures.set(0)
                 return plan, None
 
             except asyncio.CancelledError:
@@ -368,6 +371,8 @@ class MaydayAgent:
                     },
                     severity=TraceSeverity.WARN,
                 )
+                mayday_escalations_total.labels(outcome="timeout").inc()
+                mayday_consecutive_failures.set(self._consecutive_failures)
                 return None, te
 
             except Exception as exc:
@@ -388,6 +393,8 @@ class MaydayAgent:
                     },
                     severity=TraceSeverity.HIGH,
                 )
+                mayday_escalations_total.labels(outcome="error").inc()
+                mayday_consecutive_failures.set(self._consecutive_failures)
                 return None, exc
 
     async def _call_cloud(self, packet: MaydayPacket, attempt: int) -> Plan | None:
@@ -414,7 +421,6 @@ class MaydayAgent:
         Emits ESCALATION_ATTEMPT, ESCALATION_SUCCESS, ESCALATION_NO_PLAN, ESCALATION_ATTEMPT_TIMEOUT,
         ESCALATION_ATTEMPT_ERROR, and ESCALATION_FAILURE traces.
         """
-        policy_escalations_total.inc()
         start = time.perf_counter()
 
         with tracer.start_as_current_span("mayday.escalation") as span:
@@ -456,6 +462,7 @@ class MaydayAgent:
                 severity=TraceSeverity.CRITICAL,
             )
 
+            mayday_escalations_total.labels(outcome="exhausted").inc()
             self._failures_total += 1
             duration_ms = (time.perf_counter() - start) * 1000.0
             component_duration_ms.labels(component="mayday").observe(duration_ms)

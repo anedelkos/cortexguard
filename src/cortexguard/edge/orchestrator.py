@@ -15,7 +15,7 @@ from cortexguard.edge.models.reasoning_trace_entry import TraceSeverity
 from cortexguard.edge.models.remediation_policy import RemediationPolicy
 from cortexguard.edge.safety_agent import SafetyAgent, SafetyCommand
 from cortexguard.edge.utils.async_priority_queue import AsyncPriorityQueue
-from cortexguard.edge.utils.metrics import component_duration_ms
+from cortexguard.edge.utils.metrics import component_duration_ms, plan_queue_length, plans_total
 from cortexguard.edge.utils.tracing import BaseTraceSink, TraceSink
 
 logger = logging.getLogger(__name__)
@@ -266,6 +266,7 @@ class Orchestrator:
                     )
                     queue_size = await self._plan_queue.size()
                     span.set_attribute("queue_size", queue_size)
+                    plan_queue_length.set(queue_size)
 
                     try:
                         logger.debug(
@@ -353,6 +354,8 @@ class Orchestrator:
             await self._blackboard.set_current_plan(self._current_plan)
             await self._blackboard.clear_step_index_for_plan(plan_id)
 
+            plans_total.labels(status="completed").inc()
+
             # --- TRACE LOGGING: Plan Completed (No Steps) ---
             await self._trace_sink.post_trace_entry(
                 source=self,
@@ -384,6 +387,8 @@ class Orchestrator:
                 # Failure scenario
                 logger.warning(f"Step failed: {current_step.id}. Pausing plan for remediation.")
                 self._current_plan.status = PlanStatus.FAILED
+
+                plans_total.labels(status="failed").inc()
 
                 await self._trace_sink.post_trace_entry(
                     source=self,
@@ -426,6 +431,7 @@ class Orchestrator:
                     logger.info(f"Plan completed: {plan_id} successfully")
                     self._plans_executed += 1
                     self._current_plan.status = PlanStatus.COMPLETED
+                    plans_total.labels(status="completed").inc()
                     await self._blackboard.set_current_plan(self._current_plan)
                     # 4. Clear the index state from the Blackboard
                     await self._blackboard.clear_step_index_for_plan(plan_id)

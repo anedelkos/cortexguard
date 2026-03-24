@@ -25,6 +25,8 @@ from cortexguard.edge.models.state_estimate import StateEstimate
 from cortexguard.edge.utils.metrics import (
     anomalies_total,
     component_duration_ms,
+    llm_circuit_open,
+    llm_requests_total,
     policy_escalations_total,
 )
 from cortexguard.edge.utils.tracing import BaseTraceSink, TraceSink
@@ -347,16 +349,20 @@ class PolicyAgent:
         if self._llm_consecutive_failures > 0:
             logger.info("LLM circuit breaker reset after successful call.")
         self._llm_consecutive_failures = 0
+        llm_circuit_open.set(0)
+        llm_requests_total.labels(outcome="success").inc()
 
     def _record_llm_failure(self) -> None:
         self._llm_consecutive_failures += 1
         if self._llm_consecutive_failures >= self._LLM_FAILURE_THRESHOLD:
             self._llm_circuit_open_until = time.monotonic() + self._LLM_COOLDOWN_S
+            llm_circuit_open.set(1)
             logger.warning(
                 "LLM circuit breaker opened after %d consecutive failures. " "Cooldown: %.0fs.",
                 self._llm_consecutive_failures,
                 self._LLM_COOLDOWN_S,
             )
+        llm_requests_total.labels(outcome="failure").inc()
 
     # --- LLM DELEGATION ---
 
@@ -376,6 +382,7 @@ class PolicyAgent:
                 "LLM circuit open; skipping LLM call for anomaly %s and returning fallback.",
                 anomaly.key,
             )
+            llm_requests_total.labels(outcome="circuit_skipped").inc()
             return self._build_safe_fallback_policy(anomaly)
 
         with tracer.start_as_current_span("policy_agent.llm_request") as span:
@@ -443,6 +450,46 @@ class PolicyAgent:
                     reasoning_text="LLM policy response",
                     metadata={"duration_ms": duration_ms},
                     refs={"anomaly_id": anomaly.id},
+                )
+            except TimeoutError as e:
+                # Log and trace the LLM timeout, then return a conservative fail-safe policy
+                logger.exception("LLM policy generation timed out: %s", e)
+                span.add_event("LLM_FALLBACK", {"error": str(e)})
+                self._record_llm_failure()
+                llm_requests_total.labels(outcome="timeout").inc()
+                await self._trace_sink.post_trace_entry(
+                    source=self,
+                    event_type="POLICY_LLM_ERROR",
+                    reasoning_text="LLM policy generation timed out; returning fail-safe policy",
+                    metadata={"error": str(e)},
+                    refs={"anomaly_id": anomaly.id},
+                )
+
+                # Construct a deterministic fail-safe RemediationPolicy
+                fail_reason = (
+                    "CRITICAL PARSING/LLM FAILURE: Unable to generate policy from LLM. "
+                    "Issuing fail-safe emergency remediation to preserve system safety."
+                )
+                fail_steps = [
+                    PlanStep(
+                        id="1",
+                        description="Perform emergency shutdown of hazardous actuators.",
+                        status=StepStatus.PENDING,
+                        action=AgentToolCall(
+                            action_name="EMERGENCY_SHUTDOWN",
+                            arguments={"tool_id": self.REMEDIATION_TOOL_ID},
+                        ),
+                    )
+                ]
+                policy = RemediationPolicy(
+                    policy_id=str(uuid4()),
+                    source=PolicySource.FALLBACK,
+                    trigger_event=anomaly,
+                    reasoning_trace=fail_reason,
+                    risk_assessment="HIGH - System safety cannot be guaranteed.",
+                    corrective_steps=fail_steps,
+                    escalation_required=True,
+                    created_at=datetime.now(UTC),
                 )
             except Exception as e:
                 # Log and trace the LLM failure, then return a conservative fail-safe policy

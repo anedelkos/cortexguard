@@ -61,6 +61,52 @@ estimator_confidence = Gauge(
     "Latest confidence value from the OnlineLearnerStateEstimator",
 )
 
+# HTTP ingestion
+http_requests_total = Counter(
+    "cortexguard_http_requests_total",
+    "HTTP requests by outcome",
+    ["method", "status_code"],
+)
+http_request_duration_ms = Histogram(
+    "cortexguard_http_request_duration_ms",
+    "HTTP ingestion latency (ms)",
+    buckets=(1, 5, 10, 25, 50, 100, 250, 500, 1000, 2000),
+)
+
+# LLM
+llm_circuit_open = Gauge(
+    "cortexguard_llm_circuit_open",
+    "1 = circuit open (tripped), 0 = closed",
+)
+llm_requests_total = Counter(
+    "cortexguard_llm_requests_total",
+    "LLM requests by outcome",
+    ["outcome"],  # success | failure | timeout | circuit_skipped
+)
+
+# Cloud escalation
+mayday_escalations_total = Counter(
+    "cortexguard_mayday_escalations_total",
+    "Mayday attempts by outcome",
+    ["outcome"],  # success | timeout | error | exhausted
+)
+mayday_consecutive_failures = Gauge(
+    "cortexguard_mayday_consecutive_failures",
+    "Current consecutive cloud escalation failures",
+)
+
+# Plan and step execution
+plans_total = Counter(
+    "cortexguard_plans_total",
+    "Plans by terminal status",
+    ["status"],  # completed | failed
+)
+steps_total = Counter(
+    "cortexguard_steps_total",
+    "Steps by outcome",
+    ["outcome"],  # completed | retry_exhausted | aborted
+)
+
 
 # -----------------------------
 # Timing helper

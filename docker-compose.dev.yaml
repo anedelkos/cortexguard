@@ -65,6 +65,7 @@ services:
     container_name: cortexguard-prometheus
     volumes:
       - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./docker/cortexguard_alerts.yml:/etc/prometheus/cortexguard_alerts.yml
     ports:
       - "9090:9090"
     networks:
