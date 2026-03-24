@@ -4,6 +4,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from freezegun import freeze_time
 
 from cortexguard.core.interfaces.base_policy_engine import BasePolicyEngine
 from cortexguard.edge.mayday_agent import MaydayAgent
@@ -532,3 +533,110 @@ async def test_run_loop_processes_and_breaks_on_high(monkeypatch, mock_deps):
             agent._loop_running = True
             await agent._run_loop(0.01)
             assert mock_handler.call_count == 1
+
+
+# --- Per-Key Remediation Cooldown Tests ---
+
+
+def _make_state(ts: datetime) -> StateEstimate:
+    return StateEstimate(
+        timestamp=ts,
+        label="nominal",
+        confidence=1.0,
+        residuals={},
+        flags={},
+        source_intent="idle",
+    )
+
+
+def _make_anomaly(anomaly_id: str, key: str, ts: datetime) -> AnomalyEvent:
+    return AnomalyEvent(
+        id=anomaly_id,
+        key=key,
+        severity=AnomalySeverity.HIGH,
+        timestamp=ts,
+        metadata={},
+        score=1.0,
+        contributing_detectors=[],
+    )
+
+
+@pytest.mark.asyncio
+async def test_cooldown_suppresses_duplicate_key_within_window(
+    mock_deps: dict[str, Any],
+) -> None:
+    """After generating a policy for key X, a second event with the same key
+    within the cooldown window must NOT produce a second policy."""
+    start_time = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+    agent = PolicyAgent(**mock_deps, remediation_cooldown_s=30.0)
+    mock_deps["blackboard"].get_latest_state_estimate.return_value = _make_state(start_time)
+
+    with freeze_time(start_time):
+        # First event — should generate a policy
+        first = _make_anomaly("id-1", "sensor_spike", start_time)
+        await agent._handle_anomaly_event(first)
+
+    assert mock_deps["blackboard"].set_remediation_policy.call_count == 1
+
+    # 10 seconds later — still within the 30s cooldown window
+    within_window = datetime(2026, 1, 1, 12, 0, 10, tzinfo=UTC)
+    with freeze_time(within_window):
+        second = _make_anomaly("id-2", "sensor_spike", within_window)
+        await agent._handle_anomaly_event(second)
+
+    # Still only one policy published
+    assert mock_deps["blackboard"].set_remediation_policy.call_count == 1
+    assert agent.get_metrics()["active_key_cooldowns"] == 1
+
+
+@pytest.mark.asyncio
+async def test_cooldown_expires_and_allows_refire(
+    mock_deps: dict[str, Any],
+) -> None:
+    """After the cooldown window expires, the same key must be allowed to
+    generate a new policy."""
+    start_time = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+    agent = PolicyAgent(**mock_deps, remediation_cooldown_s=30.0)
+    mock_deps["blackboard"].get_latest_state_estimate.return_value = _make_state(start_time)
+
+    with freeze_time(start_time):
+        first = _make_anomaly("id-1", "sensor_spike", start_time)
+        await agent._handle_anomaly_event(first)
+
+    assert mock_deps["blackboard"].set_remediation_policy.call_count == 1
+
+    # 35 seconds later — past the 30s cooldown
+    after_cooldown = datetime(2026, 1, 1, 12, 0, 35, tzinfo=UTC)
+    mock_deps["blackboard"].get_latest_state_estimate.return_value = _make_state(after_cooldown)
+    with freeze_time(after_cooldown):
+        second = _make_anomaly("id-2", "sensor_spike", after_cooldown)
+        await agent._handle_anomaly_event(second)
+
+    # Second policy should now have been published
+    assert mock_deps["blackboard"].set_remediation_policy.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_different_keys_not_affected_by_cooldown(
+    mock_deps: dict[str, Any],
+) -> None:
+    """A cooldown on key X must not suppress policy generation for key Y."""
+    start_time = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+    agent = PolicyAgent(**mock_deps, remediation_cooldown_s=30.0)
+    mock_deps["blackboard"].get_latest_state_estimate.return_value = _make_state(start_time)
+
+    with freeze_time(start_time):
+        # Fire key X — puts key X into cooldown
+        event_x = _make_anomaly("id-x", "sensor_spike", start_time)
+        await agent._handle_anomaly_event(event_x)
+
+        # Fire key Y (different key) — should NOT be suppressed
+        event_y = _make_anomaly("id-y", "overheat_warning", start_time)
+        await agent._handle_anomaly_event(event_y)
+
+    # Both keys should have generated policies
+    assert mock_deps["blackboard"].set_remediation_policy.call_count == 2
+    assert agent.get_metrics()["active_key_cooldowns"] == 2

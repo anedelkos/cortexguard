@@ -65,6 +65,7 @@ class PolicyAgent:
         policy_engine: BasePolicyEngine,
         mayday_agent: MaydayAgent,
         trace_sink: BaseTraceSink | None = None,
+        remediation_cooldown_s: float = 30.0,
     ) -> None:
         """Initialize Policy Agent."""
         self._blackboard = blackboard
@@ -74,12 +75,15 @@ class PolicyAgent:
         self._capability_registry = capability_registry
         self._policy_engine = policy_engine
         self._mayday_agent = mayday_agent
+        self._remediation_cooldown_s = remediation_cooldown_s
 
         self._loop_running: bool = False
         self._task: asyncio.Task[Any] | None = None
 
         self._processed_anomalies: deque[str] = deque(maxlen=self._PROCESSED_CACHE_SIZE)
         self._processed_lock = asyncio.Lock()
+        self._remediation_key_cooldowns: dict[str, datetime] = {}
+        self._cooldown_lock: asyncio.Lock = asyncio.Lock()
 
         # Metrics for observability
         self._policies_generated = 0
@@ -809,6 +813,20 @@ class PolicyAgent:
                 self._processed_anomalies.append(anomaly.id)
                 self._anomalies_processed += 1
 
+            # Per-key cooldown: suppress repeated policy generation for the same anomaly key
+            async with self._cooldown_lock:
+                last_fired = self._remediation_key_cooldowns.get(anomaly.key)
+                if last_fired is not None:
+                    elapsed = (datetime.now(UTC) - last_fired).total_seconds()
+                    if elapsed < self._remediation_cooldown_s:
+                        logger.debug(
+                            "Cooldown active for anomaly key %s (%.1fs remaining); skipping.",
+                            anomaly.key,
+                            self._remediation_cooldown_s - elapsed,
+                        )
+                        return
+                self._remediation_key_cooldowns[anomaly.key] = datetime.now(UTC)
+
             # 1. Fetch context
             context, active_plan = await self._fetch_context_for_anomaly(anomaly)
             if context is None:
@@ -940,4 +958,5 @@ class PolicyAgent:
             "processed_cache_size": len(self._processed_anomalies),
             "llm_circuit_open": self._is_llm_circuit_open(),
             "llm_consecutive_failures": self._llm_consecutive_failures,
+            "active_key_cooldowns": len(self._remediation_key_cooldowns),
         }

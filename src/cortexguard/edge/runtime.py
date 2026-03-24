@@ -110,6 +110,11 @@ class RuntimeConfig:
         default_factory=lambda: os.getenv("POLICY_MODEL_ID", "mistralai/Mistral-7B-Instruct-v0.2")
     )
 
+    # Policy remediation cooldown
+    policy_remediation_cooldown_s: float = field(
+        default_factory=lambda: float(os.getenv("POLICY_REMEDIATION_COOLDOWN_S", "30.0"))
+    )
+
     # Persistence
     persistence_enabled: bool = field(
         default_factory=lambda: os.getenv("PERSISTENCE_ENABLED", "false").lower() == "true"
@@ -233,6 +238,7 @@ class EdgeRuntime:
             capability_registry=self.capability_registry,
             policy_engine=self.policy_engine,
             mayday_agent=self.mayday_agent,
+            remediation_cooldown_s=self.config.policy_remediation_cooldown_s,
         )
 
         # Persistence
