@@ -5,7 +5,10 @@ import copy
 import logging
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from cortexguard.edge.persistence.blackboard_snapshot import BlackboardSnapshot
 
 from cortexguard.edge.models.anomaly_event import SEVERITY_RANKING, AnomalyEvent, AnomalySeverity
 from cortexguard.edge.models.fusion_snapshot import FusionSnapshot
@@ -301,6 +304,86 @@ class Blackboard:
     async def get_scene_graph(self) -> SceneGraph | None:
         async with self._lock:
             return self._scene_graph.model_copy(deep=True) if self._scene_graph else None
+
+    # ---------------------
+    # Persistence
+    # ---------------------
+    async def capture_snapshot(self) -> BlackboardSnapshot:
+        """Capture a point-in-time snapshot of all durable Blackboard fields.
+
+        Acquires the lock once to deep-copy all persisted state into a
+        :class:`BlackboardSnapshot` DTO.
+
+        Returns:
+            A fully-populated :class:`BlackboardSnapshot` ready for serialisation.
+        """
+        # Runtime import avoids circular imports: blackboard_snapshot imports Plan/AnomalyEvent
+        # which are also imported by blackboard.py. TYPE_CHECKING guard above is for mypy only.
+        from datetime import UTC, datetime  # noqa: PLC0415
+
+        from cortexguard.edge.persistence.blackboard_snapshot import (  # noqa: PLC0415
+            BlackboardSnapshot,
+        )
+
+        async with self._lock:
+            return BlackboardSnapshot(
+                captured_at=datetime.now(UTC),
+                active_anomalies={
+                    k: v.model_copy(deep=True) for k, v in self.active_anomalies.items()
+                },
+                current_plan=self.current_plan.model_copy(deep=True) if self.current_plan else None,
+                paused_plan=self.paused_plan.model_copy(deep=True) if self.paused_plan else None,
+                plan_step_indices=copy.deepcopy(self._plan_step_indices),
+                active_remediation_policy=(
+                    self.active_remediation_policy.model_copy(deep=True)
+                    if self.active_remediation_policy
+                    else None
+                ),
+                failed_plans=[p.model_copy(deep=True) for p in self.failed_plans],
+                recovery_status=copy.deepcopy(self.recovery_status),
+                safety_flags=copy.deepcopy(self.safety_flags),
+            )
+
+    async def restore_from_snapshot(self, snapshot: BlackboardSnapshot) -> None:
+        """Restore durable Blackboard fields from a :class:`BlackboardSnapshot`.
+
+        Acquires the lock once to overwrite all persisted fields atomically.
+        ``failed_plans`` is re-wrapped as a ``deque(maxlen=100)``.
+        ``_max_anomaly_severity`` is recomputed from the restored anomalies.
+
+        Args:
+            snapshot: The snapshot to restore from.
+        """
+        async with self._lock:
+            self.active_anomalies = {
+                k: v.model_copy(deep=True) for k, v in snapshot.active_anomalies.items()
+            }
+            self.current_plan = (
+                snapshot.current_plan.model_copy(deep=True) if snapshot.current_plan else None
+            )
+            self.paused_plan = (
+                snapshot.paused_plan.model_copy(deep=True) if snapshot.paused_plan else None
+            )
+            self._plan_step_indices = copy.deepcopy(snapshot.plan_step_indices)
+            self.active_remediation_policy = (
+                snapshot.active_remediation_policy.model_copy(deep=True)
+                if snapshot.active_remediation_policy
+                else None
+            )
+            self.failed_plans = deque(
+                (p.model_copy(deep=True) for p in snapshot.failed_plans), maxlen=100
+            )
+            self.recovery_status = copy.deepcopy(snapshot.recovery_status)
+            self.safety_flags = copy.deepcopy(snapshot.safety_flags)
+
+            # Recompute max anomaly severity from restored anomalies
+            if self.active_anomalies:
+                self._max_anomaly_severity = max(
+                    self.active_anomalies.values(),
+                    key=lambda e: SEVERITY_RANKING[e.severity],
+                ).severity
+            else:
+                self._max_anomaly_severity = AnomalySeverity.LOW
 
     # ---------------------
     # Extensibility
