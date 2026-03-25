@@ -34,3 +34,5 @@ class WindowedFusedRecord(BaseFusedRecord):
     window_size_s: float
     n_samples: int
     sensor_window: list[SensorReading] = Field(default_factory=list)
+    vision_objects: list[dict[str, object]] = Field(default_factory=list)
+    vision_occlusion: dict[str, float] | None = None

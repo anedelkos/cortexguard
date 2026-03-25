@@ -25,22 +25,41 @@
   "panels": [
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
       "id": 1,
       "panels": [],
       "title": "System Health",
       "type": "row"
     },
-
     {
       "datasource": "Prometheus",
       "fieldConfig": {
-        "defaults": { "unit": "none" },
+        "defaults": {
+          "unit": "none"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 1
+      },
       "id": 2,
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
       "targets": [
         {
           "expr": "cortexguard_active_anomalies",
@@ -51,16 +70,30 @@
       "title": "Active Anomalies",
       "type": "stat"
     },
-
     {
       "datasource": "Prometheus",
       "fieldConfig": {
-        "defaults": { "unit": "none" },
+        "defaults": {
+          "unit": "none"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 1
+      },
       "id": 3,
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
       "targets": [
         {
           "expr": "cortexguard_plan_queue_length",
@@ -71,16 +104,30 @@
       "title": "Plan Queue Length",
       "type": "stat"
     },
-
     {
       "datasource": "Prometheus",
       "fieldConfig": {
-        "defaults": { "unit": "percentunit" },
+        "defaults": {
+          "unit": "percentunit"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 1
+      },
       "id": 4,
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
       "targets": [
         {
           "expr": "cortexguard_estimator_confidence",
@@ -91,19 +138,43 @@
       "title": "Estimator Confidence",
       "type": "stat"
     },
-
     {
       "datasource": "Prometheus",
       "fieldConfig": {
-        "defaults": { "unit": "none" },
+        "defaults": {
+          "unit": "none"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 1
+      },
       "id": 24,
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
         "valueMappings": [
-          { "options": { "0": { "text": "Closed", "color": "green" }, "1": { "text": "Open", "color": "red" } }, "type": "value" }
+          {
+            "options": {
+              "0": {
+                "text": "Closed",
+                "color": "green"
+              },
+              "1": {
+                "text": "Open",
+                "color": "red"
+              }
+            },
+            "type": "value"
+          }
         ]
       },
       "targets": [
@@ -116,7 +187,6 @@
       "title": "LLM Circuit Breaker",
       "type": "stat"
     },
-
     {
       "datasource": "Prometheus",
       "fieldConfig": {
@@ -125,17 +195,39 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 2 },
-              { "color": "red", "value": 3 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 2
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
             ]
           }
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 1
+      },
       "id": 25,
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
       "targets": [
         {
           "expr": "cortexguard_mayday_consecutive_failures",
@@ -146,14 +238,20 @@
       "title": "Mayday Consecutive Failures",
       "type": "stat"
     },
-
     {
       "datasource": "Prometheus",
       "fieldConfig": {
-        "defaults": { "unit": "reqps" },
+        "defaults": {
+          "unit": "reqps"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 24,
+        "y": 1
+      },
       "id": 26,
       "targets": [
         {
@@ -165,19 +263,30 @@
       "title": "Ingestion Rate",
       "type": "timeseries"
     },
-
     {
       "collapsed": true,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
       "id": 30,
       "panels": [
         {
           "datasource": "Prometheus",
           "fieldConfig": {
-            "defaults": { "unit": "reqps" },
+            "defaults": {
+              "unit": "reqps"
+            },
             "overrides": []
           },
-          "gridPos": { "h": 6, "w": 6, "x": 0, "y": 6 },
+          "gridPos": {
+            "h": 6,
+            "w": 6,
+            "x": 0,
+            "y": 6
+          },
           "id": 31,
           "targets": [
             {
@@ -189,16 +298,30 @@
           "title": "Ingestion Request Rate",
           "type": "timeseries"
         },
-
         {
           "datasource": "Prometheus",
           "fieldConfig": {
-            "defaults": { "unit": "percent" },
+            "defaults": {
+              "unit": "percent"
+            },
             "overrides": []
           },
-          "gridPos": { "h": 6, "w": 6, "x": 6, "y": 6 },
+          "gridPos": {
+            "h": 6,
+            "w": 6,
+            "x": 6,
+            "y": 6
+          },
           "id": 32,
-          "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
           "targets": [
             {
               "expr": "100 * rate(cortexguard_http_requests_total{status_code=~\"4..|5..\"}[5m]) / rate(cortexguard_http_requests_total[5m])",
@@ -209,16 +332,30 @@
           "title": "Ingestion Error Rate %",
           "type": "stat"
         },
-
         {
           "datasource": "Prometheus",
           "fieldConfig": {
-            "defaults": { "unit": "ms" },
+            "defaults": {
+              "unit": "ms"
+            },
             "overrides": []
           },
-          "gridPos": { "h": 6, "w": 6, "x": 12, "y": 6 },
+          "gridPos": {
+            "h": 6,
+            "w": 6,
+            "x": 12,
+            "y": 6
+          },
           "id": 33,
-          "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
           "targets": [
             {
               "expr": "histogram_quantile(0.95, rate(cortexguard_http_request_duration_ms_bucket[5m]))",
@@ -229,14 +366,20 @@
           "title": "Ingestion p95 Latency",
           "type": "stat"
         },
-
         {
           "datasource": "Prometheus",
           "fieldConfig": {
-            "defaults": { "unit": "ms" },
+            "defaults": {
+              "unit": "ms"
+            },
             "overrides": []
           },
-          "gridPos": { "h": 6, "w": 6, "x": 18, "y": 6 },
+          "gridPos": {
+            "h": 6,
+            "w": 6,
+            "x": 18,
+            "y": 6
+          },
           "id": 34,
           "targets": [
             {
@@ -252,23 +395,33 @@
       "title": "HTTP RED",
       "type": "row"
     },
-
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 12 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 12
+      },
       "id": 10,
       "panels": [],
       "title": "Subsystem Latency Percentiles",
       "type": "row"
     },
-
     {
       "datasource": "Prometheus",
       "fieldConfig": {
-        "defaults": { "unit": "ms" },
+        "defaults": {
+          "unit": "ms"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 13 },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 13
+      },
       "id": 11,
       "targets": [
         {
@@ -290,14 +443,20 @@
       "title": "Fusion Latency (ms)",
       "type": "timeseries"
     },
-
     {
       "datasource": "Prometheus",
       "fieldConfig": {
-        "defaults": { "unit": "ms" },
+        "defaults": {
+          "unit": "ms"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 13 },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 13
+      },
       "id": 12,
       "targets": [
         {
@@ -319,14 +478,20 @@
       "title": "Estimator Update Latency (ms)",
       "type": "timeseries"
     },
-
     {
       "datasource": "Prometheus",
       "fieldConfig": {
-        "defaults": { "unit": "ms" },
+        "defaults": {
+          "unit": "ms"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 19 },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 19
+      },
       "id": 13,
       "targets": [
         {
@@ -348,14 +513,20 @@
       "title": "AnomalyDetector Tick Latency (ms)",
       "type": "timeseries"
     },
-
     {
       "datasource": "Prometheus",
       "fieldConfig": {
-        "defaults": { "unit": "ms" },
+        "defaults": {
+          "unit": "ms"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 19 },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 19
+      },
       "id": 14,
       "targets": [
         {
@@ -377,14 +548,20 @@
       "title": "PolicyAgent Tick Latency (ms)",
       "type": "timeseries"
     },
-
     {
       "datasource": "Prometheus",
       "fieldConfig": {
-        "defaults": { "unit": "ms" },
+        "defaults": {
+          "unit": "ms"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 25 },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 25
+      },
       "id": 15,
       "targets": [
         {
@@ -406,14 +583,20 @@
       "title": "Policy Generation Latency (ms)",
       "type": "timeseries"
     },
-
     {
       "datasource": "Prometheus",
       "fieldConfig": {
-        "defaults": { "unit": "ms" },
+        "defaults": {
+          "unit": "ms"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 25 },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 25
+      },
       "id": 16,
       "targets": [
         {
@@ -435,19 +618,27 @@
       "title": "Orchestrator Tick Latency (ms)",
       "type": "timeseries"
     },
-
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 31 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 31
+      },
       "id": 20,
       "panels": [],
       "title": "Flow Rates and Outcomes",
       "type": "row"
     },
-
     {
       "datasource": "Prometheus",
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 32 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 32
+      },
       "id": 21,
       "targets": [
         {
@@ -459,10 +650,14 @@
       "title": "Total Anomalies Emitted",
       "type": "stat"
     },
-
     {
       "datasource": "Prometheus",
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 32 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 32
+      },
       "id": 22,
       "targets": [
         {
@@ -474,10 +669,14 @@
       "title": "Detector Failures",
       "type": "stat"
     },
-
     {
       "datasource": "Prometheus",
-      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 32 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 32
+      },
       "id": 23,
       "targets": [
         {
@@ -489,14 +688,20 @@
       "title": "Policy Escalations",
       "type": "stat"
     },
-
     {
       "datasource": "Prometheus",
       "fieldConfig": {
-        "defaults": { "unit": "reqps" },
+        "defaults": {
+          "unit": "reqps"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 32 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 32
+      },
       "id": 40,
       "targets": [
         {
@@ -508,16 +713,30 @@
       "title": "Plan Completion Rate",
       "type": "timeseries"
     },
-
     {
       "datasource": "Prometheus",
       "fieldConfig": {
-        "defaults": { "unit": "percent" },
+        "defaults": {
+          "unit": "percent"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 36 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 36
+      },
       "id": 41,
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
       "targets": [
         {
           "expr": "rate(cortexguard_plans_total{status=\"completed\"}[5m]) / rate(cortexguard_plans_total[5m])",
@@ -528,14 +747,20 @@
       "title": "Plan Success Ratio",
       "type": "stat"
     },
-
     {
       "datasource": "Prometheus",
       "fieldConfig": {
-        "defaults": { "unit": "reqps" },
+        "defaults": {
+          "unit": "reqps"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 36 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 36
+      },
       "id": 42,
       "targets": [
         {
@@ -547,14 +772,20 @@
       "title": "LLM Request Rate by Outcome",
       "type": "timeseries"
     },
-
     {
       "datasource": "Prometheus",
       "fieldConfig": {
-        "defaults": { "unit": "reqps" },
+        "defaults": {
+          "unit": "reqps"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 36 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 36
+      },
       "id": 43,
       "targets": [
         {
@@ -566,14 +797,20 @@
       "title": "Mayday Escalation Outcomes",
       "type": "timeseries"
     },
-
     {
       "datasource": "Prometheus",
       "fieldConfig": {
-        "defaults": { "unit": "reqps" },
+        "defaults": {
+          "unit": "reqps"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 36 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 36
+      },
       "id": 44,
       "targets": [
         {
@@ -585,10 +822,14 @@
       "title": "Step Outcome Rate",
       "type": "timeseries"
     },
-
     {
       "collapsed": true,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 40 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      },
       "id": 50,
       "panels": [
         {
@@ -599,17 +840,39 @@
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
-                  { "color": "green", "value": null },
-                  { "color": "yellow", "value": 150 },
-                  { "color": "red", "value": 200 }
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 150
+                  },
+                  {
+                    "color": "red",
+                    "value": 200
+                  }
                 ]
               }
             },
             "overrides": []
           },
-          "gridPos": { "h": 6, "w": 6, "x": 0, "y": 41 },
+          "gridPos": {
+            "h": 6,
+            "w": 6,
+            "x": 0,
+            "y": 41
+          },
           "id": 51,
-          "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
           "targets": [
             {
               "expr": "histogram_quantile(0.95, rate(cortexguard_component_duration_ms_bucket{component=\"anomaly_detector_tick\"}[1h]))",
@@ -620,7 +883,6 @@
           "title": "Detection Loop SLO (p95 < 200ms)",
           "type": "stat"
         },
-
         {
           "datasource": "Prometheus",
           "fieldConfig": {
@@ -629,17 +891,39 @@
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
-                  { "color": "red", "value": null },
-                  { "color": "yellow", "value": 95 },
-                  { "color": "green", "value": 99 }
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 95
+                  },
+                  {
+                    "color": "green",
+                    "value": 99
+                  }
                 ]
               }
             },
             "overrides": []
           },
-          "gridPos": { "h": 6, "w": 6, "x": 6, "y": 41 },
+          "gridPos": {
+            "h": 6,
+            "w": 6,
+            "x": 6,
+            "y": 41
+          },
           "id": 52,
-          "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
           "targets": [
             {
               "expr": "100 * rate(cortexguard_plans_total{status=\"completed\"}[1h]) / rate(cortexguard_plans_total[1h])",
@@ -650,19 +934,43 @@
           "title": "Plan Success Rate SLO (> 95%)",
           "type": "stat"
         },
-
         {
           "datasource": "Prometheus",
           "fieldConfig": {
-            "defaults": { "unit": "none" },
+            "defaults": {
+              "unit": "none"
+            },
             "overrides": []
           },
-          "gridPos": { "h": 6, "w": 6, "x": 12, "y": 41 },
+          "gridPos": {
+            "h": 6,
+            "w": 6,
+            "x": 12,
+            "y": 41
+          },
           "id": 53,
           "options": {
-            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
             "valueMappings": [
-              { "options": { "0": { "text": "Closed", "color": "green" }, "1": { "text": "Open", "color": "red" } }, "type": "value" }
+              {
+                "options": {
+                  "0": {
+                    "text": "Closed",
+                    "color": "green"
+                  },
+                  "1": {
+                    "text": "Open",
+                    "color": "red"
+                  }
+                },
+                "type": "value"
+              }
             ]
           },
           "targets": [
@@ -675,7 +983,6 @@
           "title": "LLM Circuit Health SLO",
           "type": "stat"
         },
-
         {
           "datasource": "Prometheus",
           "fieldConfig": {
@@ -684,17 +991,39 @@
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
-                  { "color": "red", "value": null },
-                  { "color": "yellow", "value": 95 },
-                  { "color": "green", "value": 99 }
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 95
+                  },
+                  {
+                    "color": "green",
+                    "value": 99
+                  }
                 ]
               }
             },
             "overrides": []
           },
-          "gridPos": { "h": 6, "w": 6, "x": 18, "y": 41 },
+          "gridPos": {
+            "h": 6,
+            "w": 6,
+            "x": 18,
+            "y": 41
+          },
           "id": 54,
-          "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
           "targets": [
             {
               "expr": "100 * (1 - rate(cortexguard_http_requests_total{status_code=~\"5..\"}[1h]) / rate(cortexguard_http_requests_total[1h]))",
@@ -708,15 +1037,83 @@
       ],
       "title": "SLO Error Budgets",
       "type": "row"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "NOMINAL"
+                },
+                "1": {
+                  "text": "E-STOP"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 1
+      },
+      "id": 5,
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "expr": "cortexguard_emergency_stop_active",
+          "legendFormat": "Emergency Stop",
+          "refId": "A"
+        }
+      ],
+      "title": "Emergency Stop",
+      "type": "stat"
     }
   ],
-
   "refresh": "5s",
   "schemaVersion": 38,
   "style": "dark",
-  "tags": ["cortexguard", "observability"],
-  "templating": { "list": [] },
-  "time": { "from": "now-15m", "to": "now" },
+  "tags": [
+    "cortexguard",
+    "observability"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
   "timezone": "",
   "title": "CortexGuard Edge Observability",
   "uid": "cortexguard-edge-observability",

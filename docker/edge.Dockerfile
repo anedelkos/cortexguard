@@ -19,11 +19,17 @@ RUN apt-get update &&  \
 # Copy only dependency metadata first (for caching)
 COPY pyproject.toml uv.lock ./
 
-# Install dependencies (using uv if available)
+# Install dependencies via uv sync.
+# Pass --build-arg SLIM=true to skip heavy ML packages (torch/transformers).
+ARG SLIM=false
 RUN pip install uv && \
-    uv pip compile pyproject.toml -o requirements.txt && \
-    uv pip install --system -r requirements.txt && \
-    rm requirements.txt
+    if [ "$SLIM" = "true" ]; then \
+      uv sync --frozen --no-group dev --no-extra ml; \
+    else \
+      uv sync --frozen --no-group dev --extra ml; \
+    fi
+
+ENV PATH="/workspace/cortexguard/.venv/bin:$PATH"
 
 
 # Copy source

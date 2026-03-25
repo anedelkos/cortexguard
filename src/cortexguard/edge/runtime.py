@@ -48,7 +48,7 @@ from cortexguard.edge.detectors.vision.vision_safety_detector import (
     VisionSafetyDetector,
     VisionSafetyDetectorConfig,
 )
-from cortexguard.edge.edge_fusion import EdgeFusion, VisionEmbedder
+from cortexguard.edge.edge_fusion import _VISION_AVAILABLE, EdgeFusion, VisionEmbedder
 from cortexguard.edge.local_receiver import LocalReceiver
 from cortexguard.edge.mayday_agent import MaydayAgent
 from cortexguard.edge.models.blackboard import Blackboard
@@ -183,8 +183,8 @@ class EdgeRuntime:
         )
 
         # --- PERCEPTION SUBSYSTEM (Fusion and Learning) ---
-        # 1. Instantiate Vision Embedder
-        self.vision_embedder = VisionEmbedder()
+        # 1. Instantiate Vision Embedder (requires torch/torchvision — skipped in slim mode)
+        self.vision_embedder = VisionEmbedder() if _VISION_AVAILABLE else None
 
         # 2. Instantiate the learning dependency
         self.online_learner: BaseOnlineLearner = RiverOnlineLearner()
@@ -465,12 +465,15 @@ class EdgeRuntime:
         current_plan = await self.blackboard.get_current_plan()
         metrics = await self.blackboard.get_metrics()
 
+        safety_flags = self.blackboard.safety_flags
+
         return {
             "uptime_seconds": uptime,
             "plans_executed": plans_executed,
             "anomalies_detected": metrics["active_anomalies_count"],
             "failed_plans": metrics["failed_plans_count"],
             "current_plan_id": current_plan.plan_id if current_plan else None,
+            "emergency_stop": safety_flags.get("emergency_stop", False),
         }
 
 

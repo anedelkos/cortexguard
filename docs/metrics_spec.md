@@ -377,7 +377,28 @@ Count plans by their terminal outcome to enable plan success rate SLOs.
 
 ---
 
-## 15. `cortexguard_steps_total`
+## 15. `cortexguard_emergency_stop_active`
+
+**Type:** Gauge
+
+**Labels:**
+None
+
+**Purpose:**
+Expose the current emergency stop state. Value is `1` when an E-STOP is active, `0` otherwise.
+
+**Cardinality constraints:**
+
+- No labels.
+- Value is always 0 or 1.
+
+**Emitted by:**
+
+- `Arbiter.emergency_stop` (sets to 1 when E-STOP fires)
+
+---
+
+## 16. `cortexguard_steps_total`
 
 **Type:** Counter
 
@@ -440,6 +461,9 @@ Each metric answers a clear operational question:
 
 - *Are we escalating too often?*
   - `cortexguard_policy_escalations_total`
+
+- *Is the system in emergency stop?*
+  - `cortexguard_emergency_stop_active`
 
 **Stable contract**
 

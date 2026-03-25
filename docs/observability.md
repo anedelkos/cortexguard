@@ -60,8 +60,9 @@ Use `rate(cortexguard_http_requests_total{status_code=~"4..|5.."}[5m])` for erro
 | `cortexguard_estimator_confidence` | State estimator's confidence in its model [0.0–1.0] | Trending toward 0 means sensor data is diverging from the learned model |
 | `cortexguard_llm_circuit_open` | LLM circuit breaker state: 1 = open (tripped), 0 = closed | Any value of 1 means unknown/medium anomalies receive fallback policy |
 | `cortexguard_mayday_consecutive_failures` | Current streak of consecutive cloud escalation failures | ≥ 2 indicates cloud connectivity is degraded |
+| `cortexguard_emergency_stop_active` | Emergency stop state: 1 = E-STOP active, 0 = nominal | Any value of 1 means the system has halted and requires manual reset |
 
-The system health row of the Grafana dashboard includes all five gauges. They answer the question: *is the system currently in a normal state?*
+The system health row of the Grafana dashboard includes all six gauges. They answer the question: *is the system currently in a normal state?*
 
 ### Event Counts — Counters
 

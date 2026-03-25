@@ -139,11 +139,37 @@ deliberative planning and model retraining.
 |Testing & Validation         |Unit, integration (chaos engine), e2e — 80% coverage enforced|
 
 
+# ⚡ Quick Demo
+
+See anomaly detection in action with a single command — no Python install required:
+
+```bash
+# Overheat + smoke → E-STOP (default)
+docker compose -f docker-compose.demo.yaml up --build
+
+# Try other scenarios
+SCENARIO=S0.1 docker compose -f docker-compose.demo.yaml up --build   # human in safety radius → E-STOP
+SCENARIO=S1.1 docker compose -f docker-compose.demo.yaml up --build   # repeated misgrasp → escalate to cloud
+SCENARIO=S2.3 docker compose -f docker-compose.demo.yaml up --build   # sensor freeze → local recovery
+SCENARIO=S4.1 docker compose -f docker-compose.demo.yaml up --build   # compound fault → recovery or escalate
+```
+
+The simulator streams synthetic sensor data with injected anomalies to the edge service in an infinite loop. Watch the simulator logs for live detection output, or open Grafana at `http://localhost:3000` (no login required).
+
+> **Note:** The demo image is slim — torch and transformers are not installed. Vision embedding and LLM policy generation run in mock mode (no model weights downloaded).
+
+To list all available scenarios:
+```bash
+PYTHONPATH=src uv run python demo/chaos_stream.py --list
+```
+
+
 # ⚙️ Getting Started
 
 1️⃣ Setup
 ```bash
-task venv
+task venv          # full install (includes torch/transformers)
+task venv-slim     # slim install — no torch/transformers, sufficient for demo
 ```
 
 2️⃣ Run the Edge API (host)
@@ -159,8 +185,11 @@ task simulate:fuse
 # Stream to the edge
 task simulate:stream
 
-# Or run both services in Docker
-task edge-sim:up
+# Stream a named anomaly scenario to a running edge
+PYTHONPATH=src uv run python demo/chaos_stream.py --scenario S0.1
+
+# Or run the full demo stack in Docker
+task demo:up
 ```
 
 4️⃣ Run tests
