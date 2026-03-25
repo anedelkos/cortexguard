@@ -1,0 +1,65 @@
+services:
+  edge:
+    build:
+      context: .
+      dockerfile: docker/edge.Dockerfile
+      args:
+        SLIM: "true"
+    ports:
+      - "8080:8080"
+    environment:
+      LOG_LEVEL: INFO
+    depends_on:
+      - tempo
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  simulator:
+    build:
+      context: .
+      dockerfile: docker/simulator.Dockerfile
+      args:
+        SLIM: "true"
+    environment:
+      PYTHONPATH: /workspace/cortexguard/src
+    entrypoint: ["python"]
+    command: >
+      demo/chaos_stream.py
+        --scenario ${SCENARIO:-S0.2}
+        --endpoint http://edge:8080/api/v1/ingest
+        --rate ${RATE:-1.0}
+    depends_on:
+      edge:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:v2.53.2
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_demo_data:/var/lib/grafana
+      - ./docker/grafana_datasources.yaml:/etc/grafana/provisioning/datasources/cortexguard.yaml:ro
+      - ./docker/grafana_dashboards.yaml:/etc/grafana/provisioning/dashboards/cortexguard-dashboards.yaml:ro
+      - ./docker/grafana_dashboard.json:/var/lib/grafana/dashboards/cortexguard-edge.json:ro
+
+  tempo:
+    image: grafana/tempo:latest
+    volumes:
+      - ./docker/tempo.yaml:/etc/tempo.yaml:ro
+    command: ["--config.file=/etc/tempo.yaml"]
+    ports:
+      - "4318:4318"
+      - "3100:3100"
+
+volumes:
+  grafana_demo_data:

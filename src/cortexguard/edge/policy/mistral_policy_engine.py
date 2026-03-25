@@ -4,10 +4,8 @@ import asyncio
 import json
 import logging
 from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
-
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 from cortexguard.core.interfaces.base_policy_engine import BasePolicyEngine
 from cortexguard.edge.models.agent_tool_call import AgentToolCall
@@ -33,12 +31,17 @@ class MistralLLMPolicyEngine(BasePolicyEngine):
     def __init__(self, use_mock: bool = False, model_id: str = _DEFAULT_MODEL_ID):
         self._use_mock = use_mock
         self._model_name = model_id
-        # Verify CUDA availability based on your installed PyTorch
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.tokenizer = None
-        self.model = None
+        self.device: str = "cpu"
+        self.tokenizer: Any = None
+        self.model: Any = None
 
         if not self._use_mock:
+            import torch
+            from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+
+            # Verify CUDA availability based on your installed PyTorch
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+
             if self.device == "cpu":
                 logger.warning(
                     "CUDA not available. Loading Mistral on CPU will be extremely slow. "
@@ -82,6 +85,8 @@ class MistralLLMPolicyEngine(BasePolicyEngine):
         input_ids = self.tokenizer.encode(prompt, return_tensors="pt").to(self.device)
 
         # 2. Generate the response
+        import torch
+
         with torch.no_grad():
             output = self.model.generate(
                 input_ids,

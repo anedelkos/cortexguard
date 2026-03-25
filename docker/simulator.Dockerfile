@@ -23,10 +23,16 @@ RUN apt-get update && \
 COPY pyproject.toml uv.lock ./
 
 # ---- Create venv and install deps via uv ----
+# Pass --build-arg SLIM=true to skip heavy ML packages (torch/transformers).
+ARG SLIM=false
 RUN python -m venv $VENV_PATH && \
     $VENV_PATH/bin/pip install --upgrade pip && \
     $VENV_PATH/bin/pip install "uv>=0.9.5" && \
-    $VENV_PATH/bin/python -m uv sync --frozen --active
+    if [ "$SLIM" = "true" ]; then \
+      $VENV_PATH/bin/python -m uv sync --frozen --no-group dev --no-extra ml --active; \
+    else \
+      $VENV_PATH/bin/python -m uv sync --frozen --no-group dev --extra ml --active; \
+    fi
 
 # ---- Copy project files ----
 COPY src ./src

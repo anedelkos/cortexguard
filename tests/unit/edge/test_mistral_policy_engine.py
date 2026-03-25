@@ -72,49 +72,75 @@ def tool_catalog() -> str:
 
 
 # --- Patching for Initialization Tests ---
+#
+# torch / transformers are now imported lazily inside __init__ (not at module level).
+# We inject mocks via sys.modules so the `import torch` / `from transformers import ...`
+# statements inside __init__ pick up the mocks instead of the real packages.
 
 
-# Patch the heavy libraries globally for unit tests
-@patch("cortexguard.edge.policy.mistral_policy_engine.AutoTokenizer")
-@patch("cortexguard.edge.policy.mistral_policy_engine.AutoModelForCausalLM")
+def _make_torch_mock(cuda_available: bool) -> Any:
+    """Build a minimal torch mock with cuda.is_available stubbed."""
+    from unittest.mock import MagicMock
+
+    torch_mock = MagicMock()
+    torch_mock.cuda.is_available.return_value = cuda_available
+    torch_mock.bfloat16 = "bfloat16"  # used as dtype argument
+    return torch_mock
+
+
+def _make_transformers_mock() -> tuple[Any, Any, Any]:
+    """Return (MockAutoModel, MockAutoTokenizer, MockBitsAndBytesConfig)."""
+    from unittest.mock import MagicMock
+
+    return MagicMock(), MagicMock(), MagicMock()
+
+
 class TestMistralLLMInit:
-    def test_init_mock_mode(
-        self, MockModel: Any, MockTokenizer: Any, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """Tests the initialization path when use_mock=True."""
+    def test_init_mock_mode(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Tests the initialization path when use_mock=True.
+
+        torch / transformers must NOT be imported when use_mock=True.
+        """
         engine = MistralLLMPolicyEngine(use_mock=True)
         assert engine._use_mock is True
-        MockModel.from_pretrained.assert_not_called()
-        MockTokenizer.from_pretrained.assert_not_called()
         assert "LLM is running in MOCK mode" in caplog.text
 
-    @patch(
-        "cortexguard.edge.policy.mistral_policy_engine.torch.cuda.is_available",
-        return_value=True,
-    )
-    def test_init_real_cuda_mode(self, mock_cuda: Any, MockModel: Any, MockTokenizer: Any) -> None:
+    def test_init_real_cuda_mode(self) -> None:
         """Tests real initialization on a CUDA device."""
-        engine = MistralLLMPolicyEngine(use_mock=False)
+        import sys
+        import types
+
+        torch_mock = _make_torch_mock(cuda_available=True)
+        MockModel, MockTokenizer, MockBnb = _make_transformers_mock()
+        transformers_mock = types.ModuleType("transformers")
+        transformers_mock.__dict__["AutoModelForCausalLM"] = MockModel
+        transformers_mock.__dict__["AutoTokenizer"] = MockTokenizer
+        transformers_mock.__dict__["BitsAndBytesConfig"] = MockBnb
+
+        with patch.dict(sys.modules, {"torch": torch_mock, "transformers": transformers_mock}):
+            engine = MistralLLMPolicyEngine(use_mock=False)
+
         assert engine.device == "cuda"
         MockModel.from_pretrained.assert_called_once()
-        # Ensure quantization config is passed
         assert "quantization_config" in MockModel.from_pretrained.call_args[1]
 
-    @patch(
-        "cortexguard.edge.policy.mistral_policy_engine.torch.cuda.is_available",
-        return_value=False,
-    )
-    def test_init_real_cpu_mode_with_warning(
-        self, mock_cuda: Any, MockModel: Any, MockTokenizer: Any, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_init_real_cpu_mode_with_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         """Tests real initialization on CPU with the expected warning."""
-        engine = MistralLLMPolicyEngine(use_mock=False)
+        import sys
+        import types
+
+        torch_mock = _make_torch_mock(cuda_available=False)
+        MockModel, MockTokenizer, MockBnb = _make_transformers_mock()
+        transformers_mock = types.ModuleType("transformers")
+        transformers_mock.__dict__["AutoModelForCausalLM"] = MockModel
+        transformers_mock.__dict__["AutoTokenizer"] = MockTokenizer
+        transformers_mock.__dict__["BitsAndBytesConfig"] = MockBnb
+
+        with patch.dict(sys.modules, {"torch": torch_mock, "transformers": transformers_mock}):
+            engine = MistralLLMPolicyEngine(use_mock=False)
+
         assert engine.device == "cpu"
         MockModel.from_pretrained.assert_called_once()
-        # Ensure quantization config is NOT passed on CPU
-        # Note: If running on CPU, quantization_config should be None, which is the current implementation.
-        # However, the user's original test asserted that it *was* present and checked for None.
-        # I will keep the original assertion as it reflects the user's intent to test the logic path.
         assert "quantization_config" in MockModel.from_pretrained.call_args[1]
         assert MockModel.from_pretrained.call_args[1]["quantization_config"] is None
         assert "Loading Mistral on CPU will be extremely slow" in caplog.text

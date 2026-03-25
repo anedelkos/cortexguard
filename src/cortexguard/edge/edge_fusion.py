@@ -13,10 +13,16 @@ from datetime import datetime
 from typing import Any, cast
 from zoneinfo import ZoneInfo
 
-import torch
+try:
+    import torch
+    from PIL import Image
+    from torchvision import models, transforms
+
+    _VISION_AVAILABLE = True
+except ImportError:
+    _VISION_AVAILABLE = False
+
 from opentelemetry import trace
-from PIL import Image
-from torchvision import models, transforms
 
 from cortexguard.common.constants import DEFAULT_ALPHA
 from cortexguard.edge.constants import (
@@ -43,6 +49,11 @@ class VisionEmbedder:
     """Lightweight ResNet-based embedder for images."""
 
     def __init__(self, device: str = "cpu"):
+        if not _VISION_AVAILABLE:
+            raise RuntimeError(
+                "torch/torchvision/Pillow are not installed. "
+                "Install the full ML dependencies with: uv sync --extra ml"
+            )
         self._device = device
         self._model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
         self._model = torch.nn.Sequential(*list(self._model.children())[:-1])  # Remove classifier
@@ -56,7 +67,7 @@ class VisionEmbedder:
             ]
         )
 
-    @torch.no_grad()
+    @(torch.no_grad() if _VISION_AVAILABLE else lambda f: f)  # type: ignore[misc]
     def embed(self, img: Image.Image) -> torch.Tensor:
         x = self.preprocess(img).unsqueeze(0).to(self._device)
         emb = cast(torch.Tensor, self._model(x).squeeze())
@@ -440,8 +451,8 @@ class EdgeFusion:
             try:
                 loop = asyncio.get_running_loop()
 
-                def load_and_embed() -> torch.Tensor:
-                    img = Image.open(record.rgb_path).convert("RGB")
+                def load_and_embed() -> Any:
+                    img = Image.open(record.rgb_path).convert("RGB")  # type: ignore[union-attr]
                     return embedder.embed(img)
 
                 image_embedding = await loop.run_in_executor(self._executor, load_and_embed)
@@ -449,7 +460,7 @@ class EdgeFusion:
                 self._logger.warning(f"Failed to embed image {record.rgb_path}: {e}")
                 return None, None
 
-        if torch.is_tensor(image_embedding):
+        if _VISION_AVAILABLE and torch.is_tensor(image_embedding):  # type: ignore[union-attr]
             return image_embedding, image_embedding.detach().cpu().numpy().tolist()
         return image_embedding, image_embedding
 

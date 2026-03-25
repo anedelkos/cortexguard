@@ -370,24 +370,28 @@ name = "cortexguard"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
-    { name = "accelerate" },
-    { name = "bitsandbytes" },
     { name = "fastapi", extra = ["standard"] },
     { name = "jsonschema" },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-exporter-otlp" },
     { name = "opentelemetry-sdk" },
     { name = "pandas" },
-    { name = "pillow" },
     { name = "prometheus-client" },
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "requests" },
     { name = "river" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.optional-dependencies]
+ml = [
+    { name = "accelerate" },
+    { name = "bitsandbytes" },
+    { name = "pillow" },
     { name = "torch" },
     { name = "torchvision" },
     { name = "transformers" },
-    { name = "uvicorn", extra = ["standard"] },
 ]
 
 [package.dev-dependencies]
@@ -420,25 +424,26 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "accelerate", specifier = ">=1.12.0" },
-    { name = "bitsandbytes", specifier = ">=0.48.2" },
+    { name = "accelerate", marker = "extra == 'ml'", specifier = ">=1.12.0" },
+    { name = "bitsandbytes", marker = "extra == 'ml'", specifier = ">=0.48.2" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.121.0" },
     { name = "jsonschema", specifier = ">=4.25.1" },
     { name = "opentelemetry-api", specifier = ">=1.39.1" },
     { name = "opentelemetry-exporter-otlp", specifier = ">=1.39.1" },
     { name = "opentelemetry-sdk", specifier = ">=1.39.1" },
     { name = "pandas", specifier = ">=2.3.3" },
-    { name = "pillow", specifier = ">=12.0.0" },
+    { name = "pillow", marker = "extra == 'ml'", specifier = ">=12.0.0" },
     { name = "prometheus-client", specifier = ">=0.23.1" },
     { name = "pydantic", specifier = ">=2.12.3" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "requests", specifier = ">=2.32.5" },
     { name = "river", specifier = ">=0.23.0" },
-    { name = "torch", specifier = ">=2.9.1" },
-    { name = "torchvision", specifier = ">=0.24.1" },
-    { name = "transformers", specifier = ">=4.57.3" },
+    { name = "torch", marker = "extra == 'ml'", specifier = ">=2.9.1" },
+    { name = "torchvision", marker = "extra == 'ml'", specifier = ">=0.24.1" },
+    { name = "transformers", marker = "extra == 'ml'", specifier = ">=4.57.3" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.38.0" },
 ]
+provides-extras = ["ml"]
 
 [package.metadata.requires-dev]
 dev = [

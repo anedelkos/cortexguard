@@ -13,7 +13,16 @@ vars:
 tasks:
   # --- Setup ---------------------------------------------------------
   venv:
-    desc: "Create virtual environment and install dev dependencies"
+    desc: "Create virtual environment and install dev dependencies (includes ML extras)"
+    cmds:
+      - "python{{.python_version}} -m venv {{.venv_path}}"
+      - "{{.venv_path}}/bin/python -m pip install --upgrade pip"
+      - "{{.venv_path}}/bin/python -m pip install 'uv>=0.9.5'"
+      - "{{.venv_path}}/bin/python -m uv sync --extra ml --group dev --active"
+      - "{{.venv_path}}/bin/python -m uv run --active pre-commit install"
+
+  venv-slim:
+    desc: "Create virtual environment without heavy ML deps (no torch/transformers)"
     cmds:
       - "python{{.python_version}} -m venv {{.venv_path}}"
       - "{{.venv_path}}/bin/python -m pip install --upgrade pip"
@@ -279,6 +288,18 @@ tasks:
     cmds:
       - "docker compose -f docker-compose.dev.yaml down -v"
 
+
+  demo:up:
+    desc: "Start demo stack: edge + chaos simulator + observability (Docker)"
+    cmds:
+      - "docker compose -f docker-compose.demo.yaml up --build"
+
+  demo:scenario:
+    desc: "Run a named scenario against a running edge service"
+    vars:
+      SCENARIO: '{{.SCENARIO | default "S0.1"}}'
+    cmds:
+      - "PYTHONPATH=src {{.uv_run}} python demo/chaos_stream.py --scenario {{.SCENARIO}} --endpoint http://localhost:8080/api/v1/ingest"
 
   # --- Utility -------------------------------------------------------
   default:
