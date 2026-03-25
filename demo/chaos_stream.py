@@ -196,6 +196,12 @@ def _parse_args() -> argparse.Namespace:
         help="Records per second (default: 1.0)",
     )
     parser.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        help="Number of times to repeat the stream (0 = infinite, default: 1)",
+    )
+    parser.add_argument(
         "--scenarios-file",
         default="data/anomaly_scenarios.yaml",
         help="Path to anomaly_scenarios.yaml (default: data/anomaly_scenarios.yaml)",
@@ -270,11 +276,13 @@ def main() -> int:
         return 1
 
     scenario = scenarios[scenario_id]
+    repeat = args.repeat  # 0 = infinite
     print(f"Scenario : {scenario.scenario_id} — {scenario.title}")
     print(f"Tier     : {scenario.tier}")
     print(f"Outcome  : {scenario.expected_outcome}")
     print(f"Endpoint : {args.endpoint}")
     print(f"Rate     : {args.rate} records/s")
+    print(f"Repeat   : {'infinite' if repeat == 0 else repeat}")
     print()
 
     # Connectivity check
@@ -292,40 +300,45 @@ def main() -> int:
     base = _base_url(args.endpoint)
     metrics_url = f"{base}/runtime-metrics"
 
-    last_status_t = time.monotonic()
+    cycle = 0
     final_metrics: dict[str, Any] = {}
 
-    for idx, record in enumerate(stream, start=1):
-        payload = record.model_dump()
-        try:
-            status = _post_json(args.endpoint, payload)
-        except Exception as exc:
-            print(f"ERROR: POST failed on record {idx}: {exc}", file=sys.stderr)
-            return 1
+    while repeat == 0 or cycle < repeat:
+        cycle += 1
+        last_status_t = time.monotonic()
 
-        if status >= 400:
-            print(f"WARNING: record {idx} returned HTTP {status}", file=sys.stderr)
+        for idx, record in enumerate(stream, start=1):
+            payload = record.model_dump()
+            try:
+                status = _post_json(args.endpoint, payload)
+            except Exception as exc:
+                print(f"ERROR: POST failed on record {idx}: {exc}", file=sys.stderr)
+                return 1
 
-        # Poll metrics roughly every second
-        now = time.monotonic()
-        if now - last_status_t >= 1.0 or idx == total:
-            raw = _get_json(metrics_url) or {}
-            m = _extract_metrics(raw)
-            final_metrics = m
-            print(
-                f"[record {idx:>2}/{total}]  "
-                f"anomalies={m['anomalies']}  "
-                f"plans_executed={m['plans_executed']}  "
-                f"emergency_stop={m['emergency_stop']}"
-            )
-            last_status_t = now
+            if status >= 400:
+                print(f"WARNING: record {idx} returned HTTP {status}", file=sys.stderr)
 
-        if idx < total:
-            time.sleep(sleep_s)
+            # Poll metrics roughly every second
+            now = time.monotonic()
+            if now - last_status_t >= 1.0 or idx == total:
+                raw = _get_json(metrics_url) or {}
+                m = _extract_metrics(raw)
+                final_metrics = m
+                cycle_label = f"cycle {cycle} " if repeat != 1 else ""
+                print(
+                    f"[{cycle_label}record {idx:>2}/{total}]  "
+                    f"anomalies={m['anomalies']}  "
+                    f"plans_executed={m['plans_executed']}  "
+                    f"emergency_stop={m['emergency_stop']}"
+                )
+                last_status_t = now
+
+            if idx < total:
+                time.sleep(sleep_s)
 
     print()
     print("=== Demo complete ===")
-    print(f"Records streamed : {total}")
+    print(f"Records streamed : {total * cycle}")
     print(f"Anomalies        : {final_metrics.get('anomalies', 'n/a')}")
     print(f"Plans executed   : {final_metrics.get('plans_executed', 'n/a')}")
     print(f"Emergency stop   : {final_metrics.get('emergency_stop', 'n/a')}")

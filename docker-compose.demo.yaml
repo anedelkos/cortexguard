@@ -31,6 +31,7 @@ services:
         --scenario ${SCENARIO:-S0.2}
         --endpoint http://edge:8080/api/v1/ingest
         --rate ${RATE:-1.0}
+        --repeat 0
     depends_on:
       edge:
         condition: service_healthy
