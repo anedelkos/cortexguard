@@ -51,6 +51,7 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
       GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: "/var/lib/grafana/dashboards/cortexguard-edge.json"
     volumes:
       - grafana_demo_data:/var/lib/grafana
       - ./docker/grafana_datasources.yaml:/etc/grafana/provisioning/datasources/cortexguard.yaml:ro
