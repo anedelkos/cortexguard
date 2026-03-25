@@ -80,10 +80,11 @@ def _mock_vision_inference(
     """
     Minimal deterministic vision stub.
 
-    Behavior:
-    - All anomalies must be injected explicitly via ChaosEngine or tests.
+    Returns any vision_objects pre-populated on the record (e.g. injected by
+    ChaosEngine and serialised over HTTP).  Falls back to empty list.
     """
-    return [], None
+    objects: list[dict[str, Any]] = [dict(v) for v in getattr(record, "vision_objects", []) or []]
+    return objects, None
 
 
 def _to_scene_object(v: dict[str, Any], ema_state: dict[str, float]) -> SceneObject:

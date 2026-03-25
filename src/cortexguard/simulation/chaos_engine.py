@@ -73,6 +73,7 @@ class ChaosEngine:
                     "bbox": [0.1, 0.1, 0.2, 0.3],
                 }
 
+                record.vision_objects.append(vision_obj)
                 self._vision_sidecar.setdefault(record.timestamp_ns, []).append(vision_obj)
 
             case "temp_spike":
@@ -108,7 +109,8 @@ class ChaosEngine:
                     "properties": {"opacity": opacity},
                 }
 
-                # store in the vision sidecar keyed by timestamp so _mock_vision_inference can return it
+                # store both on the record (survives HTTP) and the in-process sidecar
+                record.vision_objects.append(vision_obj)
                 self._vision_sidecar.setdefault(record.timestamp_ns, []).append(vision_obj)
 
             case "slip":
@@ -127,6 +129,7 @@ class ChaosEngine:
                     "properties": {"drift_mm": drift_mm, "confidence": 0.9},
                     "confidence": 0.9,
                 }
+                record.vision_objects.append(vision_obj)
                 self._vision_sidecar.setdefault(record.timestamp_ns, []).append(vision_obj)
 
             case "sensor_freeze":
@@ -149,6 +152,7 @@ class ChaosEngine:
 
                 area_pct = float(anomaly.opacity) * 100.0 if anomaly.opacity is not None else 80.0
                 self._vision_occlusion = {"area_pct": area_pct, "duration_s": 5.0}
+                record.vision_objects.append(vision_obj)
                 self._vision_sidecar.setdefault(record.timestamp_ns, []).append(vision_obj)
 
             case "comm_lag":
