@@ -196,8 +196,8 @@ class EdgeFusion:
     _SMOKE_CLEAR_CONSECUTIVE = 2  # require 2 consecutive windows to clear
     _SMOKE_MAX_SCORE = 5  # Tune based on window frequency
     _DRIFT_FAIL_MM = 10.0
-    _FORCE_MIN_PCT = 20.0
-    _FORCE_DROP_PCT = 30.0
+    _FORCE_MIN_PCT = 0.0
+    _FORCE_DROP_PCT = 100.1
     _EXPECTED_PERIOD_MS = 50
     _SOFT_DEGRADE_MS = 200
     _MAX_GAP_MS = 500
@@ -211,6 +211,9 @@ class EdgeFusion:
         custom_logger: logging.Logger | None = None,
         embedder: VisionEmbedder | None = None,
         vision_inference: Any | None = None,
+        force_min_n: float | None = None,
+        force_drop_pct: float | None = None,
+        drift_fail_mm: float | None = None,
     ):
         """
         Initialize sensor fusion engine.
@@ -235,6 +238,13 @@ class EdgeFusion:
         self.embedder = embedder
         self._state_estimator: OnlineLearnerStateEstimator | None = state_estimator
         self.vision_inference = vision_inference or _mock_vision_inference
+
+        if force_min_n is not None:
+            self._FORCE_MIN_PCT = force_min_n
+        if force_drop_pct is not None:
+            self._FORCE_DROP_PCT = force_drop_pct
+        if drift_fail_mm is not None:
+            self._DRIFT_FAIL_MM = drift_fail_mm
 
         # EMA state: sensor_key -> smoothed_value
         self._ema_state: dict[str, float] = {}
@@ -344,7 +354,7 @@ class EdgeFusion:
                 break
 
         force_drop_pct: float | None = None
-        if max_force is not None and last_force is not None and max_force > 0:
+        if max_force is not None and last_force is not None and max_force > 0 and last_force >= 0:
             force_drop_pct = 100.0 * (max_force - last_force) / max_force
 
         object_drift_mm: float | None = next(
@@ -365,22 +375,23 @@ class EdgeFusion:
             ):
                 misgrasp_candidate = True
 
-        # Normalize grasp_success to a bool (no None in return type)
+        # grasp_success is None when there is no force data — indeterminate, not a failure.
+        # LogicalRuleDetector skips None values so no consecutive-failure count is incremented.
+        grasp_success: bool | None = None
         if misgrasp_candidate:
             grasp_success = False
         elif max_force is not None:
             grasp_success = True
-        else:
-            grasp_success = False
 
-        return {
+        derived: dict[str, Any] = {
             "max_force_in_window": float(max_force) if max_force is not None else 0.0,
             "last_force": float(last_force) if last_force is not None else 0.0,
-            "force_drop_pct": float(force_drop_pct) if force_drop_pct is not None else 0.0,
             "object_drift_mm": float(object_drift_mm) if object_drift_mm is not None else 0.0,
             "misgrasp_candidate": bool(misgrasp_candidate),
-            "grasp_success": bool(grasp_success),
         }
+        if grasp_success is not None:
+            derived["grasp_success"] = grasp_success
+        return derived
 
     async def _compute_comm_lag_and_tag(self, record: WindowedFusedRecord) -> tuple[int, bool]:
         """Monotonic communication lag calculation."""
