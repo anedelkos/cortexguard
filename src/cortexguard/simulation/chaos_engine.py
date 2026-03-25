@@ -151,7 +151,9 @@ class ChaosEngine:
                 }
 
                 area_pct = float(anomaly.opacity) * 100.0 if anomaly.opacity is not None else 80.0
-                self._vision_occlusion = {"area_pct": area_pct, "duration_s": 5.0}
+                occlusion_meta = {"area_pct": area_pct, "duration_s": 5.0}
+                self._vision_occlusion = occlusion_meta
+                record.vision_occlusion = occlusion_meta
                 record.vision_objects.append(vision_obj)
                 self._vision_sidecar.setdefault(record.timestamp_ns, []).append(vision_obj)
 

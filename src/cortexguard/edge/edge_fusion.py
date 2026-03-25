@@ -84,7 +84,8 @@ def _mock_vision_inference(
     ChaosEngine and serialised over HTTP).  Falls back to empty list.
     """
     objects: list[dict[str, Any]] = [dict(v) for v in getattr(record, "vision_objects", []) or []]
-    return objects, None
+    occlusion: dict[str, Any] | None = getattr(record, "vision_occlusion", None)
+    return objects, occlusion
 
 
 def _to_scene_object(v: dict[str, Any], ema_state: dict[str, float]) -> SceneObject:
