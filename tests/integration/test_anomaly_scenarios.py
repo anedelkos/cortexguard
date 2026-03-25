@@ -192,8 +192,13 @@ async def test_anomaly_scenario(runtime: EdgeRuntime, scenario: Scenario) -> Non
             snapshot = await runtime.blackboard.get_fusion_snapshot()
             assert snapshot is not None, f"{scenario.scenario_id}: no fusion snapshot available"
 
-            for i in range(-3, 0, 1):
-                await runtime.blackboard.update_fusion_snapshot(snapshots[i])
+            failing_snaps = [s for s in snapshots if s.derived.get("grasp_success") is False]
+            assert (
+                failing_snaps
+            ), f"{scenario.scenario_id}: no failing snapshot (grasp_success=False) to drive detector"
+
+            for i in range(3):
+                await runtime.blackboard.update_fusion_snapshot(failing_snaps[i])
                 await runtime.anomaly_detector._run_tick()
 
             anomaly_present = await runtime.blackboard.is_anomaly_present()

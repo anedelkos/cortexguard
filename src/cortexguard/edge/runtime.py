@@ -110,6 +110,11 @@ class RuntimeConfig:
         default_factory=lambda: os.getenv("POLICY_MODEL_ID", "mistralai/Mistral-7B-Instruct-v0.2")
     )
 
+    # Policy remediation cooldown
+    policy_remediation_cooldown_s: float = field(
+        default_factory=lambda: float(os.getenv("POLICY_REMEDIATION_COOLDOWN_S", "30.0"))
+    )
+
     # Persistence
     persistence_enabled: bool = field(
         default_factory=lambda: os.getenv("PERSISTENCE_ENABLED", "false").lower() == "true"
@@ -121,6 +126,15 @@ class RuntimeConfig:
     )
     persistence_snapshot_interval: float = field(
         default_factory=lambda: float(os.getenv("PERSISTENCE_SNAPSHOT_INTERVAL", "5.0"))
+    )
+    fusion_force_min_n: float = field(
+        default_factory=lambda: float(os.getenv("FUSION_FORCE_MIN_N", "0.0"))
+    )
+    fusion_force_drop_pct: float = field(
+        default_factory=lambda: float(os.getenv("FUSION_FORCE_DROP_PCT", "100.1"))
+    )
+    fusion_drift_fail_mm: float = field(
+        default_factory=lambda: float(os.getenv("FUSION_DRIFT_FAIL_MM", "10.0"))
     )
 
 
@@ -183,6 +197,9 @@ class EdgeRuntime:
             blackboard=self.blackboard,
             state_estimator=self.state_estimator,
             embedder=self.vision_embedder,
+            force_min_n=self.config.fusion_force_min_n,
+            force_drop_pct=self.config.fusion_force_drop_pct,
+            drift_fail_mm=self.config.fusion_drift_fail_mm,
         )
 
         # 5. Instantiate Local Receiver (The API ingestion endpoint dependency)
@@ -233,6 +250,7 @@ class EdgeRuntime:
             capability_registry=self.capability_registry,
             policy_engine=self.policy_engine,
             mayday_agent=self.mayday_agent,
+            remediation_cooldown_s=self.config.policy_remediation_cooldown_s,
         )
 
         # Persistence
