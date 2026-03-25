@@ -12,6 +12,7 @@ from cortexguard.edge.models.agent_tool_call import AgentToolCall
 from cortexguard.edge.models.blackboard import Blackboard
 from cortexguard.edge.models.capability_registry import CapabilityRegistry
 from cortexguard.edge.models.reasoning_trace_entry import ReasoningTraceEntry, TraceSeverity
+from cortexguard.edge.utils.metrics import emergency_stop_active
 
 logger = logging.getLogger(__name__)
 
@@ -270,6 +271,7 @@ class Arbiter:
             # record and publish
             self._append_and_publish(entry)
 
+            emergency_stop_active.set(1)
             try:
                 await asyncio.create_task(self._blackboard.set_safety_flag("emergency_stop", True))
             except Exception as exc:

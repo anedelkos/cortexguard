@@ -95,6 +95,11 @@ mayday_consecutive_failures = Gauge(
     "Current consecutive cloud escalation failures",
 )
 
+emergency_stop_active = Gauge(
+    "cortexguard_emergency_stop_active",
+    "1 if emergency stop is currently active, 0 otherwise",
+)
+
 # Plan and step execution
 plans_total = Counter(
     "cortexguard_plans_total",
