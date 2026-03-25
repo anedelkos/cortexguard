@@ -53,9 +53,12 @@ SCENARIO=S0.1 docker compose -f docker-compose.demo.yaml up --build
 
 | Arg | Default | Description |
 |---|---|---|
-| `--scenario` | — | Scenario ID (e.g. `S0.1`) |
+| `--scenario` | `S0.1` | Scenario ID (e.g. `S0.2`) |
 | `--endpoint` | `http://localhost:8080/api/v1/ingest` | Edge ingest endpoint |
-| `--rate` | `1.0` | Streaming rate multiplier |
+| `--rate` | `1.0` | Records per second |
+| `--repeat` | `1` | Times to repeat the stream (`0` = infinite loop) |
 | `--list` | — | Print all scenarios and exit |
 
-> **Slim mode:** The demo Docker image does not install torch or transformers. All 6 scenarios work without them — vision objects are injected via the ChaosEngine sidecar, bypassing the vision embedder entirely.
+> **Slim mode:** The demo Docker image does not install torch or transformers. All 6 scenarios work without them — vision detections and occlusion metadata are serialised directly into the `WindowedFusedRecord` payload and processed by the edge without requiring the vision embedder.
+
+> **Docker demo loop:** The Docker demo stack runs with `--repeat 0` by default so Grafana receives a continuous stream of data.

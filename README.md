@@ -148,13 +148,13 @@ See anomaly detection in action with a single command — no Python install requ
 docker compose -f docker-compose.demo.yaml up --build
 
 # Try other scenarios
-SCENARIO=S0.2 docker compose -f docker-compose.demo.yaml up --build   # overheat + smoke
-SCENARIO=S1.1 docker compose -f docker-compose.demo.yaml up --build   # repeated misgrasp
-SCENARIO=S2.3 docker compose -f docker-compose.demo.yaml up --build   # sensor freeze
-SCENARIO=S4.1 docker compose -f docker-compose.demo.yaml up --build   # compound fault
+SCENARIO=S0.1 docker compose -f docker-compose.demo.yaml up --build   # human in safety radius → E-STOP
+SCENARIO=S1.1 docker compose -f docker-compose.demo.yaml up --build   # repeated misgrasp → escalate to cloud
+SCENARIO=S2.3 docker compose -f docker-compose.demo.yaml up --build   # sensor freeze → local recovery
+SCENARIO=S4.1 docker compose -f docker-compose.demo.yaml up --build   # compound fault → recovery or escalate
 ```
 
-The simulator streams synthetic sensor data with injected anomalies to the edge service. Watch the simulator logs for live detection output, or open Grafana at `http://localhost:3000`.
+The simulator streams synthetic sensor data with injected anomalies to the edge service in an infinite loop. Watch the simulator logs for live detection output, or open Grafana at `http://localhost:3000` (no login required).
 
 > **Note:** The demo image is slim — torch and transformers are not installed. Vision embedding and LLM policy generation run in mock mode (no model weights downloaded).
 
