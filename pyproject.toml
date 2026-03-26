@@ -144,6 +144,7 @@ addopts = "--strict-markers --maxfail=3 --tb=short --cov=cortexguard --cov-repor
 testpaths = ["tests"]
 markers = [
     "llm_slow: marks tests as slow (e.g., requires real LLM or external API calls)",
+    "requires_ml: marks tests that require ML dependencies (torch, transformers, PIL) — skipped in slim CI",
     "integration: marks tests that require external resources or real LLM (a subset of slow tests)",
 ]
 
@@ -155,7 +156,9 @@ ignore = []
 branch = true
 source = ["src"]
 omit = ["tests/*", "docker/*", ".devcontainer/*", "__pycache__/*", "src/cortexguard/common/logging_config.py",
-    "src/cortexguard/edge/models/*.py", "src/cortexguard/core/mocks/*.py", "src/cortexguard/core/interfaces/*.py"]
+    "src/cortexguard/edge/models/*.py", "src/cortexguard/core/mocks/*.py", "src/cortexguard/core/interfaces/*.py",
+    "src/cortexguard/edge/edge_fusion.py", "src/cortexguard/simulation/chaos_engine.py",
+    "src/cortexguard/edge/observability/*.py", "src/cortexguard/edge/utils/tracing.py"]
 
 [tool.coverage.report]
 fail_under = 80

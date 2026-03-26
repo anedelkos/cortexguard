@@ -16,16 +16,19 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-import torch
-from PIL import Image
 
-from cortexguard.edge.edge_fusion import EdgeFusion
-from cortexguard.edge.models.blackboard import Blackboard
-from cortexguard.edge.models.fusion_snapshot import FusionSnapshot
-from cortexguard.simulation.models.windowed_fused_record import (
+torch = pytest.importorskip("torch")
+Image = pytest.importorskip("PIL.Image")
+
+from cortexguard.edge.edge_fusion import EdgeFusion  # noqa: E402
+from cortexguard.edge.models.blackboard import Blackboard  # noqa: E402
+from cortexguard.edge.models.fusion_snapshot import FusionSnapshot  # noqa: E402
+from cortexguard.simulation.models.windowed_fused_record import (  # noqa: E402
     SensorReading,
     WindowedFusedRecord,
 )
+
+pytestmark = pytest.mark.requires_ml
 
 
 @pytest.fixture
