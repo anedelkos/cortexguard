@@ -1,9 +1,9 @@
-from __future__ import annotations
-
 import logging
 import time
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Request, status
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from cortexguard.edge.local_receiver import LocalReceiver
 from cortexguard.edge.utils.metrics import http_request_duration_ms, http_requests_total
@@ -12,8 +12,10 @@ from cortexguard.simulation.models.windowed_fused_record import WindowedFusedRec
 
 logger = logging.getLogger(__name__)
 
+limiter = Limiter(key_func=get_remote_address)
 
-def get_ingestion_router(receiver: LocalReceiver) -> APIRouter:
+
+def get_ingestion_router(receiver: LocalReceiver, rate_limit: str = "100/second") -> APIRouter:
     """
     Factory function to create the ingestion router with injected dependencies.
 
@@ -22,9 +24,11 @@ def get_ingestion_router(receiver: LocalReceiver) -> APIRouter:
     """
     router = APIRouter()
 
-    # NOTE: The route handler must be async and use 'await' because LocalReceiver.ingest is an async method.
     @router.post("/ingest", status_code=status.HTTP_202_ACCEPTED)
-    async def ingest_record(record: FusedRecord | WindowedFusedRecord) -> dict[str, int | str]:
+    @limiter.limit(rate_limit)  # type: ignore[misc]
+    async def ingest_record(
+        request: Request, record: FusedRecord | WindowedFusedRecord
+    ) -> dict[str, int | str]:
         """
         Receive a fused record (single-frame or windowed) from the simulator.
         Automatically validated via Pydantic models from `cortexguard.simulation.models`.

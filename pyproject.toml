@@ -14,6 +14,7 @@ dependencies = [
     "river>=0.23.0",
     "jsonschema>=4.25.1",
     "prometheus-client>=0.23.1",
+    "slowapi>=0.1.9",
     "opentelemetry-api>=1.39.1",
     "opentelemetry-sdk>=1.39.1",
     "opentelemetry-exporter-otlp>=1.39.1",
@@ -182,6 +183,9 @@ skips = ["B101"]  # Example: skip asserts for testing
 [tool.pre-commit]
 # pre-commit itself does not use pyproject.toml, but tools invoked by pre-commit (Black, Ruff, Mypy) will
 
+
+[tool.deptry.package_module_name_map]
+pillow = "PIL"
 
 [tool.deptry.per_rule_ignores]
 DEP002 = ["uvicorn", "bitsandbytes", "accelerate"]

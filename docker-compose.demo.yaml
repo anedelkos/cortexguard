@@ -12,7 +12,7 @@ services:
     depends_on:
       - tempo
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz/live"]
       interval: 3s
       timeout: 5s
       retries: 10
