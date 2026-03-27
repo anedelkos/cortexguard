@@ -15,8 +15,6 @@ from cortexguard.edge.models.state_estimate import StateEstimate
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer("cortexguard.safety")
 
-_SAFETY_RADIUS_M = 0.5
-
 
 # Structured command instead of raw strings
 @dataclass
@@ -37,8 +35,14 @@ class SafetyAgent:
     # canonical keys that always mean immediate stop (upper-case for normalization)
     EXPLICIT_STOP_KEYS = {"HUMAN_PROXIMITY_VIOLATION", "OVERHEAT_SMOKE_COMBO", "OVERHEAT_SMOKE"}
 
-    def __init__(self, blackboard: Blackboard, rules: list[SafetyRule] | None = None) -> None:
+    def __init__(
+        self,
+        blackboard: Blackboard,
+        rules: list[SafetyRule] | None = None,
+        safety_radius_m: float = 0.5,
+    ) -> None:
         self.rules: list[SafetyRule] = rules if rules is not None else []
+        self._safety_radius_m = safety_radius_m
         self._load_default_rules()
         self._blackboard: Blackboard = blackboard
         self._anomalies: dict[str, AnomalyEvent] = {}
@@ -171,10 +175,10 @@ class SafetyAgent:
                     if isinstance(d, (int, float)):
                         nearest = d if nearest is None else min(nearest, float(d))
 
-        if isinstance(nearest, (int, float)) and nearest <= _SAFETY_RADIUS_M:
+        if isinstance(nearest, (int, float)) and nearest <= self._safety_radius_m:
             return SafetyCommand(
                 action="E-STOP",
-                reason=f"Immediate human proximity: {nearest:.2f}m <= {_SAFETY_RADIUS_M:.2f}m",
+                reason=f"Immediate human proximity: {nearest:.2f}m <= {self._safety_radius_m:.2f}m",
             )
 
         return SafetyCommand(action="NOMINAL")

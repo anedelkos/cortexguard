@@ -147,6 +147,43 @@ class RuntimeConfig:
         default_factory=lambda: float(os.getenv("FUSION_DRIFT_FAIL_MM", "10.0"))
     )
 
+    # LLM circuit breaker
+    llm_timeout_s: float = field(default_factory=lambda: float(os.getenv("LLM_TIMEOUT_S", "30.0")))
+    llm_failure_threshold: int = field(
+        default_factory=lambda: int(os.getenv("LLM_FAILURE_THRESHOLD", "3"))
+    )
+    llm_cooldown_s: float = field(
+        default_factory=lambda: float(os.getenv("LLM_COOLDOWN_S", "60.0"))
+    )
+
+    # Safety and detection thresholds
+    detector_temp_threshold_c: float = field(
+        default_factory=lambda: float(os.getenv("DETECTOR_TEMP_THRESHOLD_C", "70.0"))
+    )
+    detector_z_score_threshold: float = field(
+        default_factory=lambda: float(os.getenv("DETECTOR_Z_SCORE_THRESHOLD", "5.0"))
+    )
+    estimator_sigma_threshold: float = field(
+        default_factory=lambda: float(os.getenv("ESTIMATOR_SIGMA_THRESHOLD", "3.0"))
+    )
+    safety_radius_m: float = field(
+        default_factory=lambda: float(os.getenv("SAFETY_RADIUS_M", "0.5"))
+    )
+    fusion_smoke_ppm_threshold: float = field(
+        default_factory=lambda: float(os.getenv("FUSION_SMOKE_PPM_THRESHOLD", "50.0"))
+    )
+
+    # Sensor timing
+    fusion_expected_period_ms: int = field(
+        default_factory=lambda: int(os.getenv("FUSION_EXPECTED_PERIOD_MS", "50"))
+    )
+    fusion_soft_degrade_ms: int = field(
+        default_factory=lambda: int(os.getenv("FUSION_SOFT_DEGRADE_MS", "200"))
+    )
+    fusion_max_gap_ms: int = field(
+        default_factory=lambda: int(os.getenv("FUSION_MAX_GAP_MS", "500"))
+    )
+
 
 class EdgeRuntime:
     """
@@ -172,7 +209,9 @@ class EdgeRuntime:
             capability_registry=self.capability_registry,
             controller=self.controller,
         )
-        self.safety_agent = SafetyAgent(self.blackboard)
+        self.safety_agent = SafetyAgent(
+            self.blackboard, safety_radius_m=self.config.safety_radius_m
+        )
         self.orchestrator = Orchestrator(
             blackboard=self.blackboard,
             arbiter=self.arbiter,
@@ -200,7 +239,11 @@ class EdgeRuntime:
         self.online_learner: BaseOnlineLearner = RiverOnlineLearner()
 
         # 3. Instantiate the State Estimator (Translates residuals to Z-scores)
-        self.state_estimator = OnlineLearnerStateEstimator(self.online_learner, self.blackboard)
+        self.state_estimator = OnlineLearnerStateEstimator(
+            self.online_learner,
+            self.blackboard,
+            sigma_threshold=self.config.estimator_sigma_threshold,
+        )
 
         # 4. Instantiate Edge Fusion
         self.edge_fusion = EdgeFusion(
@@ -210,6 +253,10 @@ class EdgeRuntime:
             force_min_n=self.config.fusion_force_min_n,
             force_drop_pct=self.config.fusion_force_drop_pct,
             drift_fail_mm=self.config.fusion_drift_fail_mm,
+            smoke_ppm_threshold=self.config.fusion_smoke_ppm_threshold,
+            expected_period_ms=self.config.fusion_expected_period_ms,
+            soft_degrade_ms=self.config.fusion_soft_degrade_ms,
+            max_gap_ms=self.config.fusion_max_gap_ms,
         )
 
         # 5. Instantiate Local Receiver (The API ingestion endpoint dependency)
@@ -226,11 +273,13 @@ class EdgeRuntime:
         # S0.3 Impact Detector (Statistical)
         self.statistical_impulse_detector = StatisticalImpulseDetector(
             state_estimator=self.state_estimator,
-            z_score_threshold=self.config.anomaly_threshold,
+            z_score_threshold=self.config.detector_z_score_threshold,
         )
         self.anomaly_detector.register_detector(self.statistical_impulse_detector)
         # S0.2 Overheat Detector
-        self.hard_limit_detector = HardLimitDetector()
+        self.hard_limit_detector = HardLimitDetector(
+            temp_threshold=self.config.detector_temp_threshold_c
+        )
         self.anomaly_detector.register_detector(self.hard_limit_detector)
         # S1.1: Repeated system failures, S2.3: Sensor/Blackboard data freeze
         self.logical_rule_detector = LogicalRuleDetector()
@@ -238,7 +287,9 @@ class EdgeRuntime:
 
         # S1.x Vision reflex detector (human proximity, occlusion)
         self.vision_safety_detector = VisionSafetyDetector(
-            VisionSafetyDetectorConfig(safety_radius_m=0.5, min_confidence=0.6)
+            VisionSafetyDetectorConfig(
+                safety_radius_m=self.config.safety_radius_m, min_confidence=0.6
+            )
         )
         self.anomaly_detector.register_detector(self.vision_safety_detector)
 
@@ -261,6 +312,9 @@ class EdgeRuntime:
             policy_engine=self.policy_engine,
             mayday_agent=self.mayday_agent,
             remediation_cooldown_s=self.config.policy_remediation_cooldown_s,
+            llm_timeout_s=self.config.llm_timeout_s,
+            llm_failure_threshold=self.config.llm_failure_threshold,
+            llm_cooldown_s=self.config.llm_cooldown_s,
         )
 
         # Persistence

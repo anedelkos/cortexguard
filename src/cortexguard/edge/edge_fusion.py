@@ -227,6 +227,10 @@ class EdgeFusion:
         force_min_n: float | None = None,
         force_drop_pct: float | None = None,
         drift_fail_mm: float | None = None,
+        smoke_ppm_threshold: float | None = None,
+        expected_period_ms: int | None = None,
+        soft_degrade_ms: int | None = None,
+        max_gap_ms: int | None = None,
     ):
         """
         Initialize sensor fusion engine.
@@ -258,6 +262,14 @@ class EdgeFusion:
             self._FORCE_DROP_PCT = force_drop_pct
         if drift_fail_mm is not None:
             self._DRIFT_FAIL_MM = drift_fail_mm
+        if smoke_ppm_threshold is not None:
+            self._SMOKE_PPM_THRESHOLD = smoke_ppm_threshold
+        if expected_period_ms is not None:
+            self._EXPECTED_PERIOD_MS = expected_period_ms
+        if soft_degrade_ms is not None:
+            self._SOFT_DEGRADE_MS = soft_degrade_ms
+        if max_gap_ms is not None:
+            self._MAX_GAP_MS = max_gap_ms
 
         # EMA state: sensor_key -> smoothed_value
         self._ema_state: dict[str, float] = {}

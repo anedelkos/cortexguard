@@ -66,6 +66,9 @@ class PolicyAgent:
         mayday_agent: MaydayAgent,
         trace_sink: BaseTraceSink | None = None,
         remediation_cooldown_s: float = 30.0,
+        llm_timeout_s: float = _LLM_TIMEOUT_S,
+        llm_failure_threshold: int = _LLM_FAILURE_THRESHOLD,
+        llm_cooldown_s: float = _LLM_COOLDOWN_S,
     ) -> None:
         """Initialize Policy Agent."""
         self._blackboard = blackboard
@@ -76,6 +79,9 @@ class PolicyAgent:
         self._policy_engine = policy_engine
         self._mayday_agent = mayday_agent
         self._remediation_cooldown_s = remediation_cooldown_s
+        self._llm_timeout_s = llm_timeout_s
+        self._llm_failure_threshold = llm_failure_threshold
+        self._llm_cooldown_s = llm_cooldown_s
 
         self._loop_running: bool = False
         self._task: asyncio.Task[Any] | None = None
@@ -358,13 +364,13 @@ class PolicyAgent:
 
     def _record_llm_failure(self) -> None:
         self._llm_consecutive_failures += 1
-        if self._llm_consecutive_failures >= self._LLM_FAILURE_THRESHOLD:
-            self._llm_circuit_open_until = time.monotonic() + self._LLM_COOLDOWN_S
+        if self._llm_consecutive_failures >= self._llm_failure_threshold:
+            self._llm_circuit_open_until = time.monotonic() + self._llm_cooldown_s
             llm_circuit_open.set(1)
             logger.warning(
                 "LLM circuit breaker opened after %d consecutive failures. " "Cooldown: %.0fs.",
                 self._llm_consecutive_failures,
-                self._LLM_COOLDOWN_S,
+                self._llm_cooldown_s,
             )
         llm_requests_total.labels(outcome="failure").inc()
 
@@ -442,7 +448,7 @@ class PolicyAgent:
                         active_plan_context=active_plan_context,
                         vision_context=vision_context,
                     ),
-                    timeout=self._LLM_TIMEOUT_S,
+                    timeout=self._llm_timeout_s,
                 )
                 duration_ms = int((datetime.now(UTC) - start).total_seconds() * 1000)
                 span.set_attribute("llm.duration_ms", duration_ms)
