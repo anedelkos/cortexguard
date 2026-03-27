@@ -38,9 +38,10 @@ jobs:
       - name: Setup
         run: |
           curl -fsSL https://taskfile.dev/install.sh | sh && mv ./bin/task /usr/local/bin/task
-          python3.12 -m venv .venv-local
-          .venv-local/bin/pip install --quiet --upgrade pip 'uv>=0.9.5'
-          .venv-local/bin/python -m uv sync --group dev --frozen --active
+
+
+          curl -fsSL https://astral.sh/uv/install.sh | sh && mv $HOME/.local/bin/uv /usr/local/bin/uv
+          uv sync --group dev --frozen
 
       - name: Lint
         run: task lint
@@ -68,13 +69,14 @@ jobs:
       - name: Setup
         run: |
           curl -fsSL https://taskfile.dev/install.sh | sh && mv ./bin/task /usr/local/bin/task
-          python3.12 -m venv .venv-local
-          .venv-local/bin/pip install --quiet --upgrade pip 'uv>=0.9.5'
-          .venv-local/bin/python -m uv sync --group dev --frozen --active
+
+
+          curl -fsSL https://astral.sh/uv/install.sh | sh && mv $HOME/.local/bin/uv /usr/local/bin/uv
+          uv sync --group dev --frozen
 
       - name: Run unit tests
         run: |
-          PYTHONPATH=src:$(pwd) .venv-local/bin/python -m uv run --active pytest -v tests/unit \
+          PYTHONPATH=src:$(pwd) uv run pytest -v tests/unit \
             --maxfail=1 --disable-warnings --cov-fail-under=0
 
       - name: Save unit coverage
@@ -105,13 +107,14 @@ jobs:
       - name: Setup
         run: |
           curl -fsSL https://taskfile.dev/install.sh | sh && mv ./bin/task /usr/local/bin/task
-          python3.12 -m venv .venv-local
-          .venv-local/bin/pip install --quiet --upgrade pip 'uv>=0.9.5'
-          .venv-local/bin/python -m uv sync --group dev --frozen --active
+
+
+          curl -fsSL https://astral.sh/uv/install.sh | sh && mv $HOME/.local/bin/uv /usr/local/bin/uv
+          uv sync --group dev --frozen
 
       - name: Run integration tests
         run: |
-          PYTHONPATH=src:$(pwd) .venv-local/bin/python -m uv run --active pytest -v \
+          PYTHONPATH=src:$(pwd) uv run pytest -v \
             -m "integration and not llm_slow" --maxfail=1 --disable-warnings \
             --cov-fail-under=0
 
@@ -145,9 +148,10 @@ jobs:
 
       - name: Setup
         run: |
-          python3.12 -m venv .venv-local
-          .venv-local/bin/pip install --quiet --upgrade pip 'uv>=0.9.5'
-          .venv-local/bin/python -m uv sync --group dev --frozen --active
+
+
+          curl -fsSL https://astral.sh/uv/install.sh | sh && mv $HOME/.local/bin/uv /usr/local/bin/uv
+          uv sync --group dev --frozen
 
       - uses: actions/download-artifact@v4
         with:
@@ -159,9 +163,9 @@ jobs:
 
       - name: Combine and check coverage
         run: |
-          .venv-local/bin/python -m coverage combine .coverage.unit .coverage.integration
-          .venv-local/bin/python -m coverage report --fail-under=80
-          .venv-local/bin/python -m coverage xml
+          uv run coverage combine .coverage.unit .coverage.integration
+          uv run coverage report --fail-under=80
+          uv run coverage xml
 
       - uses: actions/upload-artifact@v4
         with:
@@ -190,9 +194,10 @@ jobs:
       - name: Setup
         run: |
           curl -fsSL https://taskfile.dev/install.sh | sh && mv ./bin/task /usr/local/bin/task
-          python3.12 -m venv .venv-local
-          .venv-local/bin/pip install --quiet --upgrade pip 'uv>=0.9.5'
-          .venv-local/bin/python -m uv sync --group dev --frozen --active
+
+
+          curl -fsSL https://astral.sh/uv/install.sh | sh && mv $HOME/.local/bin/uv /usr/local/bin/uv
+          uv sync --group dev --frozen
 
       - name: Safety + Vulture
         run: |

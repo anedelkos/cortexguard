@@ -17,8 +17,6 @@ build/
 # uv virtual environments
 # --------------------------
 .venv/
-.venv-local/
-.venv-local
 venv/
 uv.lock
 

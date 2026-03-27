@@ -6,29 +6,23 @@ vars:
   test_dir: "tests"
   demo_dir: "demo"
   data_dir: "data"
-  venv_path: ".venv-local"
-  uv_run: "{{.venv_path}}/bin/python -m uv run --active"
+  venv_path: ".venv"
+  uv_run: "uv run"
 
 
 tasks:
   # --- Setup ---------------------------------------------------------
   venv:
-    desc: "Create virtual environment and install dev dependencies (includes ML extras)"
+    desc: "Install dev dependencies including ML extras (uv manages .venv)"
     cmds:
-      - "python{{.python_version}} -m venv {{.venv_path}}"
-      - "{{.venv_path}}/bin/python -m pip install --upgrade pip"
-      - "{{.venv_path}}/bin/python -m pip install 'uv>=0.9.5'"
-      - "{{.venv_path}}/bin/python -m uv sync --extra ml --group dev --active"
-      - "{{.venv_path}}/bin/python -m uv run --active pre-commit install"
+      - "uv sync --extra ml --group dev"
+      - "uv run pre-commit install"
 
   venv-slim:
-    desc: "Create virtual environment without heavy ML deps (no torch/transformers)"
+    desc: "Install dev dependencies without heavy ML deps (no torch/transformers)"
     cmds:
-      - "python{{.python_version}} -m venv {{.venv_path}}"
-      - "{{.venv_path}}/bin/python -m pip install --upgrade pip"
-      - "{{.venv_path}}/bin/python -m pip install 'uv>=0.9.5'"
-      - "{{.venv_path}}/bin/python -m uv sync --group dev --active"
-      - "{{.venv_path}}/bin/python -m uv run --active pre-commit install"
+      - "uv sync --group dev"
+      - "uv run pre-commit install"
 
   reinstall:
     desc: "Recreate the environment from scratch"
