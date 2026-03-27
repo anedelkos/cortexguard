@@ -15,6 +15,9 @@ All variables are optional with the defaults shown. Set them in your shell, `.en
 | `POLICY_MODEL_ID` | `mistralai/Mistral-7B-Instruct-v0.2` | HuggingFace model ID for LLM policy engine |
 | `POLICY_USE_MOCK` | `true` | `false` to enable real Mistral-7B inference (requires full deps + GPU recommended) |
 | `POLICY_REMEDIATION_COOLDOWN_S` | `30.0` | Minimum seconds between remediation policy generations for the same anomaly |
+| `LLM_TIMEOUT_S` | `30.0` | Per-call timeout in seconds for the LLM policy engine |
+| `LLM_FAILURE_THRESHOLD` | `3` | Consecutive LLM failures before the circuit breaker opens |
+| `LLM_COOLDOWN_S` | `60.0` | Duration in seconds the LLM circuit breaker stays open before resetting |
 | `PERSISTENCE_ENABLED` | `false` | Enable periodic blackboard snapshots to disk |
 | `PERSISTENCE_FILE_PATH` | `/var/lib/cortexguard/blackboard.json` | Blackboard snapshot location |
 | `PERSISTENCE_SNAPSHOT_INTERVAL` | `5.0` | Seconds between snapshots |
@@ -25,6 +28,14 @@ All variables are optional with the defaults shown. Set them in your shell, `.en
 | `FUSION_FORCE_MIN_N` | `0.0` | Force sensor floor in Newtons (values below are clamped) |
 | `FUSION_FORCE_DROP_PCT` | `100.1` | Force drop detection threshold as % change |
 | `FUSION_DRIFT_FAIL_MM` | `10.0` | Position drift failure threshold in mm |
+| `FUSION_SMOKE_PPM_THRESHOLD` | `50.0` | Smoke sensor threshold in PPM above which smoke is flagged |
+| `FUSION_EXPECTED_PERIOD_MS` | `50` | Expected sensor window arrival interval in milliseconds |
+| `FUSION_SOFT_DEGRADE_MS` | `200` | Arrival lag threshold in milliseconds above which timing is marked degraded |
+| `FUSION_MAX_GAP_MS` | `500` | Maximum tolerated arrival gap in milliseconds before data is considered stale |
+| `SAFETY_RADIUS_M` | `0.5` | Minimum safe distance in metres between robot and detected humans |
+| `DETECTOR_TEMP_THRESHOLD_C` | `70.0` | Temperature threshold in °C above which an overheat anomaly is raised |
+| `DETECTOR_Z_SCORE_THRESHOLD` | `5.0` | Z-score threshold above which the statistical impulse detector fires |
+| `ESTIMATOR_SIGMA_THRESHOLD` | `3.0` | Standard deviation threshold used by the online state estimator for anomaly classification |
 
 ---
 
