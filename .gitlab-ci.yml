@@ -31,9 +31,8 @@ include:
   before_script:
     - apt-get update -qq && apt-get install -y -qq curl
     - curl -fsSL https://taskfile.dev/install.sh | sh && mv ./bin/task /usr/local/bin/task
-    - python3.12 -m venv .venv-local
-    - .venv-local/bin/pip install --quiet --upgrade pip 'uv>=0.9.5'
-    - .venv-local/bin/python -m uv sync --group dev --frozen --active
+    - curl -fsSL https://astral.sh/uv/install.sh | sh && mv $HOME/.local/bin/uv /usr/local/bin/uv
+    - uv sync --group dev --frozen
 
 .rules-all:
   &rules-all
@@ -71,7 +70,7 @@ test-unit:
   stage: test
   <<: *rules-all
   script:
-    - PYTHONPATH=src:$CI_PROJECT_DIR .venv-local/bin/python -m uv run --active pytest -v tests/unit
+    - PYTHONPATH=src:$CI_PROJECT_DIR uv run pytest -v tests/unit
       --maxfail=1 --disable-warnings --cov=src/cortexguard --cov-report=term-missing
       --cov-fail-under=0
     - mv .coverage .coverage.unit
@@ -85,7 +84,7 @@ test-integration:
   stage: test
   <<: *rules-all
   script:
-    - PYTHONPATH=src:$CI_PROJECT_DIR .venv-local/bin/python -m uv run --active pytest -v
+    - PYTHONPATH=src:$CI_PROJECT_DIR uv run pytest -v
       -m "integration and not llm_slow" --maxfail=1 --disable-warnings
       --cov=src/cortexguard --cov-report=term-missing --cov-fail-under=0
     - mv .coverage .coverage.integration
@@ -106,9 +105,9 @@ coverage:
     - job: test-integration
       artifacts: true
   script:
-    - .venv-local/bin/python -m coverage combine .coverage.unit .coverage.integration
-    - .venv-local/bin/python -m coverage report --fail-under=80
-    - .venv-local/bin/python -m coverage xml
+    - uv run coverage combine .coverage.unit .coverage.integration
+    - uv run coverage report --fail-under=80
+    - uv run coverage xml
   coverage: '/TOTAL.*\s(\d+)%/'
   artifacts:
     reports:
