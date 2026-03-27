@@ -183,5 +183,8 @@ skips = ["B101"]  # Example: skip asserts for testing
 # pre-commit itself does not use pyproject.toml, but tools invoked by pre-commit (Black, Ruff, Mypy) will
 
 
+[tool.deptry.package_module_name_map]
+pillow = "PIL"
+
 [tool.deptry.per_rule_ignores]
 DEP002 = ["uvicorn", "bitsandbytes", "accelerate"]

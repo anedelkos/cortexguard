@@ -109,6 +109,9 @@ class RuntimeConfig:
     policy_model_id: str = field(
         default_factory=lambda: os.getenv("POLICY_MODEL_ID", "mistralai/Mistral-7B-Instruct-v0.2")
     )
+    policy_use_mock: bool = field(
+        default_factory=lambda: os.getenv("POLICY_USE_MOCK", "true").lower() == "true"
+    )
 
     # Policy remediation cooldown
     policy_remediation_cooldown_s: float = field(
@@ -235,7 +238,7 @@ class EdgeRuntime:
         # --- REASONING SUBSYSTEM (Policy Agent) ---
         # 1. Instantiate the Policy Engine (LLM)
         self.policy_engine: BasePolicyEngine = MistralLLMPolicyEngine(
-            use_mock=True,  # Use mock for safe/fast edge deployment
+            use_mock=self.config.policy_use_mock,
             model_id=self.config.policy_model_id,
         )
         self.mayday_agent = MaydayAgent(

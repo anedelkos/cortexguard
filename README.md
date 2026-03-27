@@ -156,7 +156,7 @@ SCENARIO=S4.1 docker compose -f docker-compose.demo.yaml up --build   # compound
 
 The simulator streams synthetic sensor data with injected anomalies to the edge service in an infinite loop. Watch the simulator logs for live detection output, or open Grafana at `http://localhost:3000` (no login required).
 
-> **Note:** The demo image is slim — torch and transformers are not installed. Vision embedding and LLM policy generation run in mock mode (no model weights downloaded).
+> **Note:** The Docker demo runs in mock mode — the LLM policy engine returns canned responses (no model weights downloaded). The system is wired to a **real model** (`mistralai/Mistral-7B-Instruct-v0.2`) and can run full inference outside Docker: install the full dependencies with `task venv`, start the edge service directly, and set `POLICY_USE_MOCK=false`. The model downloads from HuggingFace on first run (~4GB with 4-bit quantization on CUDA; ~14GB on CPU). A CUDA-enabled GPU equivalent to or better than an NVIDIA RTX 3060 is recommended — expect ~10–15s per inference on an RTX 3060.
 
 To list all available scenarios:
 ```bash
@@ -176,6 +176,8 @@ task venv-slim     # slim install — no torch/transformers, sufficient for demo
 ```bash
 task edge:run
 ```
+
+Interactive API reference available at `http://localhost:8080/docs` (Swagger UI) or `http://localhost:8080/redoc` (ReDoc) once the service is running.
 
 3️⃣ Stream simulated data
 ```bash
