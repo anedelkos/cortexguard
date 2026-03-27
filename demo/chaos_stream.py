@@ -227,14 +227,14 @@ def _base_url(endpoint: str) -> str:
 def _check_reachable(endpoint: str) -> bool:
     """Return True if the endpoint host is reachable (best-effort HEAD/GET)."""
     base = _base_url(endpoint)
-    result = _get_json(f"{base}/healthz")
+    result = _get_json(f"{base}/healthz/live")
     if result is not None:
         return True
     # healthz may not return JSON — try a raw request
     try:
         import urllib.request
 
-        urllib.request.urlopen(f"{base}/healthz", timeout=5).close()
+        urllib.request.urlopen(f"{base}/healthz/live", timeout=5).close()
         return True
     except Exception:
         return False

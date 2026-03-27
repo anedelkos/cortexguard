@@ -30,6 +30,7 @@ from typing import Any
 from fastapi import FastAPI, Request, Response
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
+from slowapi.errors import RateLimitExceeded
 
 from cortexguard.common.logging_config import setup_logging
 from cortexguard.core.interfaces.base_online_learner import BaseOnlineLearner
@@ -39,7 +40,8 @@ from cortexguard.core.mocks.mock_controller import MockController
 from cortexguard.core.mocks.mock_step_classifier import MockStepClassifier
 from cortexguard.edge.api import health
 from cortexguard.edge.api import metrics as metrics_router
-from cortexguard.edge.api.ingestion import get_ingestion_router
+from cortexguard.edge.api.health import get_health_router
+from cortexguard.edge.api.ingestion import get_ingestion_router, limiter
 from cortexguard.edge.arbiter import Arbiter
 from cortexguard.edge.detectors.anomaly_detector import AnomalyDetector
 from cortexguard.edge.detectors.numeric import StatisticalImpulseDetector
@@ -108,6 +110,11 @@ class RuntimeConfig:
     # Policy engine
     policy_model_id: str = field(
         default_factory=lambda: os.getenv("POLICY_MODEL_ID", "mistralai/Mistral-7B-Instruct-v0.2")
+    )
+
+    # Ingest rate limit
+    ingest_rate_limit: str = field(
+        default_factory=lambda: os.getenv("INGEST_RATE_LIMIT", "100/second")
     )
 
     # Policy remediation cooldown
@@ -560,23 +567,31 @@ def get_api_app(profile: str = "default") -> FastAPI:
         http_requests_total.labels(method="POST", status_code="422").inc()
         return await request_validation_exception_handler(request, exc)
 
+    @app.exception_handler(RateLimitExceeded)
+    async def rate_limit_exception_handler(request: Request, exc: RateLimitExceeded) -> Response:
+        http_requests_total.labels(method="POST", status_code="429").inc()
+        return Response(
+            content=f'{{"error": "Rate limit exceeded: {exc.detail}"}}',
+            status_code=429,
+            media_type="application/json",
+        )
+
     # --- Router Wiring and Dependency Injection ---
 
     # 1. Inject the LocalReceiver instance into the ingestion router factory
     receiver_instance = runtime.receiver
-    ingestion_router = get_ingestion_router(receiver=receiver_instance)
+    ingestion_router = get_ingestion_router(
+        receiver=receiver_instance, rate_limit=runtime.config.ingest_rate_limit
+    )
 
     # 2. Include the routers
     app.include_router(health.router)
+    app.include_router(get_health_router(runtime.health_check))
     app.include_router(ingestion_router, prefix="/api/v1")
     app.include_router(metrics_router.router)
 
-    # 3. Expose Health and Metrics (using the runtime instance created above)
-    @app.get("/healthz")
-    async def get_healthz() -> dict[str, bool]:
-        """Exposes detailed health checks for the EdgeRuntime subsystems."""
-        # Delegating to EdgeRuntime's method which returns dict[str, bool]
-        return await runtime.health_check()
+    # 3. Rate limiting
+    app.state.limiter = limiter
 
     @app.get("/runtime-metrics")
     async def get_metrics() -> dict[str, int | float | str | None]:

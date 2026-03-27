@@ -390,6 +390,60 @@
           ],
           "title": "Ingestion p99 Latency",
           "type": "timeseries"
+        },
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 10
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 6,
+            "x": 0,
+            "y": 12
+          },
+          "id": 35,
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "targets": [
+            {
+              "expr": "rate(cortexguard_http_requests_total{status_code=\"429\"}[1m])",
+              "legendFormat": "Rate limited req/s",
+              "refId": "A"
+            }
+          ],
+          "title": "Rate Limited (429) req/s",
+          "type": "stat"
         }
       ],
       "title": "HTTP RED",
