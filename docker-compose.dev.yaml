@@ -4,24 +4,27 @@ networks:
 
 volumes:
   grafana-data:
+  loki-data:
 
 services:
   edge:
     build:
       context: .
       dockerfile: docker/edge.Dockerfile
+      args:
+        SLIM: "true"
     container_name: cortexguard-edge-dev
     working_dir: /workspace/cortexguard
     depends_on:
       - tempo
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8080/healthz" ]
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/healthz/live" ]
       interval: 3s
       timeout: 2s
       retries: 10
     environment:
       - LOG_LEVEL=INFO
-      - LOG_JSON=false
+      - LOG_JSON=true
     ports:
       - "8080:8080"
     volumes:
@@ -36,6 +39,8 @@ services:
     build:
       context: .
       dockerfile: docker/simulator.Dockerfile
+      args:
+        SLIM: "true"
     container_name: cortexguard-simulator-dev
     working_dir: /workspace/cortexguard
     depends_on:
@@ -47,7 +52,7 @@ services:
       - UV_ENV=dev
       - FUSED_DIR=/workspace/cortexguard/data/fused
       - LOG_LEVEL=INFO
-      - LOG_JSON=false
+      - LOG_JSON=true
     volumes:
       # Mount local folders for live development (overrides COPY in Dockerfile)
       - ./src:/workspace/cortexguard/src
@@ -74,6 +79,10 @@ services:
   grafana:
     image: grafana/grafana:latest
     container_name: cortexguard-grafana
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
     ports:
       - "3000:3000"
     volumes:
@@ -94,5 +103,29 @@ services:
     ports:
       - "4318:4318"
       - "3100:3100"
+    networks:
+      - cortexguard_net
+
+  loki:
+    image: grafana/loki:latest
+    container_name: cortexguard-loki
+    volumes:
+      - ./docker/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki-data:/loki
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    ports:
+      - "3101:3100"
+    networks:
+      - cortexguard_net
+
+  promtail:
+    image: grafana/promtail:latest
+    container_name: cortexguard-promtail
+    volumes:
+      - ./docker/promtail.yaml:/etc/promtail/promtail.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: ["-config.file=/etc/promtail/promtail.yaml"]
+    depends_on:
+      - loki
     networks:
       - cortexguard_net
