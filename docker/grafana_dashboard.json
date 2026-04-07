@@ -1152,6 +1152,108 @@
       ],
       "title": "Emergency Stop",
       "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 47 },
+      "id": 60,
+      "panels": [],
+      "title": "Queues & Flows",
+      "type": "row"
+    },
+    {
+      "datasource": "Prometheus",
+      "description": "Stock: pending plans accumulate when the orchestrator can't keep up.",
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": []
+      },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 48 },
+      "id": 61,
+      "targets": [
+        {
+          "expr": "cortexguard_plan_queue_length",
+          "legendFormat": "Queue depth",
+          "refId": "A"
+        }
+      ],
+      "title": "Plan Queue Depth",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "description": "Source flow (ingest) vs consequence flow (anomalies detected). Divergence indicates burst-driven anomaly spikes.",
+      "fieldConfig": {
+        "defaults": { "unit": "ops" },
+        "overrides": []
+      },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 48 },
+      "id": 62,
+      "targets": [
+        {
+          "expr": "rate(cortexguard_http_requests_total{status_code=\"202\"}[1m])",
+          "legendFormat": "Ingest rate (flow in)",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(cortexguard_anomalies_total[1m])",
+          "legendFormat": "Anomaly detection rate (flow out)",
+          "refId": "B"
+        }
+      ],
+      "title": "Ingest Rate vs Anomaly Detection Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "description": "Stock of unresolved anomalies. A rising level means remediation is not keeping up with detection.",
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": []
+      },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 54 },
+      "id": 63,
+      "targets": [
+        {
+          "expr": "cortexguard_active_anomalies",
+          "legendFormat": "Active anomalies",
+          "refId": "A"
+        }
+      ],
+      "title": "Active Anomalies Over Time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "description": "Queue depth (stock) overlaid with plan completion rate (outflow). Queue should drain as completions rise.",
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Plan completion rate" },
+            "properties": [
+              { "id": "custom.axisPlacement", "value": "right" },
+              { "id": "unit", "value": "ops" }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 54 },
+      "id": 64,
+      "targets": [
+        {
+          "expr": "cortexguard_plan_queue_length",
+          "legendFormat": "Queue depth",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(cortexguard_plans_total[1m])",
+          "legendFormat": "Plan completion rate",
+          "refId": "B"
+        }
+      ],
+      "title": "Queue Depth vs Plan Completion Rate",
+      "type": "timeseries"
     }
   ],
   "refresh": "5s",
