@@ -30,6 +30,7 @@ from typing import Any
 from fastapi import FastAPI, Request, Response
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from slowapi.errors import RateLimitExceeded
 
 from cortexguard.common.logging_config import setup_logging
@@ -649,6 +650,9 @@ def get_api_app(profile: str = "default") -> FastAPI:
 
     # 3. Rate limiting
     app.state.limiter = limiter
+
+    # 4. OTEL FastAPI instrumentation — creates spans for every HTTP request
+    FastAPIInstrumentor.instrument_app(app)
 
     @app.get("/runtime-metrics")
     async def get_metrics() -> dict[str, int | float | str | None]:
