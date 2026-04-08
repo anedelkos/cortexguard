@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
+from opentelemetry import trace
+
 from cortexguard.core.interfaces.base_controller import BaseController
 from cortexguard.edge.models.agent_tool_call import AgentToolCall
 from cortexguard.edge.models.blackboard import Blackboard
@@ -15,6 +17,7 @@ from cortexguard.edge.models.reasoning_trace_entry import ReasoningTraceEntry, T
 from cortexguard.edge.utils.metrics import emergency_stop_active
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer("cortexguard.arbiter")
 
 
 class Arbiter:
@@ -267,29 +270,34 @@ class Arbiter:
             severity=TraceSeverity.CRITICAL,
         )
 
-        async with self._lock:
-            # record and publish
-            self._append_and_publish(entry)
+        with tracer.start_as_current_span("arbiter.emergency_stop") as span:
+            span.set_attribute("reason", reason)
+            span.set_attribute("trace_id", tid)
+            async with self._lock:
+                # record and publish
+                self._append_and_publish(entry)
 
-            emergency_stop_active.set(1)
-            try:
-                await asyncio.create_task(self._blackboard.set_safety_flag("emergency_stop", True))
-            except Exception as exc:
-                logger.debug("Failed to schedule emergency_stop safety flag", exc_info=exc)
+                emergency_stop_active.set(1)
+                try:
+                    await self._blackboard.set_safety_flag("emergency_stop", True)
+                except Exception as exc:
+                    logger.debug("Failed to set emergency_stop safety flag", exc_info=exc)
 
-            # call controller emergency stop if available
-            try:
-                if hasattr(self._controller, "emergency_stop"):
-                    await self._controller.emergency_stop()
-                else:
-                    # fallback to executing a named primitive
-                    if hasattr(self._controller, "execute"):
-                        await self._controller.execute("EMERGENCY_STOP", {})
-            except Exception as exc:
-                # controller failure should not raise to callers
-                logger.exception(
-                    "Controller emergency_stop call failed; continuing (best-effort)", exc_info=exc
-                )
+                # call controller emergency stop if available
+                try:
+                    if hasattr(self._controller, "emergency_stop"):
+                        await self._controller.emergency_stop()
+                    else:
+                        # fallback to executing a named primitive
+                        if hasattr(self._controller, "execute"):
+                            await self._controller.execute("EMERGENCY_STOP", {})
+                except Exception as exc:
+                    span.record_exception(exc)
+                    # controller failure should not raise to callers
+                    logger.exception(
+                        "Controller emergency_stop call failed; continuing (best-effort)",
+                        exc_info=exc,
+                    )
 
     def _append_and_publish(self, entry: ReasoningTraceEntry) -> None:
         """Append to in-memory audit and attempt to publish to blackboard (called under lock)."""
@@ -306,13 +314,11 @@ class Arbiter:
                 "Failed to schedule trace post (add_trace_entry) in emergency_stop", exc_info=exc
             )
 
-        # Also set a compact boolean safety flag for fast subscribers when critical
+        # Lightweight toggle so subscribers can detect recent arbiter activity (best-effort).
+        # Note: emergency_stop flag is set explicitly in emergency_stop() via direct await —
+        # not here, to avoid unintended side-effects from internal errors.
         try:
-            if entry.event_type == "EMERGENCY_STOP" or entry.severity == TraceSeverity.CRITICAL:
-                asyncio.create_task(self._blackboard.set_safety_flag("emergency_stop", True))
-            else:
-                # lightweight toggle so subscribers can detect recent arbiter activity
-                asyncio.create_task(self._blackboard.set_safety_flag("last_arbiter_event", True))
+            asyncio.create_task(self._blackboard.set_safety_flag("last_arbiter_event", True))
         except Exception as exc:
             logger.debug("Failed to schedule last_arbiter_event safety flag", exc_info=exc)
 

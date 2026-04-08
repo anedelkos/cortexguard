@@ -8,10 +8,12 @@ import pytest
 from cortexguard.core.interfaces.base_controller import BaseController
 from cortexguard.edge.arbiter import Arbiter
 from cortexguard.edge.models.agent_tool_call import AgentToolCall
+from cortexguard.edge.models.anomaly_event import AnomalyEvent, AnomalySeverity
 from cortexguard.edge.models.blackboard import Blackboard
 from cortexguard.edge.models.capability_registry import CapabilityRegistry
 from cortexguard.edge.models.goal import GoalContext
 from cortexguard.edge.models.plan import Plan, PlanStatus, PlanStep, PlanType, StepStatus
+from cortexguard.edge.models.remediation_policy import RemediationPolicy
 from cortexguard.edge.models.state_estimate import StateEstimate
 from cortexguard.edge.orchestrator import Orchestrator
 from cortexguard.edge.safety_agent import SafetyAgent
@@ -422,3 +424,74 @@ async def test_stop_flush_failure(
 
     monkeypatch.setattr(orchestrator._blackboard, "set", broken_set)
     await orchestrator.stop()  # Should log warning but not crash
+
+
+# ---------------------------------------------------------------------------
+# C3 regression test
+# ---------------------------------------------------------------------------
+
+
+def make_remediation_policy(anomaly_key: str) -> RemediationPolicy:
+    event = AnomalyEvent(
+        id=f"evt-{anomaly_key}",
+        key=anomaly_key,
+        timestamp=datetime.now(UTC),
+        severity=AnomalySeverity.HIGH,
+        score=0.9,
+        contributing_detectors=["HardLimitDetector"],
+    )
+    step = PlanStep(
+        description="Cool down",
+        action=AgentToolCall(action_name="set_power_level", arguments={"level": 0}),
+    )
+    return RemediationPolicy(
+        trigger_event=event,
+        reasoning_trace="Overtemp detected",
+        risk_assessment="LOW",
+        corrective_steps=[step],
+    )
+
+
+@pytest.mark.asyncio
+async def test_duplicate_remediation_policy_not_queued_twice(
+    orchestrator: Orchestrator, blackboard: Blackboard
+) -> None:
+    """
+    C3 regression: _handle_remediation_policy has no deduplication guard.
+    A second policy for the same trigger anomaly key (e.g. after the
+    PolicyAgent cooldown expires) queues a second identical remediation plan.
+    For actuator commands like SET_POWER_LEVEL, double-execution is a logic error.
+
+    Bug:  queue grows to 2 after two policies for the same key.
+    Fix:  second policy is discarded when a plan for that key is already active.
+    """
+    policy = make_remediation_policy("OVERHEAT")
+
+    # First policy — should be queued
+    await blackboard.set_remediation_policy(policy)
+    await orchestrator._handle_remediation_policy()
+    assert await orchestrator._plan_queue.size() == 1
+
+    # Second policy for the same anomaly key — should be deduplicated
+    await blackboard.set_remediation_policy(make_remediation_policy("OVERHEAT"))
+    await orchestrator._handle_remediation_policy()
+
+    queue_size = await orchestrator._plan_queue.size()
+    assert queue_size == 1, (
+        f"Expected 1 remediation plan in queue, got {queue_size}. "
+        "Duplicate remediation plans for the same anomaly key must be suppressed."
+    )
+
+
+@pytest.mark.asyncio
+async def test_different_anomaly_keys_both_queued(
+    orchestrator: Orchestrator, blackboard: Blackboard
+) -> None:
+    """Deduplication must not suppress plans for different anomaly keys."""
+    await blackboard.set_remediation_policy(make_remediation_policy("OVERHEAT"))
+    await orchestrator._handle_remediation_policy()
+
+    await blackboard.set_remediation_policy(make_remediation_policy("HUMAN_PROXIMITY"))
+    await orchestrator._handle_remediation_policy()
+
+    assert await orchestrator._plan_queue.size() == 2

@@ -136,7 +136,7 @@ async def test_emergency_stop_calls_controller_and_sets_flag():
 
     # Assert
     controller.emergency_stop.assert_awaited_once()
-    cast(Any, bb).set_safety_flag.assert_awaited_with("emergency_stop", True)
+    cast(Any, bb).set_safety_flag.assert_any_await("emergency_stop", True)
     cast(Any, bb).add_trace_entry.assert_awaited()
 
 
@@ -249,3 +249,79 @@ async def test_emergency_stop_falls_back_to_execute():
     await asyncio.sleep(0)
 
     controller.execute.assert_awaited_once_with("EMERGENCY_STOP", {})
+
+
+# ---------------------------------------------------------------------------
+# C1 regression tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_request_action_internal_error_does_not_set_emergency_stop_flag():
+    """
+    C1 regression: _append_and_publish must not set emergency_stop for internal
+    request_action errors. Only an explicit emergency_stop() call should set that flag.
+
+    A non-KeyError from get_function_schema escapes the inner except clause and
+    hits the outer CRITICAL handler, which previously triggered fire-and-forget
+    emergency_stop via _append_and_publish.
+    """
+    bb = Blackboard()
+    emergency_stop_flagged = False
+
+    async def track_flags(name: str, value: bool) -> None:
+        nonlocal emergency_stop_flagged
+        if name == "emergency_stop" and value:
+            emergency_stop_flagged = True
+
+    cast(Any, bb).set_safety_flag = track_flags
+    cast(Any, bb).add_trace_entry = AsyncMock()
+
+    cap = MagicMock(spec=CapabilityRegistry)
+    # RuntimeError (not KeyError) escapes the inner except and hits the CRITICAL path
+    cap.get_function_schema.side_effect = RuntimeError("unexpected registry error")
+
+    controller = AsyncMock(spec=BaseController)
+    arbiter = Arbiter(bb, cap, controller)
+
+    result = await arbiter.request_action("tester", AgentToolCall(action_name="fn", arguments={}))
+    await asyncio.sleep(0)  # let any fire-and-forget tasks run
+
+    assert result is False
+    assert not emergency_stop_flagged, (
+        "Internal request_action errors must not set the emergency_stop flag; "
+        "only an explicit emergency_stop() call should do that."
+    )
+
+
+@pytest.mark.asyncio
+async def test_emergency_stop_flag_set_exactly_once():
+    """
+    C1 regression: emergency_stop must set the safety flag exactly once via
+    direct await. With create_task in _append_and_publish (fire-and-forget) AND
+    in emergency_stop itself, the flag was set twice — once unguaranteed and once
+    awaited. After the fix, exactly one direct await sets it.
+    """
+    bb = Blackboard()
+    call_count = 0
+
+    async def count_flag_calls(name: str, value: bool) -> None:
+        nonlocal call_count
+        if name == "emergency_stop" and value:
+            call_count += 1
+
+    cast(Any, bb).set_safety_flag = count_flag_calls
+    cast(Any, bb).add_trace_entry = AsyncMock()
+
+    cap = MagicMock(spec=CapabilityRegistry)
+    controller = AsyncMock(spec=BaseController)
+    controller.emergency_stop = AsyncMock()
+
+    arbiter = Arbiter(bb, cap, controller)
+    await arbiter.emergency_stop("overtemp")
+    await asyncio.sleep(0)  # flush any residual scheduled tasks
+
+    assert call_count == 1, (
+        f"emergency_stop flag set {call_count} times; expected exactly 1. "
+        "Likely cause: fire-and-forget create_task in _append_and_publish duplicating the write."
+    )

@@ -47,12 +47,10 @@ class MockStepClassifier:
 def mock_blackboard() -> AsyncMock:
     bb = AsyncMock(spec=Blackboard)
 
-    # Coroutine methods must be AsyncMock with boolean return values
     bb.is_anomaly_present = AsyncMock(return_value=False)
     bb.get_safety_flag = AsyncMock(return_value=False)
-
-    # Other methods that are awaited but don't return meaningful values can be plain AsyncMock
     bb.get_current_step = AsyncMock(return_value=None)
+    bb.set_current_step_if_matches = AsyncMock(return_value=True)  # not preempted by default
     bb.add_trace_entry = AsyncMock(return_value=None)
 
     return bb
@@ -152,7 +150,6 @@ async def test_execute_step_permanent_failure(
     mock_controller: AsyncMock,
 ) -> None:
     step = make_plan_step()
-
     classifier = MockStepClassifier(StepStatus.FAILED)
 
     executor = StepExecutor(
@@ -396,3 +393,80 @@ async def test_executor_loop_halts_on_emergency_stop(
 
     trace_calls = mock_blackboard.add_trace_entry.call_args_list
     assert any(call[0][0].event_type == "EXECUTOR_HALTED" for call in trace_calls)
+
+
+# ---------------------------------------------------------------------------
+# C2 regression test
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_preemption_mid_step_does_not_overwrite_urgent_plan_step() -> None:
+    """
+    C2 regression: when preemption fires while the executor is mid-step, the
+    executor completes the old step and writes COMPLETED back to the Blackboard,
+    overwriting the urgent plan's current step.
+
+    Set up:
+      - step_a (plan A) is executing
+      - during execution the Blackboard is switched to step_b1 (plan B's first step)
+      - executor finishes step_a and attempts to write COMPLETED back
+
+    Bug:  Blackboard ends up with step_a COMPLETED, clobbering step_b1.
+    Fix:  executor checks step identity before writing back; discards stale result.
+    """
+    bb = Blackboard()
+
+    controller_entered = asyncio.Event()
+    allow_complete = asyncio.Event()
+
+    async def slow_execute(fn: str, args: dict[str, Any]) -> None:
+        controller_entered.set()  # tell the test we are inside the controller
+        await allow_complete.wait()  # hold until preemption is injected
+
+    registry = MagicMock(spec=CapabilityRegistryProtocol)
+    registry.validate_call.return_value = (True, RiskLevel.LOW)
+
+    classifier = MockStepClassifier(StepStatus.COMPLETED)
+
+    trace_sink = AsyncMock()
+    trace_sink.post_trace_entry = AsyncMock()
+
+    ctrl = AsyncMock(spec=ControllerProtocol)
+    ctrl.execute = slow_execute  # replace the mock with the slow coroutine function
+
+    executor = StepExecutor(
+        blackboard=bb,
+        step_classifier=classifier,
+        capability_registry=registry,
+        controller=ctrl,
+        default_max_retries=1,
+        default_retry_delay=0.0,
+        default_poll_interval=0.0,
+        default_idle_interval=0.0,
+        trace_sink=trace_sink,
+    )
+
+    step_a = make_plan_step(id="step-a")
+    step_b1 = make_plan_step(id="step-b1")
+
+    await bb.set_current_step(step_a)
+
+    # Run execute_step in the background so we can inject preemption mid-execution
+    exec_task = asyncio.create_task(executor.execute_step(step_a))
+
+    # Wait until the controller has been entered, then simulate preemption
+    await controller_entered.wait()
+    await bb.set_current_step(step_b1)  # orchestrator switches to urgent plan's step
+    allow_complete.set()  # release the controller
+
+    await exec_task
+
+    current = await bb.get_current_step()
+    assert current is not None
+    assert current.id == step_b1.id, (
+        f"Preemption overwritten: Blackboard has step {current.id!r} "
+        f"(status={current.status}), expected step_b1 ({step_b1.id!r} / PENDING). "
+        "execute_step must check step identity before writing back."
+    )
+    assert current.status == StepStatus.PENDING

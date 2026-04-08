@@ -206,13 +206,36 @@ class Orchestrator:
             )
             # --------------------------------------------
 
+            trigger_key = policy.trigger_event.key
+
+            # Dedup: skip if a remediation plan for this anomaly key is already
+            # queued or running. Double-executing actuator commands (e.g.
+            # SET_POWER_LEVEL) on the same anomaly is a logic error.
+            already_running = (
+                self._current_plan is not None
+                and self._current_plan.plan_type == PlanType.REMEDIATION
+                and self._current_plan.context.trigger_key == trigger_key
+            )
+            queued_items = await self._plan_queue.get_all_items()
+            already_queued = any(
+                p.plan_type == PlanType.REMEDIATION and p.context.trigger_key == trigger_key
+                for p in queued_items
+            )
+            if already_running or already_queued:
+                logger.info(
+                    f"Skipping duplicate remediation plan for anomaly {trigger_key!r}: "
+                    "a plan for this key is already active or queued."
+                )
+                await self._blackboard.clear_remediation_policy()
+                return
+
             # Create a goal context with the highest priority and necessary fields
             remediation_goal = GoalContext(
                 goal_id=str(uuid4()),
-                user_prompt=f"[Auto-generated for Remediation: {policy.trigger_event.key}]",
-                # The intent comes from the anomaly description itself
-                intent=f"Remediate anomaly: {policy.trigger_event.key}",
+                user_prompt=f"[Auto-generated for Remediation: {trigger_key}]",
+                intent=f"Remediate anomaly: {trigger_key}",
                 priority=HIGH_PRIORITY,
+                trigger_key=trigger_key,
             )
 
             remediation_plan = Plan(

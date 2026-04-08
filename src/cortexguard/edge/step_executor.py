@@ -254,8 +254,10 @@ class StepExecutor(BaseExecutor):
             if completion_status == StepStatus.COMPLETED:
                 step.status = StepStatus.COMPLETED
                 step.completed_at = datetime.now(UTC)
-                await self._blackboard.set_current_step(step)
-
+                written = await self._blackboard.set_current_step_if_matches(step.id, step)
+                if not written:
+                    logger.info(f"Step {step.id} completed but was preempted; discarding write")
+                    return
                 await self._trace_sink.post_trace_entry(
                     source=self,
                     event_type="STEP_COMPLETED",
@@ -273,7 +275,10 @@ class StepExecutor(BaseExecutor):
             else:
                 step.status = StepStatus.FAILED
                 step.completed_at = datetime.now(UTC)
-                await self._blackboard.set_current_step(step)
+                written = await self._blackboard.set_current_step_if_matches(step.id, step)
+                if not written:
+                    logger.info(f"Step {step.id} failed but was preempted; discarding write")
+                    return
                 await self._trace_sink.post_trace_entry(
                     source=self,
                     event_type="STEP_FAILED",
