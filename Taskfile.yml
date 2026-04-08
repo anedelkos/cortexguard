@@ -300,3 +300,8 @@ tasks:
     desc: "List all tasks"
     cmds:
       - "task --list"
+
+  pyskel:
+    desc: "Print code skeleton (signatures + docstrings) for a file or directory"
+    cmds:
+      - "python scripts/pyskel.py {{.CLI_ARGS}}"

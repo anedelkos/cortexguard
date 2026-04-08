@@ -269,7 +269,10 @@ class StepExecutor(BaseExecutor):
 
             if attempt < max_attempts:
                 step.status = StepStatus.PENDING
-                await self._blackboard.set_current_step(step)
+                written = await self._blackboard.set_current_step_if_matches(step.id, step)
+                if not written:
+                    logger.info(f"Step {step.id} retry reset but was preempted; discarding write")
+                    return
                 await asyncio.sleep(retry_delay)
                 continue
             else:

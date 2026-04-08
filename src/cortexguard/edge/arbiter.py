@@ -310,9 +310,7 @@ class Arbiter:
             asyncio.create_task(self._blackboard.add_trace_entry(entry))
         except Exception as exc:
             # swallow publish errors; audit remains in-memory
-            logger.debug(
-                "Failed to schedule trace post (add_trace_entry) in emergency_stop", exc_info=exc
-            )
+            logger.debug("Failed to schedule trace post (add_trace_entry)", exc_info=exc)
 
         # Lightweight toggle so subscribers can detect recent arbiter activity (best-effort).
         # Note: emergency_stop flag is set explicitly in emergency_stop() via direct await —
