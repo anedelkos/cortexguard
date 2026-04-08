@@ -27,3 +27,8 @@ class GoalContext(BaseModel):
         description="The derived high-level purpose or objective of the plan (e.g., 'Make pasta', 'Remediate Anomaly X')."
     )
     priority: int = Field(default=5, description="Priority level (1=highest, 10=lowest).")
+    trigger_key: str | None = Field(
+        default=None,
+        description="For REMEDIATION plans: the anomaly key that triggered this goal. "
+        "Used by the Orchestrator to deduplicate concurrent remediation plans.",
+    )

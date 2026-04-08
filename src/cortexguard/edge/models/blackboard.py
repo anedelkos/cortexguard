@@ -115,6 +115,21 @@ class Blackboard:
         async with self._lock:
             return self.current_step.model_copy(deep=True) if self.current_step else None
 
+    async def set_current_step_if_matches(self, expected_id: str, step: PlanStep) -> bool:
+        """Atomically write step only if the current step still has expected_id.
+
+        Protects against the preemption race: if the orchestrator switched to an
+        urgent plan between when the executor started a step and when it finishes,
+        the id will no longer match and the stale write is discarded.
+
+        Returns True if the write happened, False if the step was preempted.
+        """
+        async with self._lock:
+            if self.current_step is None or self.current_step.id != expected_id:
+                return False
+            self.current_step = step.model_copy(deep=True)
+            return True
+
     async def clear_current_plan(self) -> None:
         """Clear active plan and step; preserves step index for PREEMPTED/FAILED plans."""
         async with self._lock:
