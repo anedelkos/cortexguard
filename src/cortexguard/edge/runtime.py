@@ -316,6 +316,7 @@ class EdgeRuntime:
             llm_timeout_s=self.config.llm_timeout_s,
             llm_failure_threshold=self.config.llm_failure_threshold,
             llm_cooldown_s=self.config.llm_cooldown_s,
+            plan_adder=self.orchestrator.add_plan,
         )
 
         # Persistence

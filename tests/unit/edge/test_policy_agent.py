@@ -13,7 +13,8 @@ from cortexguard.edge.models.anomaly_event import AnomalyEvent, AnomalySeverity
 from cortexguard.edge.models.blackboard import Blackboard
 from cortexguard.edge.models.capability_registry import CapabilityRegistry
 from cortexguard.edge.models.fusion_snapshot import FusionSnapshot
-from cortexguard.edge.models.plan import PlanStep, StepStatus
+from cortexguard.edge.models.goal import GoalContext
+from cortexguard.edge.models.plan import Plan, PlanStatus, PlanStep, PlanType, StepStatus
 from cortexguard.edge.models.remediation_policy import RemediationPolicy
 from cortexguard.edge.models.state_estimate import StateEstimate
 from cortexguard.edge.policy.policy_agent import PolicyAgent
@@ -37,6 +38,7 @@ def mock_deps(mock_policy_engine: MagicMock) -> dict[str, Any]:
     mock_blackboard.get_latest_state_estimate = AsyncMock()
     mock_blackboard.get_active_anomalies = AsyncMock()
     mock_blackboard.set_remediation_policy = AsyncMock()
+    mock_blackboard.get_fusion_snapshot = AsyncMock(return_value=None)
 
     # Mock CapabilityRegistry
     mock_capability_registry = MagicMock(spec=CapabilityRegistry)
@@ -618,6 +620,55 @@ async def test_cooldown_expires_and_allows_refire(
     assert mock_deps["blackboard"].set_remediation_policy.call_count == 2
 
 
+# ---------------------------------------------------------------------------
+# M2 regression test
+# ---------------------------------------------------------------------------
+
+
+def test_fallback_policy_steps_fail_validation_against_empty_registry() -> None:
+    """
+    M2 regression: _build_safe_fallback_policy produces steps with
+    action_name='pause_system' and 'notify_operator'. Neither is registered in
+    CapabilityRegistry by default. When these steps reach StepExecutor, validation
+    fails, the plan enters FAILED with no escalation — the opposite of the
+    fallback's intent.
+
+    Bug:  _validate_policy_actions run on the fallback returns False because
+          its steps use unregistered action names.
+    Fix:  _build_safe_fallback_policy emits zero corrective steps so execution
+          never fails; escalation_required=True ensures MaydayAgent is triggered.
+    """
+    real_registry = CapabilityRegistry()  # empty — no actions registered
+    agent = PolicyAgent(
+        blackboard=MagicMock(spec=Blackboard),
+        capability_registry=real_registry,
+        policy_engine=MagicMock(spec=BasePolicyEngine),
+        mayday_agent=MagicMock(spec=MaydayAgent),
+    )
+
+    anomaly = AnomalyEvent(
+        id="fallback-test",
+        key="policy_failure",
+        severity=AnomalySeverity.HIGH,
+        timestamp=datetime.now(UTC),
+        metadata={},
+        score=1.0,
+        contributing_detectors=[],
+    )
+
+    fallback = agent._build_safe_fallback_policy(anomaly)
+
+    # Validate the fallback against the registry (same check StepExecutor would do)
+    is_valid, details = agent._validate_policy_actions(fallback, remove_invalid_steps=False)
+
+    assert is_valid, (
+        f"Fallback policy steps use unregistered action names and will fail execution: "
+        f"{details.get('invalid_actions')}. "
+        f"_build_safe_fallback_policy must produce steps that are always executable, "
+        f"or no steps at all (with escalation_required=True)."
+    )
+
+
 @pytest.mark.asyncio
 async def test_different_keys_not_affected_by_cooldown(
     mock_deps: dict[str, Any],
@@ -640,3 +691,170 @@ async def test_different_keys_not_affected_by_cooldown(
     # Both keys should have generated policies
     assert mock_deps["blackboard"].set_remediation_policy.call_count == 2
     assert agent.get_metrics()["active_key_cooldowns"] == 2
+
+
+# ---------------------------------------------------------------------------
+# M4 regression test
+# ---------------------------------------------------------------------------
+
+
+def _make_cloud_plan() -> Plan:
+    return Plan(
+        plan_id="cloud-plan-1",
+        context=GoalContext(
+            goal_id="cloud-goal-1",
+            user_prompt="cloud remediation",
+            priority=1,
+            intent="recover",
+        ),
+        plan_type=PlanType.REMEDIATION,
+        steps=[],
+        status=PlanStatus.PENDING,
+        created_at=datetime.now(UTC),
+    )
+
+
+@pytest.mark.asyncio
+async def test_cloud_plan_does_not_bypass_orchestrator_via_set_current_plan(
+    mock_deps: dict[str, Any],
+) -> None:
+    """
+    M4 regression: _escalate_to_mayday_agent writes the cloud-returned Plan
+    directly to blackboard.set_current_plan, bypassing the Orchestrator's
+    priority queue, preemption checks, and lifecycle management.
+
+    On the next tick the Orchestrator sees a current_plan it never scheduled,
+    while its own _current_plan pointer still points to the local plan —
+    the two are desynchronised.
+
+    Bug:  blackboard.set_current_plan is awaited with the cloud plan.
+    Fix:  set_current_plan is NOT called; the plan is routed through an
+          injected plan_adder callable (Orchestrator.add_plan).
+    """
+    agent = PolicyAgent(**mock_deps)
+
+    cloud_plan = _make_cloud_plan()
+    mock_deps["mayday_agent"].build_packet_from_policy = AsyncMock(return_value=MagicMock())
+    mock_deps["mayday_agent"].send_escalation = AsyncMock(return_value=cloud_plan)
+    mock_deps["blackboard"].set_current_plan = AsyncMock()
+
+    anomaly = AnomalyEvent(
+        id="m4-test",
+        key="OVERHEAT",
+        severity=AnomalySeverity.HIGH,
+        timestamp=datetime.now(UTC),
+        metadata={},
+        score=1.0,
+        contributing_detectors=[],
+    )
+    policy = RemediationPolicy(
+        trigger_event=anomaly,
+        policy_id="pol-m4",
+        reasoning_trace="test",
+        risk_assessment="HIGH",
+        corrective_steps=[],
+        escalation_required=True,
+    )
+
+    await agent._escalate_to_mayday_agent(policy)
+
+    # Bug: set_current_plan is called directly, bypassing the Orchestrator.
+    mock_deps["blackboard"].set_current_plan.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cloud_plan_is_passed_to_plan_adder_when_injected(
+    mock_deps: dict[str, Any],
+) -> None:
+    """Complementary M4 test: when plan_adder is injected, it is called with
+    the cloud plan returned by the Mayday agent."""
+    plan_adder = AsyncMock()
+    agent = PolicyAgent(**mock_deps, plan_adder=plan_adder)
+
+    cloud_plan = _make_cloud_plan()
+    mock_deps["mayday_agent"].build_packet_from_policy = AsyncMock(return_value=MagicMock())
+    mock_deps["mayday_agent"].send_escalation = AsyncMock(return_value=cloud_plan)
+
+    anomaly = AnomalyEvent(
+        id="m4-adder-test",
+        key="OVERHEAT",
+        severity=AnomalySeverity.HIGH,
+        timestamp=datetime.now(UTC),
+        metadata={},
+        score=1.0,
+        contributing_detectors=[],
+    )
+    policy = RemediationPolicy(
+        trigger_event=anomaly,
+        policy_id="pol-m4-adder",
+        reasoning_trace="test",
+        risk_assessment="HIGH",
+        corrective_steps=[],
+        escalation_required=True,
+    )
+
+    await agent._escalate_to_mayday_agent(policy)
+
+    plan_adder.assert_awaited_once_with(cloud_plan)
+
+
+# ---------------------------------------------------------------------------
+# M5 regression test
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_handle_anomaly_falls_back_to_scene_graph_when_no_fusion_snapshot(
+    mock_deps: dict[str, Any],
+) -> None:
+    """
+    M5 regression: verifies the scene-graph fallback branch is reached for
+    MEDIUM anomalies when no fusion snapshot is available.
+
+    `get_fusion_snapshot` is already patched to return None by the mock_deps
+    fixture (M5 fix). With snapshot=None, the code falls through to the
+    `get_scene_graph` fallback. This test asserts get_scene_graph is awaited
+    exactly once, confirming the correct branch is taken.
+    """
+    mock_deps["blackboard"].get_scene_graph = AsyncMock(return_value=None)
+    mock_deps["blackboard"].get_latest_state_estimate.return_value = StateEstimate(
+        timestamp=datetime.now(UTC),
+        label="nominal",
+        confidence=1.0,
+        residuals={},
+        flags={},
+        source_intent="idle",
+    )
+    mock_deps["policy_engine"].generate_policy.return_value = RemediationPolicy(
+        trigger_event=AnomalyEvent(
+            id="m5-test",
+            key="unknown_vibe",
+            severity=AnomalySeverity.MEDIUM,
+            timestamp=datetime.now(UTC),
+            metadata={},
+            score=0.6,
+            contributing_detectors=[],
+        ),
+        policy_id="pol-m5",
+        reasoning_trace="ok",
+        risk_assessment="LOW",
+        corrective_steps=[],
+        escalation_required=False,
+    )
+
+    agent = PolicyAgent(**mock_deps)
+    anomaly = AnomalyEvent(
+        id="m5-test",
+        key="unknown_vibe",
+        severity=AnomalySeverity.MEDIUM,
+        timestamp=datetime.now(UTC),
+        metadata={},
+        score=0.6,
+        contributing_detectors=[],
+    )
+
+    await agent._handle_anomaly_event(anomaly)
+
+    # Bug: get_scene_graph is never awaited because the truthy MagicMock snapshot
+    # caused the snapshot-summary branch to be taken instead.
+    mock_deps["blackboard"].get_scene_graph.assert_awaited_once()

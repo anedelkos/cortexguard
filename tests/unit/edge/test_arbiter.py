@@ -325,3 +325,75 @@ async def test_emergency_stop_flag_set_exactly_once():
         f"emergency_stop flag set {call_count} times; expected exactly 1. "
         "Likely cause: fire-and-forget create_task in _append_and_publish duplicating the write."
     )
+
+
+# ---------------------------------------------------------------------------
+# M6 regression test
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_emergency_stop_not_blocked_by_slow_controller_in_request_action() -> None:
+    """
+    M6 regression: request_action holds _lock for the entire duration of
+    controller.execute(), including slow/hanging hardware commands. emergency_stop
+    also needs _lock, so it is blocked until the slow command finishes — preventing
+    the E-STOP signal from being set.
+
+    Bug:  emergency_stop cannot acquire _lock while request_action is executing
+          a slow controller command; the E-STOP flag is delayed.
+    Fix:  controller.execute() runs outside the lock; only validation and audit
+          append are held under it.
+    """
+    controller_entered = asyncio.Event()
+    allow_complete = asyncio.Event()
+
+    class SlowController(BaseController):
+        async def execute(self, name: str, args: dict[str, Any]) -> None:
+            controller_entered.set()
+            await allow_complete.wait()  # simulates a hanging hardware command
+
+        async def emergency_stop(self) -> None:
+            pass
+
+    bb = Blackboard()
+    cast(Any, bb).set_safety_flag = AsyncMock()
+    cast(Any, bb).add_trace_entry = AsyncMock()
+
+    cap = MagicMock(spec=CapabilityRegistry)
+    cap.get_function_schema.return_value = {"parameters": {"type": "object"}}
+    cap.validate_call.return_value = (True, RiskLevel.LOW)
+
+    arbiter = Arbiter(blackboard=bb, capability_registry=cap, controller=SlowController())
+
+    action = AgentToolCall(action_name="slow_move", arguments={})
+
+    # Start request_action — it will block inside the slow controller while holding the lock
+    request_task = asyncio.create_task(arbiter.request_action("tester", action))
+
+    # Wait until the controller has actually started executing (lock held)
+    await controller_entered.wait()
+
+    # emergency_stop should complete without waiting for the slow controller to finish
+    estop_completed = asyncio.Event()
+
+    async def do_estop() -> None:
+        await arbiter.emergency_stop("safety test")
+        estop_completed.set()
+
+    estop_task = asyncio.create_task(do_estop())
+
+    # Yield to let estop attempt to run
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    # Bug: estop is still blocked waiting for the lock held by request_action
+    assert estop_completed.is_set(), (
+        "emergency_stop was blocked by the lock held during controller.execute(). "
+        "E-STOP must not be gated behind slow hardware commands."
+    )
+
+    # Clean up
+    allow_complete.set()
+    await request_task
+    await estop_task

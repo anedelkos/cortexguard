@@ -495,3 +495,41 @@ async def test_different_anomaly_keys_both_queued(
     await orchestrator._handle_remediation_policy()
 
     assert await orchestrator._plan_queue.size() == 2
+
+
+# ---------------------------------------------------------------------------
+# M1 regression test
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_resume_with_exhausted_index_completes_plan_not_reruns_last_step(
+    orchestrator: Orchestrator, blackboard: Blackboard
+) -> None:
+    """
+    M1 regression: _start_next_plan clamps out-of-bounds step index with
+    min(index, len(steps) - 1) instead of detecting completion.
+
+    If the Blackboard holds an index equal to len(steps) — e.g. a stale
+    entry after an interrupted completion — the clamp silently re-runs the
+    last step rather than marking the plan COMPLETED and moving on.
+
+    Bug:  plan enters RUNNING state with current_step = last step.
+    Fix:  index >= len(steps) → immediately mark COMPLETED, no step set.
+    """
+    plan = make_plan("plan_m1")  # 2 steps: step_1 (index 0), step_2 (index 1)
+
+    # Pre-set a stale out-of-bounds index on the Blackboard.
+    # len(plan.steps) == 2, so stored index 2 is one past the end.
+    await blackboard.set_step_index_for_plan(plan.plan_id, len(plan.steps))
+
+    await orchestrator.add_plan(plan)
+    await orchestrator._start_next_plan()
+
+    # With the bug: plan enters RUNNING, current_step = steps[1] (last step re-runs).
+    # With the fix: plan is immediately marked COMPLETED, no current step set.
+    current_plan = await blackboard.get_current_plan()
+    assert current_plan is None, (
+        f"Plan with exhausted step index should complete immediately; "
+        f"got current_plan.status={getattr(current_plan, 'status', None)}"
+    )

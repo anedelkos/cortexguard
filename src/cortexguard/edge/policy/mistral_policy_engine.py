@@ -274,8 +274,18 @@ class MistralLLMPolicyEngine(BasePolicyEngine):
         }
         """
 
-        anomaly_context_json = event.model_dump_json(indent=2)
-        state_context_json = context.model_dump_json(indent=2)
+        # Strip Mistral structural delimiters from embedded data to prevent prompt injection.
+        # Metadata values may originate from external sources and could contain '[/INST]'
+        # or '[INST]', which would break out of the instruction block.
+        _STRIP = ("[/INST]", "[INST]")
+
+        def _sanitize(text: str) -> str:
+            for token in _STRIP:
+                text = text.replace(token, "")
+            return text
+
+        anomaly_context_json = _sanitize(event.model_dump_json(indent=2))
+        state_context_json = _sanitize(context.model_dump_json(indent=2))
 
         # --- SYSTEM INSTRUCTIONS (Rewritten for test-stable determinism) ---
         system_instruction = (
