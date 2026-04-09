@@ -53,19 +53,26 @@ class Arbiter:
 
         Returns True if the action was authorized and execution was attempted successfully.
         Always records a ReasoningTraceEntry and publishes a compact safety flag to the Blackboard.
+
+        The lock is held only during fast validation and audit append — never during
+        controller.execute(), so emergency_stop() can always acquire it promptly.
         """
         trace_id = f"trace-{uuid4().hex[:8]}"
         ts = datetime.now(UTC)
 
-        # Default values
-        severity = TraceSeverity.WARN
         event_type = "ACTION_REQUEST"
-        reasoning_text = "Denied by default"
         metadata: dict[str, Any] = {
             "action_name": action.action_name,
             "arguments": action.arguments,
         }
         refs: dict[str, str] = {}
+
+        # ------------------------------------------------------------------
+        # Phase 1: Validation (under lock — fast, no I/O)
+        # Returns the authorized reasoning text and risk, or records a deny
+        # entry and returns False immediately.
+        # ------------------------------------------------------------------
+        authorized_reasoning: str | None = None
 
         async with self._lock:
             try:
@@ -73,180 +80,164 @@ class Arbiter:
                 try:
                     _ = self._capability_registry.get_function_schema(action.action_name)
                 except KeyError:
-                    reasoning_text = "Unknown capability"
-                    severity = TraceSeverity.HIGH
                     entry = ReasoningTraceEntry(
                         id=trace_id,
                         timestamp=ts,
                         source="arbiter",
                         event_type=event_type,
-                        reasoning_text=reasoning_text,
+                        reasoning_text="Unknown capability",
                         metadata=metadata,
                         refs=refs,
                         duration_ms=None,
-                        severity=severity,
+                        severity=TraceSeverity.HIGH,
                     )
                     self._append_and_publish(entry)
                     return False
 
                 # 2) Validate call against schema / risk
                 try:
-                    # NOTE: CapabilityRegistry.validate_call expects (name: str, arguments: dict)
                     validate_result = self._capability_registry.validate_call(
                         action.action_name, action.arguments or {}
                     )
                 except Exception as e:
-                    reasoning_text = f"Validation error: {e}"
-                    severity = TraceSeverity.HIGH
                     entry = ReasoningTraceEntry(
                         id=trace_id,
                         timestamp=ts,
                         source="arbiter",
                         event_type=event_type,
-                        reasoning_text=reasoning_text,
+                        reasoning_text=f"Validation error: {e}",
                         metadata=metadata,
                         refs=refs,
                         duration_ms=None,
-                        severity=severity,
+                        severity=TraceSeverity.HIGH,
                     )
                     self._append_and_publish(entry)
                     return False
 
-                # validate_call may return None; deny by default
                 if validate_result is None:
-                    reasoning_text = "Validation API returned no result; denying by default"
-                    severity = TraceSeverity.HIGH
                     entry = ReasoningTraceEntry(
                         id=trace_id,
                         timestamp=ts,
                         source="arbiter",
                         event_type=event_type,
-                        reasoning_text=reasoning_text,
+                        reasoning_text="Validation API returned no result; denying by default",
                         metadata=metadata,
                         refs=refs,
                         duration_ms=None,
-                        severity=severity,
+                        severity=TraceSeverity.HIGH,
                     )
                     self._append_and_publish(entry)
                     return False
 
-                # Expect (valid: bool, risk: RiskLevel) from validate_call
                 valid, risk = validate_result
 
                 if not valid:
-                    reasoning_text = f"Validation failed (risk={risk})"
-                    severity = TraceSeverity.HIGH
                     entry = ReasoningTraceEntry(
                         id=trace_id,
                         timestamp=ts,
                         source="arbiter",
                         event_type=event_type,
-                        reasoning_text=reasoning_text,
+                        reasoning_text=f"Validation failed (risk={risk})",
                         metadata=metadata,
                         refs=refs,
                         duration_ms=None,
-                        severity=severity,
+                        severity=TraceSeverity.HIGH,
                     )
                     self._append_and_publish(entry)
                     return False
 
                 # 3) Risk gating
                 if getattr(risk, "name", str(risk)).upper() == "HIGH":
-                    reasoning_text = "High risk action; requires escalation"
-                    severity = TraceSeverity.HIGH
                     entry = ReasoningTraceEntry(
                         id=trace_id,
                         timestamp=ts,
                         source="arbiter",
                         event_type=event_type,
-                        reasoning_text=reasoning_text,
+                        reasoning_text="High risk action; requires escalation",
                         metadata=metadata,
                         refs=refs,
                         duration_ms=None,
-                        severity=severity,
+                        severity=TraceSeverity.HIGH,
                     )
                     self._append_and_publish(entry)
                     return False
 
-                # 4) Authorized: attempt execution via controller
-                severity = TraceSeverity.INFO
-                reasoning_text = f"Authorized (risk={getattr(risk, 'name', str(risk))})"
-
-                exec_start = datetime.now(UTC)
-                try:
-                    # Controller API: prefer `execute(primitive_name, parameters)` if available
-                    if hasattr(self._controller, "execute"):
-                        await self._controller.execute(action.action_name, action.arguments or {})
-                    elif hasattr(self._controller, "execute_action"):
-                        await self._controller.execute_action(action)
-                    else:
-                        # Fallback: no execution method found
-                        raise RuntimeError("Controller has no execute method")
-                    exec_duration = int((datetime.now(UTC) - exec_start).total_seconds() * 1000)
-                    entry = ReasoningTraceEntry(
-                        id=trace_id,
-                        timestamp=ts,
-                        source="arbiter",
-                        event_type=event_type,
-                        reasoning_text=reasoning_text,
-                        metadata=metadata,
-                        refs=refs,
-                        duration_ms=exec_duration,
-                        severity=severity,
-                    )
-                    self._append_and_publish(entry)
-
-                    # publish a compact boolean flag for subscribers (authorized action)
-                    try:
-                        await self._blackboard.set_safety_flag("last_action_authorized", True)
-                    except Exception as exc:
-                        logger.debug(
-                            "Failed to set last_action_authorized safety flag", exc_info=exc
-                        )
-
-                    # publish the full ReasoningTraceEntry asynchronously (best-effort)
-                    try:
-                        asyncio.create_task(self._blackboard.add_trace_entry(entry))
-                    except Exception as exc:
-                        logger.debug(
-                            "Failed to schedule trace post (add_trace_entry)", exc_info=exc
-                        )
-
-                    return True
-                except Exception as exec_err:
-                    severity = TraceSeverity.HIGH
-                    reasoning_text = f"Execution failed: {exec_err}"
-                    entry = ReasoningTraceEntry(
-                        id=trace_id,
-                        timestamp=ts,
-                        source="arbiter",
-                        event_type=event_type,
-                        reasoning_text=reasoning_text,
-                        metadata=metadata,
-                        refs=refs,
-                        duration_ms=None,
-                        severity=severity,
-                    )
-                    self._append_and_publish(entry)
-                    return False
+                # Validation passed — record authorization decision for Phase 2
+                authorized_reasoning = f"Authorized (risk={getattr(risk, 'name', str(risk))})"
 
             except Exception as e:
-                # Unexpected error: record and deny
-                reasoning_text = f"Arbiter internal error: {e}"
-                severity = TraceSeverity.CRITICAL
                 entry = ReasoningTraceEntry(
                     id=trace_id,
                     timestamp=ts,
                     source="arbiter",
                     event_type="ACTION_REQUEST_ERROR",
-                    reasoning_text=reasoning_text,
+                    reasoning_text=f"Arbiter internal error: {e}",
                     metadata=metadata,
                     refs=refs,
                     duration_ms=None,
-                    severity=severity,
+                    severity=TraceSeverity.CRITICAL,
                 )
                 self._append_and_publish(entry)
                 return False
+
+        # ------------------------------------------------------------------
+        # Phase 2: Execute controller (lock released — may be slow/blocking)
+        # ------------------------------------------------------------------
+        if authorized_reasoning is None:  # pragma: no cover — invariant: always set above
+            return False
+        exec_start = datetime.now(UTC)
+        exec_entry: ReasoningTraceEntry
+        succeeded = False
+        try:
+            if hasattr(self._controller, "execute"):
+                await self._controller.execute(action.action_name, action.arguments or {})
+            elif hasattr(self._controller, "execute_action"):
+                await self._controller.execute_action(action)
+            else:
+                raise RuntimeError("Controller has no execute method")
+            exec_duration = int((datetime.now(UTC) - exec_start).total_seconds() * 1000)
+            exec_entry = ReasoningTraceEntry(
+                id=trace_id,
+                timestamp=ts,
+                source="arbiter",
+                event_type=event_type,
+                reasoning_text=authorized_reasoning,
+                metadata=metadata,
+                refs=refs,
+                duration_ms=exec_duration,
+                severity=TraceSeverity.INFO,
+            )
+            succeeded = True
+        except Exception as exec_err:
+            exec_entry = ReasoningTraceEntry(
+                id=trace_id,
+                timestamp=ts,
+                source="arbiter",
+                event_type=event_type,
+                reasoning_text=f"Execution failed: {exec_err}",
+                metadata=metadata,
+                refs=refs,
+                duration_ms=None,
+                severity=TraceSeverity.HIGH,
+            )
+
+        # ------------------------------------------------------------------
+        # Phase 3: Audit append (under lock — fast)
+        # ------------------------------------------------------------------
+        async with self._lock:
+            self._append_and_publish(exec_entry)
+
+        if succeeded:
+            try:
+                await self._blackboard.set_safety_flag("last_action_authorized", True)
+            except Exception as exc:
+                logger.debug("Failed to set last_action_authorized safety flag", exc_info=exc)
+            try:
+                asyncio.create_task(self._blackboard.add_trace_entry(exec_entry))
+            except Exception as exc:
+                logger.debug("Failed to schedule trace post (add_trace_entry)", exc_info=exc)
+
+        return succeeded
 
     async def emergency_stop(self, reason: str, trace_id: str | None = None) -> None:
         """

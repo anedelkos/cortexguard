@@ -4,7 +4,7 @@ import asyncio
 import logging
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any, ClassVar
 from uuid import uuid4
@@ -69,6 +69,7 @@ class PolicyAgent:
         llm_timeout_s: float = _LLM_TIMEOUT_S,
         llm_failure_threshold: int = _LLM_FAILURE_THRESHOLD,
         llm_cooldown_s: float = _LLM_COOLDOWN_S,
+        plan_adder: Callable[[Plan], Awaitable[None]] | None = None,
     ) -> None:
         """Initialize Policy Agent."""
         self._blackboard = blackboard
@@ -78,6 +79,7 @@ class PolicyAgent:
         self._capability_registry = capability_registry
         self._policy_engine = policy_engine
         self._mayday_agent = mayday_agent
+        self._plan_adder = plan_adder
         self._remediation_cooldown_s = remediation_cooldown_s
         self._llm_timeout_s = llm_timeout_s
         self._llm_failure_threshold = llm_failure_threshold
@@ -642,7 +644,14 @@ class PolicyAgent:
                     cloud_plan.source = PlanSource.CLOUD_AGENT
                     cloud_plan.trace_id = packet.trace_id
 
-                    await self._blackboard.set_current_plan(cloud_plan)
+                    if self._plan_adder is not None:
+                        await self._plan_adder(cloud_plan)
+                    else:
+                        logger.warning(
+                            "No plan_adder injected; cloud plan %s cannot be queued. "
+                            "Wire PolicyAgent with plan_adder=orchestrator.add_plan.",
+                            cloud_plan.plan_id,
+                        )
 
                     await self._trace_sink.post_trace_entry(
                         source=self,
@@ -673,25 +682,17 @@ class PolicyAgent:
 
     def _build_safe_fallback_policy(self, anomaly: AnomalyEvent) -> RemediationPolicy:
         """
-        Build a minimal, safe remediation policy: pause system, notify operator.
-        Adapt to your RemediationPolicy constructor.
-        """
+        Build a minimal, safe remediation policy with no corrective steps.
 
-        pause_action = AgentToolCall(
-            action_name="pause_system", arguments={"reason": "policy_validation_failed"}
-        )
-        notify_action = AgentToolCall(
-            action_name="notify_operator", arguments={"anomaly_id": anomaly.id}
-        )
-        steps = [
-            PlanStep(action=pause_action, description="Pause system for safety"),
-            PlanStep(action=notify_action, description="Notify operator for manual review"),
-        ]
+        Zero steps guarantees that StepExecutor never fails on an unregistered
+        action name. escalation_required=True ensures MaydayAgent is always
+        triggered so the cloud tier can take over.
+        """
         policy_id = f"fallback-{anomaly.id}"
         return RemediationPolicy(
             policy_id=policy_id,
             source=PolicySource.FALLBACK,
-            corrective_steps=steps,
+            corrective_steps=[],
             escalation_required=True,
             risk_assessment="fallback",
             reasoning_trace="fallback generated due to policy validation failure",

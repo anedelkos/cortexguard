@@ -120,8 +120,22 @@ class Orchestrator:
             if next_plan.steps:
                 index = await self._blackboard.get_step_index_for_plan(next_plan.plan_id) or 0
 
-                # Ensure index is within bounds for safety
-                index = min(index, len(next_plan.steps) - 1)
+                if index >= len(next_plan.steps):
+                    # Stale index left over from an interrupted completion — all steps already
+                    # ran. Complete the plan immediately rather than clamping and re-running
+                    # the last step.
+                    logger.warning(
+                        f"Plan {next_plan.plan_id} has stale step index {index} "
+                        f"(>= {len(next_plan.steps)} steps); marking COMPLETED."
+                    )
+                    next_plan.status = PlanStatus.COMPLETED
+                    self._current_plan = next_plan
+                    plans_total.labels(status="completed").inc()
+                    await self._blackboard.set_current_plan(next_plan)
+                    await self._blackboard.clear_step_index_for_plan(next_plan.plan_id)
+                    await self._clear_current_plan()
+                    return
+
                 current_step = next_plan.steps[index]
 
                 next_plan.status = PlanStatus.RUNNING
