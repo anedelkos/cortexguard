@@ -273,7 +273,7 @@ class EdgeRuntime:
         # ... Register Sub-Detectors ...
         # S0.3 Impact Detector (Statistical)
         self.statistical_impulse_detector = StatisticalImpulseDetector(
-            state_estimator=self.state_estimator,
+            blackboard=self.blackboard,
             z_score_threshold=self.config.detector_z_score_threshold,
         )
         self.anomaly_detector.register_detector(self.statistical_impulse_detector)

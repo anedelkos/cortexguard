@@ -5,8 +5,8 @@ from typing import Any
 
 from cortexguard.core.interfaces.base_detector import BaseDetector
 from cortexguard.edge.models.anomaly_event import AnomalySeverity
+from cortexguard.edge.models.blackboard import Blackboard
 from cortexguard.edge.models.fusion_snapshot import FusionSnapshot
-from cortexguard.edge.online_learner_state_estimator import OnlineLearnerStateEstimator
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +18,11 @@ class StatisticalImpulseDetector(BaseDetector):
 
     This component is designed for Tier 0 (Safety Critical) scenarios like S0.3
     (Impact During Motion), requiring high sensitivity and low latency.
+
+    The detector reads the StateEstimate from the Blackboard rather than calling
+    update() on the estimator directly. EdgeFusion is the sole caller of
+    estimator.update(); calling it a second time here would corrupt the residual
+    window and learner state (C3).
     """
 
     # Default threshold for flagging an impulse event (5 standard deviations)
@@ -31,7 +36,7 @@ class StatisticalImpulseDetector(BaseDetector):
 
     def __init__(
         self,
-        state_estimator: OnlineLearnerStateEstimator,
+        blackboard: Blackboard,
         z_score_threshold: float = _DEFAULT_Z_SCORE_THRESHOLD,
         min_uncertainty_for_detection: float | None = None,
     ) -> None:
@@ -39,7 +44,8 @@ class StatisticalImpulseDetector(BaseDetector):
         Initializes the detector.
 
         Args:
-            state_estimator: The component producing the statistical state.
+            blackboard: Shared state bus; the detector reads the latest
+                        StateEstimate from it (published by EdgeFusion).
             z_score_threshold: The Z-score (standard deviation) above which
                                an impulse event is flagged as 'high' severity.
                                Defaults to DEFAULT_Z_SCORE_THRESHOLD.
@@ -47,7 +53,7 @@ class StatisticalImpulseDetector(BaseDetector):
                                <= this value as "not ready" and skip detection.
                                Defaults to _FEATURE_MIN_UNCERTAINTY.
         """
-        self._estimator = state_estimator
+        self._blackboard = blackboard
         self._threshold = z_score_threshold
         # allow overriding the minimum uncertainty used to decide "ready for detection"
         self._min_uncertainty_for_detection = (
@@ -60,11 +66,16 @@ class StatisticalImpulseDetector(BaseDetector):
         """
         Detects anomalies based on the Z-score of the current snapshot's residuals.
 
+        Reads the StateEstimate published to the Blackboard by EdgeFusion.
+        Returns an empty dict if no estimate is available yet (cold start).
+
         Returns:
             Anomaly dictionary if high deviation is found, otherwise an empty dict.
         """
-        # Ensure the estimator has run and updated the snapshot with its state
-        state_estimate = await self._estimator.update(snapshot)
+        state_estimate = await self._blackboard.get_latest_state_estimate()
+        if state_estimate is None:
+            logger.debug("No StateEstimate available yet; skipping impulse detection tick.")
+            return {}
 
         residuals = state_estimate.residuals or {}
         uncertainty = state_estimate.uncertainty or {}

@@ -4,6 +4,7 @@ from typing import Any
 import pytest
 
 from cortexguard.edge.arbiter import Arbiter
+from cortexguard.edge.edge_fusion import _build_scene_graph_from_vision
 from cortexguard.edge.models.agent_tool_call import AgentToolCall
 from cortexguard.edge.models.blackboard import Blackboard
 from cortexguard.edge.models.capability_registry import (
@@ -93,17 +94,18 @@ async def test_safety_agent_triggers_emergency_stop_in_orchestrator():
     )
     orchestrator = SafetyOrchestrator(blackboard, arbiter, safety_agent, executor)
 
-    # Hazardous scene: hand near blade
+    # Hazardous scene: hand near blade.
+    # Labels are lowercased — matching what EdgeFusion._to_scene_object produces.
     hand = SceneObject(
         id="hand1",
-        label="Human_Hand",
+        label="human_hand",
         properties={},
         location_2d=[0.0, 0.0, 0.1, 0.1],
         pose_3d=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     )
     blade = SceneObject(
         id="blade1",
-        label="Blade",
+        label="blade",
         properties={"safety_critical": True},
         location_2d=[0.2, 0.2, 0.3, 0.3],
         pose_3d=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
@@ -128,6 +130,76 @@ async def test_safety_agent_triggers_emergency_stop_in_orchestrator():
     result = await orchestrator.run_step(step, state)
 
     assert result == "STOPPED"
+    assert await blackboard.get_safety_flag("emergency_stop") is True
+
+
+@pytest.mark.asyncio
+async def test_safety_agent_triggers_estop_via_fusion_scene_graph():
+    """
+    C2 regression: SceneGraph must be built via _build_scene_graph_from_vision
+    (the real EdgeFusion path) so that label lowercasing is applied before the
+    safety rule evaluates them.
+
+    Before C1 was fixed, this test would have returned NOMINAL because
+    _build_scene_graph_from_vision produces lowercase labels ("human_hand",
+    "blade") and the rule matched only mixed-case strings ("Human_Hand", "Blade").
+    """
+    blackboard = Blackboard()
+    controller = DummyController()
+    classifier = DummyClassifier()
+    registry = DummyCapabilityRegistry()
+    arbiter = Arbiter(blackboard, registry, controller)
+    safety_agent = SafetyAgent(blackboard)
+    executor = StepExecutor(
+        blackboard,
+        classifier,
+        registry,
+        controller,
+        default_poll_interval=0.1,
+        default_idle_interval=0.1,
+        default_max_retries=3,
+        default_retry_delay=0.01,
+    )
+    orchestrator = SafetyOrchestrator(blackboard, arbiter, safety_agent, executor)
+
+    # Raw vision objects as a sensor payload would produce (mixed-case labels).
+    # _build_scene_graph_from_vision lowercases them, exactly as EdgeFusion does.
+    # distance_m <= 0.5 on both objects ensures _is_near() infers a "near" relationship.
+    raw_vision_objects = [
+        {"bbox_id": "hand1", "label": "Human_Hand", "distance_m": 0.2, "confidence": 0.9},
+        {"bbox_id": "blade1", "label": "Blade", "distance_m": 0.2, "confidence": 0.9},
+    ]
+    scene = _build_scene_graph_from_vision(
+        timestamp=datetime.now(UTC),
+        vision_objects=raw_vision_objects,
+        ema_state={},
+    )
+
+    # Verify the fusion path has lowercased the labels (this is what makes the rule testable).
+    labels = {obj.label for obj in scene.objects}
+    assert labels == {"human_hand", "blade"}, f"EdgeFusion must lowercase labels; got {labels}"
+
+    await blackboard.set_scene_graph(scene)
+
+    step = PlanStep(
+        id="s3",
+        description="test step via fusion path",
+        action=AgentToolCall(action_name="noop", arguments={}),
+        status=StepStatus.PENDING,
+    )
+    state = StateEstimate(
+        timestamp=datetime.now(UTC),
+        label="test",
+        confidence=1.0,
+        symbolic_system_state={},
+    )
+
+    result = await orchestrator.run_step(step, state)
+
+    assert result == "STOPPED", (
+        "Safety rule did not fire for lowercased labels produced by the real fusion path. "
+        "Check _rule_human_hand_near_hazard label comparisons."
+    )
     assert await blackboard.get_safety_flag("emergency_stop") is True
 
 

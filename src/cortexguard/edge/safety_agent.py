@@ -133,12 +133,14 @@ class SafetyAgent:
         if not scene:
             return SafetyCommand(action="NOMINAL")
 
+        # Labels are lowercased by EdgeFusion._to_scene_object before storage.
         hazard_ids = {
             obj.id
             for obj in scene.objects
-            if obj.label in ["Blade", "Grill"] or obj.properties.get("safety_critical", False)
+            if obj.label.lower() in {"blade", "grill"}
+            or obj.properties.get("safety_critical", False)
         }
-        hand_ids = {obj.id for obj in scene.objects if obj.label == "Human_Hand"}
+        hand_ids = {obj.id for obj in scene.objects if obj.label.lower() == "human_hand"}
 
         for rel in scene.relationships:
             if rel.relationship in ("near", "touching"):
