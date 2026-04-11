@@ -204,3 +204,43 @@ async def test_state_estimator_uses_scene_graph_features(monkeypatch: pytest.Mon
     assert (
         "vision_occlusion_count" in state.residuals or "vision_nearest_human_m" in state.residuals
     )
+
+
+# ---------------------------------------------------------------------------
+# Concurrency guard
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_update_acquires_lock() -> None:
+    """update() must acquire self._lock to serialise concurrent calls."""
+
+    class RecordingLock:
+        def __init__(self) -> None:
+            self._inner = asyncio.Lock()
+            self.acquired_count: int = 0
+
+        async def __aenter__(self) -> "RecordingLock":
+            self.acquired_count += 1
+            await self._inner.__aenter__()
+            return self
+
+        async def __aexit__(self, *args: Any) -> None:
+            await self._inner.__aexit__(*args)
+
+    blackboard_mock = AsyncMock()
+    blackboard_mock.get_current_step.return_value = None
+    blackboard_mock.get_scene_graph.return_value = None
+    estimator = OnlineLearnerStateEstimator(learner=DummyLearner(), blackboard=blackboard_mock)
+
+    spy = RecordingLock()
+    estimator._lock = spy  # type: ignore[assignment]
+
+    snapshot = FusionSnapshot(
+        id="lock-test", timestamp=datetime.fromtimestamp(1.0), sensors={}, derived={"x": 1.0}
+    )
+    await estimator.update(snapshot)
+
+    assert (
+        spy.acquired_count >= 1
+    ), "update() never acquired self._lock — concurrent calls can corrupt shared state."

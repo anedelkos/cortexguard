@@ -427,7 +427,7 @@ async def test_stop_flush_failure(
 
 
 # ---------------------------------------------------------------------------
-# C3 regression test
+# Regression: duplicate remediation policy
 # ---------------------------------------------------------------------------
 
 
@@ -456,15 +456,7 @@ def make_remediation_policy(anomaly_key: str) -> RemediationPolicy:
 async def test_duplicate_remediation_policy_not_queued_twice(
     orchestrator: Orchestrator, blackboard: Blackboard
 ) -> None:
-    """
-    C3 regression: _handle_remediation_policy has no deduplication guard.
-    A second policy for the same trigger anomaly key (e.g. after the
-    PolicyAgent cooldown expires) queues a second identical remediation plan.
-    For actuator commands like SET_POWER_LEVEL, double-execution is a logic error.
-
-    Bug:  queue grows to 2 after two policies for the same key.
-    Fix:  second policy is discarded when a plan for that key is already active.
-    """
+    """Second policy for the same anomaly key must be discarded, not queued twice."""
     policy = make_remediation_policy("OVERHEAT")
 
     # First policy — should be queued
@@ -498,7 +490,7 @@ async def test_different_anomaly_keys_both_queued(
 
 
 # ---------------------------------------------------------------------------
-# M1 regression test
+# Regression: out-of-bounds step index
 # ---------------------------------------------------------------------------
 
 
@@ -506,17 +498,7 @@ async def test_different_anomaly_keys_both_queued(
 async def test_resume_with_exhausted_index_completes_plan_not_reruns_last_step(
     orchestrator: Orchestrator, blackboard: Blackboard
 ) -> None:
-    """
-    M1 regression: _start_next_plan clamps out-of-bounds step index with
-    min(index, len(steps) - 1) instead of detecting completion.
-
-    If the Blackboard holds an index equal to len(steps) — e.g. a stale
-    entry after an interrupted completion — the clamp silently re-runs the
-    last step rather than marking the plan COMPLETED and moving on.
-
-    Bug:  plan enters RUNNING state with current_step = last step.
-    Fix:  index >= len(steps) → immediately mark COMPLETED, no step set.
-    """
+    """Stale step index equal to len(steps) must mark the plan COMPLETED, not re-run the last step."""
     plan = make_plan("plan_m1")  # 2 steps: step_1 (index 0), step_2 (index 1)
 
     # Pre-set a stale out-of-bounds index on the Blackboard.

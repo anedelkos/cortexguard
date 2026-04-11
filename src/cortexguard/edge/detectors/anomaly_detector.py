@@ -258,7 +258,9 @@ class AnomalyDetector:
             key = result.get("key", "generic_anomaly")
 
             # Validate Score: Default to 0.5 if missing, but cap it [0.0, 1.0]
-            score_input = result.get("score") or result.get("anomaly_score")
+            score_input = result.get("score")
+            if score_input is None:
+                score_input = result.get("anomaly_score")
             try:
                 score = float(score_input) if score_input is not None else 0.5
                 score = max(0.0, min(1.0, score))

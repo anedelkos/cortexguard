@@ -621,23 +621,12 @@ async def test_cooldown_expires_and_allows_refire(
 
 
 # ---------------------------------------------------------------------------
-# M2 regression test
+# Regression: fallback policy must be executable
 # ---------------------------------------------------------------------------
 
 
 def test_fallback_policy_steps_fail_validation_against_empty_registry() -> None:
-    """
-    M2 regression: _build_safe_fallback_policy produces steps with
-    action_name='pause_system' and 'notify_operator'. Neither is registered in
-    CapabilityRegistry by default. When these steps reach StepExecutor, validation
-    fails, the plan enters FAILED with no escalation — the opposite of the
-    fallback's intent.
-
-    Bug:  _validate_policy_actions run on the fallback returns False because
-          its steps use unregistered action names.
-    Fix:  _build_safe_fallback_policy emits zero corrective steps so execution
-          never fails; escalation_required=True ensures MaydayAgent is triggered.
-    """
+    """Fallback policy steps must pass capability validation so they can always be executed."""
     real_registry = CapabilityRegistry()  # empty — no actions registered
     agent = PolicyAgent(
         blackboard=MagicMock(spec=Blackboard),
@@ -694,7 +683,7 @@ async def test_different_keys_not_affected_by_cooldown(
 
 
 # ---------------------------------------------------------------------------
-# M4 regression test
+# Regression: cloud plan must route through orchestrator
 # ---------------------------------------------------------------------------
 
 
@@ -718,19 +707,7 @@ def _make_cloud_plan() -> Plan:
 async def test_cloud_plan_does_not_bypass_orchestrator_via_set_current_plan(
     mock_deps: dict[str, Any],
 ) -> None:
-    """
-    M4 regression: _escalate_to_mayday_agent writes the cloud-returned Plan
-    directly to blackboard.set_current_plan, bypassing the Orchestrator's
-    priority queue, preemption checks, and lifecycle management.
-
-    On the next tick the Orchestrator sees a current_plan it never scheduled,
-    while its own _current_plan pointer still points to the local plan —
-    the two are desynchronised.
-
-    Bug:  blackboard.set_current_plan is awaited with the cloud plan.
-    Fix:  set_current_plan is NOT called; the plan is routed through an
-          injected plan_adder callable (Orchestrator.add_plan).
-    """
+    """Cloud plan must be routed via the injected plan_adder, not written directly to blackboard.set_current_plan."""
     agent = PolicyAgent(**mock_deps)
 
     cloud_plan = _make_cloud_plan()
@@ -766,8 +743,7 @@ async def test_cloud_plan_does_not_bypass_orchestrator_via_set_current_plan(
 async def test_cloud_plan_is_passed_to_plan_adder_when_injected(
     mock_deps: dict[str, Any],
 ) -> None:
-    """Complementary M4 test: when plan_adder is injected, it is called with
-    the cloud plan returned by the Mayday agent."""
+    """When plan_adder is injected it must be called with the cloud plan returned by the Mayday agent."""
     plan_adder = AsyncMock()
     agent = PolicyAgent(**mock_deps, plan_adder=plan_adder)
 
@@ -799,7 +775,7 @@ async def test_cloud_plan_is_passed_to_plan_adder_when_injected(
 
 
 # ---------------------------------------------------------------------------
-# M5 regression test
+# Regression: scene-graph fallback when no fusion snapshot
 # ---------------------------------------------------------------------------
 
 
@@ -807,15 +783,7 @@ async def test_cloud_plan_is_passed_to_plan_adder_when_injected(
 async def test_handle_anomaly_falls_back_to_scene_graph_when_no_fusion_snapshot(
     mock_deps: dict[str, Any],
 ) -> None:
-    """
-    M5 regression: verifies the scene-graph fallback branch is reached for
-    MEDIUM anomalies when no fusion snapshot is available.
-
-    `get_fusion_snapshot` is already patched to return None by the mock_deps
-    fixture (M5 fix). With snapshot=None, the code falls through to the
-    `get_scene_graph` fallback. This test asserts get_scene_graph is awaited
-    exactly once, confirming the correct branch is taken.
-    """
+    """When no fusion snapshot is available, the scene-graph fallback path must be taken for MEDIUM anomalies."""
     mock_deps["blackboard"].get_scene_graph = AsyncMock(return_value=None)
     mock_deps["blackboard"].get_latest_state_estimate.return_value = StateEstimate(
         timestamp=datetime.now(UTC),

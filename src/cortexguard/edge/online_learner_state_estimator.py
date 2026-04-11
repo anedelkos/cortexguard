@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import datetime
 import logging
 import time
@@ -74,6 +75,8 @@ class OnlineLearnerStateEstimator:
 
         # Persistence counters (consecutive windows above threshold)
         self._consec_high: dict[str, int] = {}
+
+        self._lock = asyncio.Lock()
 
     def _z_to_symbol(self, z: float) -> str:
         """
@@ -318,71 +321,72 @@ class OnlineLearnerStateEstimator:
         """
         start = time.perf_counter()
 
-        with tracer.start_as_current_span("estimator.update") as span:
-            self._set_timestamp_attribute(span, snapshot.timestamp)
-            span.set_attribute("feature.count", len(snapshot.derived or {}))
+        async with self._lock:
+            with tracer.start_as_current_span("estimator.update") as span:
+                self._set_timestamp_attribute(span, snapshot.timestamp)
+                span.set_attribute("feature.count", len(snapshot.derived or {}))
 
-            now = snapshot.timestamp
-            current_intent = await self._fetch_current_intent()
+                now = snapshot.timestamp
+                current_intent = await self._fetch_current_intent()
 
-            # 1. Extract base features
-            features = snapshot.derived.copy()
+                # 1. Extract base features
+                features = snapshot.derived.copy()
 
-            # 2. Augment with scene graph
-            scene_graph_frame = await self._augment_with_scene_graph(features)
+                # 2. Augment with scene graph
+                scene_graph_frame = await self._augment_with_scene_graph(features)
 
-            if not features:
-                logger.warning("Empty features in snapshot, returning nominal state")
-                return self._create_nominal_state(now, current_intent)
+                if not features:
+                    logger.warning("Empty features in snapshot, returning nominal state")
+                    return self._create_nominal_state(now, current_intent)
 
-            # 3. Predict + residuals + stats
-            (
-                observations,
-                residuals,
-                uncertainty,
-                z_scores,
-                max_z_score,
-                max_z_feature,
-                features_for_update,
-            ) = self._compute_residuals_and_stats(features)
+                # 3. Predict + residuals + stats
+                (
+                    observations,
+                    residuals,
+                    uncertainty,
+                    z_scores,
+                    max_z_score,
+                    max_z_feature,
+                    features_for_update,
+                ) = self._compute_residuals_and_stats(features)
 
-            # 4. Update learner
-            self._safe_update_learner(features_for_update)
+                # 4. Update learner
+                self._safe_update_learner(features_for_update)
 
-            # 5. Classify state
-            label, flags = self._classify_state(max_z_score, max_z_feature, z_scores)
-            span.set_attribute("max_z_score", max_z_score)
-            span.set_attribute("label", label)
+                # 5. Classify state
+                label, flags = self._classify_state(max_z_score, max_z_feature, z_scores)
+                span.set_attribute("max_z_score", max_z_score)
+                span.set_attribute("label", label)
 
-            # 6. Symbolic state
-            symbolic_state = self._compute_symbolic_state(z_scores)
+                # 6. Symbolic state
+                symbolic_state = self._compute_symbolic_state(z_scores)
 
-            # 7. Confidence
-            confidence = self._calculate_confidence(max_z_score)
-            estimator_confidence.set(confidence)
+                # 7. Confidence
+                confidence = self._calculate_confidence(max_z_score)
+                estimator_confidence.set(confidence)
 
-            # 8. Attach scene graph frame
-            self._attach_scene_graph_frame(flags, scene_graph_frame)
+                # 8. Attach scene graph frame
+                self._attach_scene_graph_frame(flags, scene_graph_frame)
 
-            # 9. Update metrics
-            self._update_metrics(label)
+                # 9. Update metrics
+                self._update_metrics(label)
 
-            duration_ms = (time.perf_counter() - start) * 1000.0
-            component_duration_ms.labels(component="estimator_update").observe(duration_ms)
+                duration_ms = (time.perf_counter() - start) * 1000.0
+                component_duration_ms.labels(component="estimator_update").observe(duration_ms)
 
-            # 10. Build final state estimate
-            return self._build_state_estimate(
-                now,
-                label,
-                confidence,
-                observations,
-                residuals,
-                uncertainty,
-                z_scores,
-                flags,
-                current_intent,
-                symbolic_state,
-            )
+                # 10. Build final state estimate
+                return self._build_state_estimate(
+                    now,
+                    label,
+                    confidence,
+                    observations,
+                    residuals,
+                    uncertainty,
+                    z_scores,
+                    flags,
+                    current_intent,
+                    symbolic_state,
+                )
 
     def _classify_state(
         self,

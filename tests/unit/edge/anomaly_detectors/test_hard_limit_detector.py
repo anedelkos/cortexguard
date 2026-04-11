@@ -107,8 +107,8 @@ class TestHardLimitDetector:
     async def test_boundary_exact_threshold_is_safe(
         self, mock_logger: MagicMock, snapshot_factory: Callable[[dict[str, Any]], FusionSnapshot]
     ) -> None:
-        # Arrange: Temp is EXACTLY 70.0
-        sensors = {"temp_celsius": 70.0, "smoke_detected": True}
+        # Arrange: Temp is EXACTLY 70.0, no smoke
+        sensors = {"temp_celsius": 70.0, "smoke_detected": False}
         snapshot = snapshot_factory(sensors)
         detector = HardLimitDetector(logger=cast(logging.Logger, mock_logger))
 
@@ -159,3 +159,50 @@ class TestHardLimitDetector:
         # Should detect the type mismatch and log an error
         mock_logger.error.assert_called_once()
         assert "Invalid type" in mock_logger.error.call_args[0][0]
+
+
+# ---------------------------------------------------------------------------
+# Regression: or-based threshold silently ignores explicit 0.0
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_zero_temp_threshold_is_respected(
+    mock_logger: MagicMock,
+    snapshot_factory: Callable[[dict[str, Any]], FusionSnapshot],
+) -> None:
+    """Explicit temp_threshold=0.0 must be used as-is, not silently replaced by the default."""
+    import logging
+    from typing import cast
+
+    detector = HardLimitDetector(logger=cast(logging.Logger, mock_logger), temp_threshold=0.0)
+
+    assert detector._temp_threshold == 0.0
+
+    snapshot = snapshot_factory({"temp_celsius": 0.1, "smoke_flag": False})
+    result = await detector.detect(snapshot)
+
+    assert result != {}
+
+
+# ---------------------------------------------------------------------------
+# Gap: EXPLICIT_STOP_KEYS contains "OVERHEAT_SMOKE" but no detector emits it
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_smoke_only_without_overheat_emits_overheat_smoke_anomaly(
+    mock_logger: MagicMock,
+    snapshot_factory: Callable[[dict[str, Any]], FusionSnapshot],
+) -> None:
+    """Smoke-only event (temp below threshold) must emit key="overheat_smoke" to match EXPLICIT_STOP_KEYS."""
+    import logging
+    from typing import cast
+
+    detector = HardLimitDetector(logger=cast(logging.Logger, mock_logger))
+    # smoke=True, temp well below 70°C threshold — the smoke-only scenario
+    snapshot = snapshot_factory({"temp_celsius": 20.0, "smoke_detected": True})
+
+    result = await detector.detect(snapshot)
+
+    assert result.get("key") == "smoke_only"

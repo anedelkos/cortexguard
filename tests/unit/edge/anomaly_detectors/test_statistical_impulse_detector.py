@@ -179,22 +179,13 @@ class TestStatisticalImpulseDetector:
 
 
 # ---------------------------------------------------------------------------
-# C3 regression: double-update bug
+# Regression: double estimator update
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_detect_does_not_call_estimator_update() -> None:
-    """
-    C3 regression: StatisticalImpulseDetector.detect must NOT call
-    estimator.update(). EdgeFusion already calls update() once per snapshot
-    and publishes the result to the blackboard. A second call corrupts the
-    residual window (same residual appended twice), inflates _seen_per_feature
-    counts, and trains the learner twice on the same sample.
-
-    Fix: detector reads get_latest_state_estimate() from the blackboard
-    instead of calling update() on the shared estimator.
-    """
+    """detect() must not call estimator.update() — EdgeFusion already does that once per snapshot."""
     # Real blackboard — the detector reads from it; the estimator writes to it.
     bb = Blackboard()
     bb_for_estimator = MagicMock(spec=Blackboard)

@@ -340,7 +340,7 @@ async def test_generate_policy_mock_path(
 
 
 # ---------------------------------------------------------------------------
-# M3 regression test
+# Regression: prompt injection via metadata
 # ---------------------------------------------------------------------------
 
 
@@ -349,18 +349,7 @@ def test_prompt_injection_via_metadata_is_blocked(
     state_estimate: StateEstimate,
     tool_catalog: str,
 ) -> None:
-    """
-    M3 regression: event.model_dump_json() and context.model_dump_json() are
-    embedded verbatim into the [INST]…[/INST] block. Metadata containing the
-    Mistral closing delimiter '[/INST]' breaks out of the instruction block,
-    letting an attacker append arbitrary instructions to the prompt.
-
-    Bug:  the built prompt contains '[/INST]' more than once — the injected
-          copy in the metadata closes the block early, and anything after it
-          is treated as model output rather than instructions.
-    Fix:  structural Mistral delimiters are stripped / escaped from embedded
-          data before the prompt is assembled, so '[/INST]' appears exactly once.
-    """
+    """Mistral delimiters in anomaly metadata must be stripped before being embedded in the prompt."""
     injected_event = AnomalyEvent(
         id="inject-1",
         key="TEMP_HIGH",

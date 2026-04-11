@@ -73,11 +73,11 @@ class LogicalRuleDetector(BaseDetector):
 
     def _check_value_freeze(self, snapshot: FusionSnapshot) -> dict[str, Any]:
         sensors = snapshot.sensors
-        window_stats = sensors["window_stats"]
+        window_stats = sensors.get("window_stats") or {}
 
         for key, stats in window_stats.items():
-            rng = stats["range"]
-            std = stats["std"]
+            rng = stats.get("range", 0.0)
+            std = stats.get("std", 0.0)
             eps = self._VARIANCE_EPSILON.get(key, 1e-6)
             if rng <= eps or std <= eps:
                 return self._build_anomaly_event(
@@ -87,7 +87,7 @@ class LogicalRuleDetector(BaseDetector):
                     metadata={"sensor_id": key, "window_range": rng, "window_std": std},
                 )
 
-        raw_window = sensors["raw"]
+        raw_window = sensors.get("raw") or []
         per_key_values: dict[str, list[float]] = {}
 
         for sample in raw_window:
@@ -109,7 +109,7 @@ class LogicalRuleDetector(BaseDetector):
                 )
 
         for key in ("temp_celsius",):
-            val = sensors[key]
+            val = sensors.get(key)
             dq = self._recent_snapshot_values[key]
             if isinstance(val, bool):
                 dq.append(1 if val else 0)
