@@ -88,7 +88,6 @@ class RuntimeConfig:
 
     # Anomaly detection settings
     anomaly_check_interval: float = 1.0
-    anomaly_threshold: float = 5.0
 
     # Sensor fusion settings
     sensor_fusion_rate: float = 0.1  # 10 Hz
@@ -531,7 +530,7 @@ class EdgeRuntime:
         current_plan = await self.blackboard.get_current_plan()
         metrics = await self.blackboard.get_metrics()
 
-        safety_flags = self.blackboard.safety_flags
+        emergency_stop = await self.blackboard.get_safety_flag("emergency_stop")
 
         return {
             "uptime_seconds": uptime,
@@ -539,7 +538,7 @@ class EdgeRuntime:
             "anomalies_detected": metrics["active_anomalies_count"],
             "failed_plans": metrics["failed_plans_count"],
             "current_plan_id": current_plan.plan_id if current_plan else None,
-            "emergency_stop": safety_flags.get("emergency_stop", False),
+            "emergency_stop": emergency_stop,
         }
 
 
@@ -553,7 +552,6 @@ def create_runtime(profile: str = "default", **overrides: Any) -> EdgeRuntime:
         "development": RuntimeConfig(
             log_level="DEBUG",
             orchestrator_tick_interval=0.05,  # Faster for dev
-            anomaly_threshold=0.7,  # Lower threshold for testing
         ),
         "production": RuntimeConfig(
             log_level="INFO",

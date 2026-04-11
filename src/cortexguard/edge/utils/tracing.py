@@ -162,14 +162,20 @@ async def post_trace_entry(
         try:
             span = trace.get_current_span()
             if span is not None:
+                _OTEL_PRIMITIVES = (bool, int, float, str)
+                safe_meta = {
+                    f"meta.{k}": v
+                    for k, v in (metadata or {}).items()
+                    if isinstance(v, _OTEL_PRIMITIVES)
+                }
                 span.add_event(
                     event_type,
                     {
                         "source": source_name,
                         "reasoning_text": reasoning_text,
-                        **(metadata or {}),
                         "severity": severity.name,
                         "duration_ms": duration_ms if duration_ms is not None else 0,
+                        **safe_meta,
                     },
                 )
         except Exception:
@@ -255,17 +261,11 @@ async def timed_trace(
                 )
             )
         except RuntimeError:
-            # No running loop — best-effort synchronous fallback
-            try:
-                nonblocking_post_trace_entry(
-                    sink,
-                    source,
-                    f"{event_type}_COMPLETED",
-                    reasoning_text,
-                    metadata or {},
-                    severity=severity,
-                    refs=refs,
-                    duration_ms=duration_ms,
-                )
-            except Exception:
-                logger.debug("Failed to post timed trace", exc_info=True)
+            # No running event loop — the duration trace entry is silently dropped.
+            # nonblocking_post_trace_entry also requires a running loop, so calling it
+            # here would just raise RuntimeError again. Log at WARNING so the loss is
+            # visible rather than swallowed.
+            logger.warning(
+                "timed_trace: no running event loop; duration trace for %s dropped",
+                event_type,
+            )

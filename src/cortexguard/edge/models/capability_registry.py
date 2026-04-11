@@ -9,7 +9,7 @@ import jsonschema
 from pydantic import BaseModel, Field
 
 
-class RiskLevel(Enum):
+class RiskLevel(str, Enum):
     LOW = "LOW"
     MEDIUM = "MEDIUM"
     HIGH = "HIGH"
@@ -110,13 +110,7 @@ class CapabilityRegistry(BaseModel):
             # Any unexpected validation error -> conservative denial
             return False, RiskLevel.HIGH
 
-        # Map configured risk_level string to RiskLevel enum (default to LOW)
-        try:
-            risk = RiskLevel[str(schema.risk_level).upper()]
-        except Exception:
-            risk = RiskLevel.LOW
-
-        return True, risk
+        return True, schema.risk_level
 
     @classmethod
     def load_from_yaml(cls, config_path: Path | None = None) -> CapabilityRegistry:
