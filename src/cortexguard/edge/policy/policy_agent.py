@@ -592,7 +592,10 @@ class PolicyAgent:
             if anomaly.severity == AnomalySeverity.HIGH:
                 return self._generate_critical_safety_policy(anomaly, context)
 
-            # 2. S2.3 Value Freeze → degraded mode policy
+            # 2. S2.3 Value Freeze → degraded mode policy.
+            # Keys are generated dynamically as f"{sensor_key}_value_freeze" by
+            # LogicalRuleDetector._check_value_freeze, so exact-key dispatch is not
+            # feasible; suffix-match is intentional.
             if anomaly.key.endswith("_value_freeze"):
                 return self._policy_for_value_freeze(anomaly, context)
 
@@ -758,6 +761,8 @@ class PolicyAgent:
         fallback.risk_assessment += " Failed policy risk assessment: " + policy.risk_assessment
         fallback.reasoning_trace += " Failed policy reasoning trace:" + policy.reasoning_trace
 
+        self._validate_policy_actions(fallback, remove_invalid_steps=True)
+
         return fallback
 
     async def _publish_policy(self, anomaly: AnomalyEvent, policy: RemediationPolicy) -> None:
@@ -873,41 +878,41 @@ class PolicyAgent:
                 logger.exception("Failed to fetch active anomalies: %s", exc)
                 return processed_ids
 
-        if not active_anomalies:
-            return processed_ids
+            if not active_anomalies:
+                return processed_ids
 
-        sorted_anomalies = sorted(
-            active_anomalies.values(),
-            key=lambda a: a.severity.value,
-            reverse=True,
-        )
+            sorted_anomalies = sorted(
+                active_anomalies.values(),
+                key=lambda a: a.severity.value,
+                reverse=True,
+            )
 
-        processed_this_tick = 0
-        for anomaly in sorted_anomalies:
-            if processed_this_tick >= self._MAX_ANOMALIES_PER_TICK:
-                break
+            processed_this_tick = 0
+            for anomaly in sorted_anomalies:
+                if processed_this_tick >= self._MAX_ANOMALIES_PER_TICK:
+                    break
 
-            if anomaly.id not in self._processed_anomalies and anomaly.severity in (
-                AnomalySeverity.HIGH,
-                AnomalySeverity.MEDIUM,
-            ):
-                try:
-                    await self._handle_anomaly_event(anomaly)
-                except Exception as handle_exc:
-                    logger.exception("Error handling anomaly %s: %s", anomaly.id, handle_exc)
-                    # continue to next anomaly rather than aborting the tick
-                else:
-                    processed_ids.append(anomaly.id)
-                    processed_this_tick += 1
+                if anomaly.id not in self._processed_anomalies and anomaly.severity in (
+                    AnomalySeverity.HIGH,
+                    AnomalySeverity.MEDIUM,
+                ):
+                    try:
+                        await self._handle_anomaly_event(anomaly)
+                    except Exception as handle_exc:
+                        logger.exception("Error handling anomaly %s: %s", anomaly.id, handle_exc)
+                        # continue to next anomaly rather than aborting the tick
+                    else:
+                        processed_ids.append(anomaly.id)
+                        processed_this_tick += 1
 
-                    if anomaly.severity == AnomalySeverity.HIGH:
-                        logger.warning(
-                            "HIGH severity anomaly processed, allowing Orchestrator to react"
-                        )
-                        break
+                        if anomaly.severity == AnomalySeverity.HIGH:
+                            logger.warning(
+                                "HIGH severity anomaly processed, allowing Orchestrator to react"
+                            )
+                            break
 
-        duration_ms = (time.perf_counter() - tick_start) * 1000.0
-        component_duration_ms.labels(component="policy_agent_tick").observe(duration_ms)
+            duration_ms = (time.perf_counter() - tick_start) * 1000.0
+            component_duration_ms.labels(component="policy_agent_tick").observe(duration_ms)
 
         return processed_ids
 

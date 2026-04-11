@@ -141,24 +141,16 @@ class StatisticalImpulseDetector(BaseDetector):
                 f"Sigma={uncertainty.get(feature_name, 0.0):.3f}"
             )
 
-            # Defensive block to prevent crashing on final dictionary assembly
-            try:
-                return {
-                    "key": "ft_impact_impulse",
-                    "anomaly_score": anomaly_score,
-                    "severity": AnomalySeverity.HIGH,
-                    "metadata": {
-                        "max_z_score": max_z_score,
-                        "trigger_feature": feature_name,
-                        "residual": residuals.get(feature_name, 0.0),
-                        "uncertainty": uncertainty.get(feature_name, 0.0),
-                    },
-                }
-            except KeyError:
-                logger.error(
-                    f"Failed to assemble final anomaly dict due to missing key for '{feature_name}'.",
-                    exc_info=True,
-                )
-                return {}
+            return {
+                "key": "ft_impact_impulse",
+                "anomaly_score": anomaly_score,
+                "severity": AnomalySeverity.HIGH,
+                "metadata": {
+                    "max_z_score": max_z_score,
+                    "trigger_feature": feature_name,
+                    "residual": residuals.get(feature_name, 0.0),
+                    "uncertainty": uncertainty.get(feature_name, 0.0),
+                },
+            }
 
         return {}

@@ -4,6 +4,7 @@ import asyncio
 import logging
 from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 from cortexguard.core.interfaces.base_controller import BaseController
 from cortexguard.core.interfaces.base_executor import BaseExecutor
@@ -134,8 +135,6 @@ class StepExecutor(BaseExecutor):
             return False
 
         # 2. Prepare attempt correlation and post attempt trace
-        from uuid import uuid4
-
         attempt_id = f"attempt-{uuid4().hex[:8]}"
         await self._trace_sink.post_trace_entry(
             source=self,
