@@ -27,7 +27,6 @@ from opentelemetry import trace
 from cortexguard.common.constants import DEFAULT_ALPHA
 from cortexguard.edge.constants import (
     _IOU_OCCLUSION_THRESHOLD,
-    _NEAR_CAMERA_THRESHOLD_M,
     _NEAR_THRESHOLD_M,
 )
 from cortexguard.edge.models.blackboard import Blackboard
@@ -136,13 +135,7 @@ def _is_near(a: SceneObject, b: SceneObject, threshold_m: float = _NEAR_THRESHOL
     da = a.properties.get("distance_m")
     db = b.properties.get("distance_m")
     if isinstance(da, (int, float)) and isinstance(db, (int, float)):
-        # symmetric proximity: both distances within threshold of each other
-        if abs(da - db) <= threshold_m:
-            return True
-        # also consider either object very close to camera as near
-        if min(da, db) <= _NEAR_CAMERA_THRESHOLD_M:
-            return True
-        return False
+        return min(da, db) <= threshold_m
 
     bbox_a = a.location_2d
     bbox_b = b.location_2d
@@ -348,13 +341,19 @@ class EdgeFusion:
         async with self._lock:
             if raw_smoke_flag:
                 self._smoke_score = min(self._SMOKE_MAX_SCORE, self._smoke_score + 1)
+                self._smoke_consec_set += 1
+                self._smoke_consec_clear = 0
             else:
                 self._smoke_score = max(0, self._smoke_score - 1)
+                self._smoke_consec_clear += 1
+                self._smoke_consec_set = 0
 
-            # High threshold to trigger, low threshold to clear
-            if self._smoke_score >= self._SMOKE_SET_CONSECUTIVE:
+            # Set after enough consecutive positive windows
+            if not self._smoke_state and self._smoke_consec_set >= self._SMOKE_SET_CONSECUTIVE:
                 self._smoke_state = True
-            elif self._smoke_score == 0:
+
+            # Clear after enough consecutive clean windows
+            if self._smoke_state and self._smoke_consec_clear >= self._SMOKE_CLEAR_CONSECUTIVE:
                 self._smoke_state = False
 
             return self._smoke_state

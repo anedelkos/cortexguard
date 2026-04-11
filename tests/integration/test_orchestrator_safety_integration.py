@@ -135,15 +135,7 @@ async def test_safety_agent_triggers_emergency_stop_in_orchestrator():
 
 @pytest.mark.asyncio
 async def test_safety_agent_triggers_estop_via_fusion_scene_graph():
-    """
-    C2 regression: SceneGraph must be built via _build_scene_graph_from_vision
-    (the real EdgeFusion path) so that label lowercasing is applied before the
-    safety rule evaluates them.
-
-    Before C1 was fixed, this test would have returned NOMINAL because
-    _build_scene_graph_from_vision produces lowercase labels ("human_hand",
-    "blade") and the rule matched only mixed-case strings ("Human_Hand", "Blade").
-    """
+    """SceneGraph built via _build_scene_graph_from_vision applies label lowercasing before safety rule evaluation."""
     blackboard = Blackboard()
     controller = DummyController()
     classifier = DummyClassifier()

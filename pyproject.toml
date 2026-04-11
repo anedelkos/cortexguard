@@ -1,7 +1,7 @@
 [project]
 name = "cortexguard"
 version = "0.1.0"
-description = "Real-Time Multimodal Anomaly Detection & Fault-Tolerant AI Architecture for Collaborative Robotics"
+description = "Real-Time Multimodal Anomaly Detection & Fault-Tolerant AI Architecture"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

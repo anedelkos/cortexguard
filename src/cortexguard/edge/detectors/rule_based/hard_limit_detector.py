@@ -48,7 +48,9 @@ class HardLimitDetector(BaseDetector):
                             Defaults to DEFAULT_TEMP_THRESHOLD_C.
         """
         self._logger = logger
-        self._temp_threshold = temp_threshold or self.DEFAULT_TEMP_THRESHOLD_C
+        self._temp_threshold = (
+            temp_threshold if temp_threshold is not None else self.DEFAULT_TEMP_THRESHOLD_C
+        )
 
         self._logger.debug(f"HardLimitDetector initialized with threshold={self._temp_threshold}°C")
 
@@ -93,6 +95,18 @@ class HardLimitDetector(BaseDetector):
                 severity=AnomalySeverity.HIGH,
                 score=1.0,  # Certainty is 100% for hard limits
                 metadata={"temp": current_temp, "threshold": self._temp_threshold, "smoke": True},
+            )
+
+        # Smoke alone — no overheat, but smoke is an explicit stop condition
+        if is_smoking:
+            self._logger.critical(
+                f"🚨 Smoke detected at {current_temp}°C (below overheat threshold)."
+            )
+            return self._build_anomaly_event(
+                key="smoke_only",
+                severity=AnomalySeverity.HIGH,
+                score=1.0,
+                metadata={"temp": current_temp, "smoke": True},
             )
 
         # Fallback Logic: Just Overheat (Tier 1/2 Warning)

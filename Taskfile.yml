@@ -174,7 +174,7 @@ tasks:
 # --- Simulator and demo --------------------------------------------------
 
   simulate:download:
-    desc: "Download and extract robot dataset"
+    desc: "Download and extract hardware dataset"
     cmds:
       - "PYTHONPATH=src python data/download_dataset.py"
 

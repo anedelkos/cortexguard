@@ -358,3 +358,25 @@ class TestAnomalyDetector:
 
         # Assert 3: State is updated
         assert len(detector._active_anomaly_keys) == 1
+
+
+# ---------------------------------------------------------------------------
+# Regression: zero-score preservation
+# ---------------------------------------------------------------------------
+
+
+def test_aggregate_results_preserves_zero_score() -> None:
+    """_aggregate_results must preserve a detector score of exactly 0.0, not treat it as falsy."""
+    from cortexguard.edge.models.anomaly_event import AnomalySeverity
+
+    bb = MagicMock(spec=Blackboard)
+    detector_instance = AnomalyDetector(blackboard=bb)
+
+    results = [
+        ("detector_a", {"key": "test_key", "score": 0.0, "severity": AnomalySeverity.HIGH}),
+    ]
+
+    aggregated = detector_instance._aggregate_results(results)
+    _, score, _, _ = aggregated["test_key"]  # type: ignore[misc]
+
+    assert score == 0.0

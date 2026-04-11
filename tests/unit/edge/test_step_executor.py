@@ -396,25 +396,13 @@ async def test_executor_loop_halts_on_emergency_stop(
 
 
 # ---------------------------------------------------------------------------
-# C2 regression test
+# Regression: preemption mid-step
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_preemption_mid_step_does_not_overwrite_urgent_plan_step() -> None:
-    """
-    C2 regression: when preemption fires while the executor is mid-step, the
-    executor completes the old step and writes COMPLETED back to the Blackboard,
-    overwriting the urgent plan's current step.
-
-    Set up:
-      - step_a (plan A) is executing
-      - during execution the Blackboard is switched to step_b1 (plan B's first step)
-      - executor finishes step_a and attempts to write COMPLETED back
-
-    Bug:  Blackboard ends up with step_a COMPLETED, clobbering step_b1.
-    Fix:  executor checks step identity before writing back; discards stale result.
-    """
+    """Executor must discard the stale result when preemption switches the blackboard to a new step mid-execution."""
     bb = Blackboard()
 
     controller_entered = asyncio.Event()

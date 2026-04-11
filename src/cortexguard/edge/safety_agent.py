@@ -33,7 +33,7 @@ class SafetyAgent:
     """
 
     # canonical keys that always mean immediate stop (upper-case for normalization)
-    EXPLICIT_STOP_KEYS = {"HUMAN_PROXIMITY_VIOLATION", "OVERHEAT_SMOKE_COMBO", "OVERHEAT_SMOKE"}
+    EXPLICIT_STOP_KEYS = {"HUMAN_PROXIMITY_VIOLATION", "OVERHEAT_SMOKE_COMBO", "SMOKE_ONLY"}
 
     def __init__(
         self,

@@ -148,3 +148,26 @@ async def test_no_anomaly_if_key_is_missing(
     result = await detector.detect(mock_snapshot(None))
     assert result == {}
     assert detector._consecutive_failure_count == 1  # Should not change
+
+
+# ---------------------------------------------------------------------------
+# Regression: bare dict["key"] accesses in _check_value_freeze
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_check_value_freeze_does_not_raise_on_missing_sensor_keys(
+    detector: LogicalRuleDetector,
+) -> None:
+    """Snapshot with missing sensor keys must return {} gracefully, not raise KeyError."""
+    snapshot = FusionSnapshot(
+        id="bare-key-test",
+        timestamp=datetime.now(UTC),
+        derived={},
+        sensors={},  # all expected keys absent
+    )
+
+    # Should return {} gracefully, not raise KeyError
+    result = await detector.detect(snapshot)
+
+    assert result == {}

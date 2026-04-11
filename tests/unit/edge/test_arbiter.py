@@ -252,20 +252,13 @@ async def test_emergency_stop_falls_back_to_execute():
 
 
 # ---------------------------------------------------------------------------
-# C1 regression tests
+# Regression: emergency_stop isolation
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_request_action_internal_error_does_not_set_emergency_stop_flag():
-    """
-    C1 regression: _append_and_publish must not set emergency_stop for internal
-    request_action errors. Only an explicit emergency_stop() call should set that flag.
-
-    A non-KeyError from get_function_schema escapes the inner except clause and
-    hits the outer CRITICAL handler, which previously triggered fire-and-forget
-    emergency_stop via _append_and_publish.
-    """
+    """Internal request_action errors must not set the emergency_stop flag."""
     bb = Blackboard()
     emergency_stop_flagged = False
 
@@ -296,12 +289,7 @@ async def test_request_action_internal_error_does_not_set_emergency_stop_flag():
 
 @pytest.mark.asyncio
 async def test_emergency_stop_flag_set_exactly_once():
-    """
-    C1 regression: emergency_stop must set the safety flag exactly once via
-    direct await. With create_task in _append_and_publish (fire-and-forget) AND
-    in emergency_stop itself, the flag was set twice — once unguaranteed and once
-    awaited. After the fix, exactly one direct await sets it.
-    """
+    """emergency_stop must set the safety flag exactly once."""
     bb = Blackboard()
     call_count = 0
 
@@ -328,23 +316,13 @@ async def test_emergency_stop_flag_set_exactly_once():
 
 
 # ---------------------------------------------------------------------------
-# M6 regression test
+# Regression: emergency_stop blocked by slow controller
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_emergency_stop_not_blocked_by_slow_controller_in_request_action() -> None:
-    """
-    M6 regression: request_action holds _lock for the entire duration of
-    controller.execute(), including slow/hanging hardware commands. emergency_stop
-    also needs _lock, so it is blocked until the slow command finishes — preventing
-    the E-STOP signal from being set.
-
-    Bug:  emergency_stop cannot acquire _lock while request_action is executing
-          a slow controller command; the E-STOP flag is delayed.
-    Fix:  controller.execute() runs outside the lock; only validation and audit
-          append are held under it.
-    """
+    """emergency_stop must not be blocked by a slow controller.execute() holding the lock."""
     controller_entered = asyncio.Event()
     allow_complete = asyncio.Event()
 
