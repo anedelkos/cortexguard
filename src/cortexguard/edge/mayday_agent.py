@@ -288,8 +288,6 @@ class MaydayAgent:
         """
         One escalation attempt, including tracing, cloud call, and error handling.
         """
-        attempt_start = time.perf_counter()
-
         with tracer.start_as_current_span("mayday.send_attempt") as attempt_span:
             attempt_span.set_attribute("attempt.index", attempt)
             attempt_span.set_attribute("timeout_seconds", self._timeout_seconds)
