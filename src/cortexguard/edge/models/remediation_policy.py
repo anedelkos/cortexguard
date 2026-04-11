@@ -58,7 +58,7 @@ class RemediationPolicy(BaseModel):
         description="If True, this policy is just a placeholder for 'Stop and ask Cloud'.",
     )
 
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     def to_plan_steps(self) -> list[PlanStep]:
         """Convenience method to retrieve the steps ready for injection into the executor queue."""

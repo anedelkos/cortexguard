@@ -17,7 +17,9 @@ class TraceSeverity(StrEnum):
 
 class ReasoningTraceEntry(BaseModel):
     id: str = Field(default_factory=lambda: f"trace-{uuid4().hex[:8]}")
-    timestamp: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+    timestamp: datetime.datetime = Field(
+        default_factory=lambda: datetime.datetime.now(datetime.UTC)
+    )
     source: str = Field(..., description="Module that generated the entry")
     event_type: str = Field(..., description="High-level event identifier")
     reasoning_text: str = Field(..., description="Human-readable summary of the event")
