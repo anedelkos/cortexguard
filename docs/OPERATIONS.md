@@ -36,6 +36,7 @@ All variables are optional with the defaults shown. Set them in your shell, `.en
 | `DETECTOR_TEMP_THRESHOLD_C` | `70.0` | Temperature threshold in °C above which an overheat anomaly is raised |
 | `DETECTOR_Z_SCORE_THRESHOLD` | `5.0` | Z-score threshold above which the statistical impulse detector fires |
 | `ESTIMATOR_SIGMA_THRESHOLD` | `3.0` | Standard deviation threshold used by the online state estimator for anomaly classification |
+| `MAYDAY_TIMEOUT_S` | `30.0` | Per-call timeout in seconds for cloud escalation via `MaydayAgent` (increase if using a hosted LLM with higher latency) |
 
 ---
 

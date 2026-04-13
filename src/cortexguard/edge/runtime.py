@@ -173,6 +173,11 @@ class RuntimeConfig:
         default_factory=lambda: float(os.getenv("FUSION_SMOKE_PPM_THRESHOLD", "50.0"))
     )
 
+    # MaydayAgent cloud escalation
+    mayday_timeout_s: float = field(
+        default_factory=lambda: float(os.getenv("MAYDAY_TIMEOUT_S", "30.0"))
+    )
+
     # Sensor timing
     fusion_expected_period_ms: int = field(
         default_factory=lambda: int(os.getenv("FUSION_EXPECTED_PERIOD_MS", "50"))
@@ -302,6 +307,7 @@ class EdgeRuntime:
         self.mayday_agent = MaydayAgent(
             cloud_agent_client=self.cloud_agent,
             device_id=self.config.device_id,
+            timeout_seconds=self.config.mayday_timeout_s,
             trace_sink=TraceSink(blackboard=self.blackboard),
         )
 
