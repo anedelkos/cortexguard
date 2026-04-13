@@ -45,6 +45,7 @@ docker/tempo-data/
 # IDEs / Editors
 # --------------------------
 .vscode/
+.vscode.backup/
 .idea/
 *.sublime-workspace
 *.sublime-project
