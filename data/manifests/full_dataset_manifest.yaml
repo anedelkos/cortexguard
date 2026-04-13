@@ -9,7 +9,7 @@ trials:
   fusion_window: 0.03
   anomaly_scenario: none
   seed: 42
-  fused_file: /workspace/kitchenwatch/data/fused/bagel_001.jsonl
+  fused_file: /workspace/cortexguard/data/fused/bagel_001.jsonl
   download_files:
     rgb_images:
       url: https://dataverse.harvard.edu/api/access/datafile/6690621
@@ -30,7 +30,7 @@ trials:
   fusion_window: 0.03
   anomaly_scenario: none
   seed: 42
-  fused_file: /workspace/kitchenwatch/data/fused/bagel_002.jsonl
+  fused_file: /workspace/cortexguard/data/fused/bagel_002.jsonl
   download_files:
     rgb_images:
       url: https://dataverse.harvard.edu/api/access/datafile/6690621

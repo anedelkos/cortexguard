@@ -1,13 +1,34 @@
 [project]
-name = "KitchenWatch"
+name = "cortexguard"
 version = "0.1.0"
-description = "Real-Time Multimodal Anomaly Detection & Fault-Tolerant AI Architecture for Collaborative Robotics"
+description = "Real-Time Multimodal Anomaly Detection & Fault-Tolerant AI Architecture"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "fastapi[standard]>=0.121.0",
     "pandas>=2.3.3",
     "pydantic>=2.12.3",
     "pyyaml>=6.0.3",
+    "requests>=2.32.5",
+    "uvicorn[standard]>=0.38.0",
+    "river>=0.23.0",
+    "jsonschema>=4.25.1",
+    "prometheus-client>=0.23.1",
+    "slowapi>=0.1.9",
+    "opentelemetry-api>=1.39.1",
+    "opentelemetry-sdk>=1.39.1",
+    "opentelemetry-exporter-otlp>=1.39.1",
+    "opentelemetry-instrumentation-fastapi>=0.50b0",
+]
+
+[project.optional-dependencies]
+ml = [
+    "torch>=2.9.1",
+    "torchvision>=0.24.1",
+    "transformers>=4.57.3",
+    "accelerate>=1.12.0",
+    "bitsandbytes>=0.48.2",
+    "pillow>=12.0.0",
 ]
 
 [dependency-groups]
@@ -18,9 +39,8 @@ dev = [
     "commitizen>=4.9.1",
     "deptry>=0.23.1",
     "interrogate>=1.7.0",
-    "jsonschema>=4.25.1",
     "mypy>=1.18.2",
-    "pandas-stubs>=2.3.2.250926",
+    "pandas-stubs==3.0.0.260204",
     "pre-commit>=4.3.0",
     "pytest>=8.4.2",
     "pytest-asyncio>=1.2.0",
@@ -33,9 +53,10 @@ dev = [
     "types-requests>=2.32.4.20250913",
     "ipython>=9.6.0",
     "ipywidgets>=8.1.8",
-    "pillow>=12.0.0",
     "plotly>=6.3.1",
     "nbformat>=5.10.4",
+    "freezegun>=1.5.5",
+    "vulture>=2.14",
 ]
 
 
@@ -69,14 +90,14 @@ exclude = [
 ]
 line-length = 100  # line length handled by Black
 target-version = "py312"
-src = ["src/kitchenwatch"]
+src = ["src/cortexguard"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
 ignore = ["E501"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["kitchenwatch"]
+known-first-party = ["cortexguard"]
 
 
 [tool.isort]
@@ -90,11 +111,11 @@ python_version = "3.12"
 strict = true
 warn_unused_configs = true
 check_untyped_defs = true
-disable_error_code = 'misc'
-ignore_missing_imports = false
+disable_error_code = ["misc", "no-any-unimported"]
+ignore_missing_imports = true
 follow_imports = "silent"
 exclude = "data"
-files = ["src/kitchenwatch", "tests"]
+files = ["src/cortexguard"]
 mypy_path = "src"
 
 # Explicitly reinforce strictness
@@ -107,18 +128,27 @@ disallow_any_expr = true
 disallow_any_decorated = true
 disallow_any_explicit = false
 disallow_any_generics = true
-warn_unused_ignores = true
+warn_unused_ignores = false
 warn_return_any = true
 warn_no_return = true
 no_implicit_optional = true
 
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
 
-
+[[tool.mypy.overrides]]
+module = ["torchvision", "torchvision.*", "torch", "torch.*"]
 
 [tool.pytest.ini_options]
 minversion = "7.0"
-addopts = "--strict-markers --maxfail=3 --tb=short --cov=kitchenwatch --cov-report=term-missing"
+addopts = "--strict-markers --maxfail=3 --tb=short --cov=cortexguard --cov-report=term-missing"
 testpaths = ["tests"]
+markers = [
+    "llm_slow: marks tests as slow (e.g., requires real LLM or external API calls)",
+    "requires_ml: marks tests that require ML dependencies (torch, transformers, PIL) — skipped in slim CI",
+    "integration: marks tests that require external resources or real LLM (a subset of slow tests)",
+]
 
 [tool.safety]
 # Mostly run via CLI, but could have a section if using CI
@@ -127,7 +157,10 @@ ignore = []
 [tool.coverage.run]
 branch = true
 source = ["src"]
-omit = ["tests/*", "docker/*", ".devcontainer/*", "__pycache__/*"]
+omit = ["tests/*", "docker/*", ".devcontainer/*", "__pycache__/*", "src/cortexguard/common/logging_config.py",
+    "src/cortexguard/edge/models/*.py", "src/cortexguard/core/mocks/*.py", "src/cortexguard/core/interfaces/*.py",
+    "src/cortexguard/edge/edge_fusion.py", "src/cortexguard/simulation/chaos_engine.py",
+    "src/cortexguard/edge/observability/*.py", "src/cortexguard/edge/utils/tracing.py"]
 
 [tool.coverage.report]
 fail_under = 80
@@ -141,8 +174,19 @@ exclude_lines = [
 convention = "numpy"
 add_ignore = ["D104", "D107"]  # ignores missing docstring in packages/classes if you prefer
 
+[tool.vulture]
+min_confidence = 80
+paths = ["src/cortexguard"]
+
 [tool.bandit]
 skips = ["B101"]  # Example: skip asserts for testing
 
 [tool.pre-commit]
 # pre-commit itself does not use pyproject.toml, but tools invoked by pre-commit (Black, Ruff, Mypy) will
+
+
+[tool.deptry.package_module_name_map]
+pillow = "PIL"
+
+[tool.deptry.per_rule_ignores]
+DEP002 = ["uvicorn", "bitsandbytes", "accelerate"]

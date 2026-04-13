@@ -6,8 +6,8 @@ import pytest
 import yaml
 from _pytest.logging import LogCaptureFixture
 
-from kitchenwatch.simulation.manifest_loader import ManifestLoader
-from kitchenwatch.simulation.models.trial import Trial
+from cortexguard.simulation.manifest_loader import ManifestLoader
+from cortexguard.simulation.models.trial import Trial
 
 VALID_MANIFEST = """
 trials:

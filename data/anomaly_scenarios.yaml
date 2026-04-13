@@ -1,0 +1,75 @@
+
+- scenario_id: "S0.0"
+  title: "No anomaly"
+  tier: 0
+  seed: 42
+  duration_s: 10
+  baseline_recipe: "make_burger"
+  anomalies: []
+  expected_outcome: ""
+
+- scenario_id: "S0.1"
+  title: "Human in Safety Radius"
+  tier: 0
+  seed: 42
+  duration_s: 10
+  baseline_recipe: "make_burger"
+  anomalies:
+    - type: "human_intrusion"
+      severity: "critical"
+      distance_m: 0.2
+  expected_outcome: "hard_stop"
+
+- scenario_id: "S0.2"
+  title: "Overheat + Smoke Combo"
+  tier: 0
+  seed: 77
+  duration_s: 15
+  baseline_recipe: "make_burger"
+  anomalies:
+    - type: "temp_spike"
+      delta_c: 75
+    - type: "visual_smoke"
+      opacity: 0.8
+  expected_outcome: "hard_stop"
+
+- scenario_id: "S1.1"
+  title: "Repeated Misgrasp"
+  tier: 1
+  seed: 99
+  duration_s: 30
+  baseline_recipe: "make_burger"
+  anomalies:
+    - type: "slip"
+      force_pct: 40
+      drift_mm: 35
+      repeat: 3
+  expected_outcome: "escalate_to_cloud"
+
+- scenario_id: "S2.3"
+  title: "Sensor Freeze"
+  tier: 2
+  seed: 123
+  duration_s: 20
+  baseline_recipe: "make_burger"
+  anomalies:
+    - type: "sensor_freeze"
+  expected_outcome: "recovery_success"
+
+- scenario_id: "S4.1"
+  title: "Compound Fault: Slip + Occlusion + Comm Lag"
+  tier: 4
+  seed: 2025
+  duration_s: 40
+  baseline_recipe: "make_burger"
+  anomalies:
+    - type: "slip"
+      repeat: 3
+      force_pct: 30
+      drift_mm: 20
+    - type: "vision_occlusion"
+      repeat: 3
+      opacity: 0.9
+    - type: "comm_lag"
+      duration_s: 0.5
+  expected_outcome: "resilient_recovery_or_escalate"

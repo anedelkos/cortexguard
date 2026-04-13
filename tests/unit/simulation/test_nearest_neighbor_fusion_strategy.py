@@ -1,6 +1,6 @@
 import pandas as pd
 
-from kitchenwatch.simulation.fusion_strategies.nearest_neighbor import NearestNeighborFusion
+from cortexguard.simulation.fusion_strategies.nearest_neighbor import NearestNeighborFusion
 
 
 def test_nearest_neighbor_fusion_basic() -> None:

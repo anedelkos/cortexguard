@@ -1,10 +1,10 @@
-# KitchenWatch Data Directory
+# CortexGuard Data Directory
 
-This directory contains all dataset-related files and utilities used in the KitchenWatch simulation environment.
+This directory contains all dataset-related files and utilities used in the CortexGuard simulation environment.
 
 ## Overview
 
-KitchenWatch datasets are organized around *trials* — each trial corresponds to a single data collection session with synchronized sensor modalities (e.g. RGB, depth, force).
+CortexGuard datasets are organized around *trials* — each trial corresponds to a single data collection session with synchronized sensor modalities (e.g. RGB, depth, force).
 To simplify local setup, a downloader script automates fetching and extracting datasets from the canonical storage.
 
 ## Downloader Script

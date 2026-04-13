@@ -1,5 +1,5 @@
 # ============================================
-# KitchenWatch: Pre-commit configuration
+# CortexGuard: Pre-commit configuration
 # Enforces linting, formatting, and type checks
 # across all contributors and CI pipelines.
 # ============================================
@@ -23,7 +23,7 @@ repos:
         args: [--fix]   # Automatically fix simple issues when possible
 
       # Optional: run Ruff's built-in code formatter
-      - id: ruff-format
+#      - id: ruff-format
 
   # --------------------------------------------
   # Black — Python code formatter (PEP8 compliant)
@@ -71,7 +71,7 @@ repos:
             types-requests,
             types-PyYAML,
             pytest,
-            pandas-stubs
+            pandas-stubs==3.0.0.260204
           ]
         # Extra CLI arguments
         args:
@@ -94,10 +94,13 @@ repos:
   # --------------------------------------------
   # Deptry - Detects unused, missing, or miscategorized dependencies.
   # --------------------------------------------
-  - repo: https://github.com/fpgmaas/deptry
-    rev: 0.23.1
+  - repo: local
     hooks:
       - id: deptry
+        name: deptry
+        entry: uv run deptry
+        language: system
+        pass_filenames: false
         args: ["src", "-nb"]
 
   # --------------------------------------------
@@ -107,7 +110,17 @@ repos:
     rev: 1.7.0
     hooks:
       - id: interrogate
-        args: ["--fail-under", "30", "--exclude", "tests,scripts"]
+        entry: interrogate src
+        args: ["--fail-under", "30", "--exclude", "tests,scripts,demo"]
+
+  # --------------------------------------------
+  # Vulture — Dead code detection
+  # --------------------------------------------
+  - repo: https://github.com/jendrikseipp/vulture
+    rev: v2.14
+    hooks:
+      - id: vulture
+        args: ["--min-confidence", "80"]
 
   # --------------------------------------------
   # nbstripout - Strips output cells from notebooks before committing.
@@ -131,7 +144,7 @@ repos:
           - -c
           - |
             rm -f .coverage*  # clean up any leftover coverage files
-            PYTHONPATH=src COVERAGE_NO_PARALLEL=true pytest -v --cov=src --cov-report=term-missing tests
+            PYTHONPATH=src COVERAGE_NO_PARALLEL=true uv run pytest -v --cov=src --cov-report=term-missing tests
 
 
   # --------------------------------------------

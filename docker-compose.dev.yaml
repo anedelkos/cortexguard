@@ -1,24 +1,131 @@
+networks:
+  cortexguard_net:
+    driver: bridge
 
+volumes:
+  grafana-data:
+  loki-data:
 
 services:
+  edge:
+    build:
+      context: .
+      dockerfile: docker/edge.Dockerfile
+      args:
+        SLIM: "true"
+    container_name: cortexguard-edge-dev
+    working_dir: /workspace/cortexguard
+    depends_on:
+      - tempo
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/healthz/live" ]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+    environment:
+      - LOG_LEVEL=INFO
+      - LOG_JSON=true
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./src:/workspace/cortexguard/src
+      - ./data:/workspace/cortexguard/data
+    restart: unless-stopped
+    networks:
+      - cortexguard_net
+
+
   simulator:
     build:
       context: .
       dockerfile: docker/simulator.Dockerfile
-    container_name: kitchenwatch-simulator-dev
-    working_dir: /workspace/kitchenwatch
+      args:
+        SLIM: "true"
+    container_name: cortexguard-simulator-dev
+    working_dir: /workspace/cortexguard
+    depends_on:
+      edge:
+        condition: service_healthy
     command:  []
     environment:
       - PYTHONUNBUFFERED=1
       - UV_ENV=dev
-      - MANIFEST_PATH=/workspace/kitchenwatch/data/manifests/sample_dataset_manifest.yaml
-      - FUSED_DIR=/workspace/kitchenwatch/data/fused
+      - FUSED_DIR=/workspace/cortexguard/data/fused
+      - LOG_LEVEL=INFO
+      - LOG_JSON=true
     volumes:
       # Mount local folders for live development (overrides COPY in Dockerfile)
-      - ./src:/workspace/kitchenwatch/src
-      - ./demo:/workspace/kitchenwatch/demo
-      - ./data:/workspace/kitchenwatch/data
-      - ./scripts:/workspace/kitchenwatch/scripts
+      - ./src:/workspace/cortexguard/src
+      - ./demo:/workspace/cortexguard/demo
+      - ./data:/workspace/cortexguard/data
+      - ./scripts:/workspace/cortexguard/scripts
     ports:
-      - "8080:8080"    # if simulator exposes an API or socket (optional)
+      - "8081:8080"
     restart: unless-stopped
+    networks:
+      - cortexguard_net
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: cortexguard-prometheus
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./docker/cortexguard_alerts.yml:/etc/prometheus/cortexguard_alerts.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - cortexguard_net
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: cortexguard-grafana
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./docker/grafana_datasources.yaml:/etc/grafana/provisioning/datasources/cortexguard.yaml:ro
+      - ./docker/grafana_dashboards.yaml:/etc/grafana/provisioning/dashboards/cortexguard-dashboards.yaml:ro
+      - ./docker/grafana_dashboard.json:/var/lib/grafana/dashboards/cortexguard-edge.json:ro
+      - grafana-data:/var/lib/grafana
+    networks:
+      - cortexguard_net
+
+  tempo:
+    image: grafana/tempo:latest
+    container_name: cortexguard-tempo
+    volumes:
+      - ./docker/tempo.yaml:/etc/tempo.yaml:ro
+      - ./docker/tempo-data:/var/tempo
+    command: ["--config.file=/etc/tempo.yaml"]
+    ports:
+      - "4318:4318"
+      - "3100:3100"
+    networks:
+      - cortexguard_net
+
+  loki:
+    image: grafana/loki:latest
+    container_name: cortexguard-loki
+    volumes:
+      - ./docker/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki-data:/loki
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    ports:
+      - "3101:3100"
+    networks:
+      - cortexguard_net
+
+  promtail:
+    image: grafana/promtail:latest
+    container_name: cortexguard-promtail
+    volumes:
+      - ./docker/promtail.yaml:/etc/promtail/promtail.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: ["-config.file=/etc/promtail/promtail.yaml"]
+    depends_on:
+      - loki
+    networks:
+      - cortexguard_net

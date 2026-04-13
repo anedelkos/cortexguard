@@ -17,8 +17,6 @@ build/
 # uv virtual environments
 # --------------------------
 .venv/
-.venv-local/
-.venv-local
 venv/
 uv.lock
 
@@ -37,6 +35,7 @@ docker-compose.override.yml
 *.env
 *.pid
 *.sock
+docker/tempo-data/
 
 # Ignore devcontainer build context
 .devcontainer/.env

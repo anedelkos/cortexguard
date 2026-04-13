@@ -1,16 +1,17 @@
 # ---- Base Python image ----
-FROM python:3.12-slim
+FROM python:3.12-slim-bookworm
+
 
 # ---- Environment setup ----
-ENV PATH="/opt/venvs/kitchenwatch/bin:$PATH" \
-    VENV_PATH=/opt/venvs/kitchenwatch \
+ENV PATH="/opt/venvs/cortexguard/bin:$PATH" \
+    VENV_PATH=/opt/venvs/cortexguard \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH="/workspace/kitchenwatch/src" \
-    MANIFEST_PATH="/workspace/kitchenwatch/data/manifests/sample_dataset_manifest.yaml" \
-    FUSED_DIR="/workspace/kitchenwatch/data/fused"
+    PYTHONPATH="/workspace/cortexguard/src" \
+    MANIFEST_PATH="/workspace/cortexguard/data/manifests/sample_dataset_manifest.yaml" \
+    FUSED_DIR="/workspace/cortexguard/data/fused"
 
 # ---- Set working directory ----
-WORKDIR /workspace/kitchenwatch
+WORKDIR /workspace/cortexguard
 
 # ---- System dependencies ----
 RUN apt-get update && \
@@ -22,10 +23,16 @@ RUN apt-get update && \
 COPY pyproject.toml uv.lock ./
 
 # ---- Create venv and install deps via uv ----
+# Pass --build-arg SLIM=true to skip heavy ML packages (torch/transformers).
+ARG SLIM=false
 RUN python -m venv $VENV_PATH && \
     $VENV_PATH/bin/pip install --upgrade pip && \
     $VENV_PATH/bin/pip install "uv>=0.9.5" && \
-    $VENV_PATH/bin/python -m uv sync --frozen --active
+    if [ "$SLIM" = "true" ]; then \
+      $VENV_PATH/bin/python -m uv sync --frozen --no-group dev --no-extra ml --active; \
+    else \
+      $VENV_PATH/bin/python -m uv sync --frozen --no-group dev --extra ml --active; \
+    fi
 
 # ---- Copy project files ----
 COPY src ./src

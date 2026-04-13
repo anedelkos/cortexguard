@@ -9,5 +9,5 @@ trials:
   fusion_window: 0.03
   anomaly_scenario: none
   seed: 42
-  fused_file: /workspace/kitchenwatch/data/fused/bagel_001.jsonl
+  fused_file:
   download_files: null

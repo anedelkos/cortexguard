@@ -5,11 +5,11 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
-from kitchenwatch.simulation.fusion_strategies.windowed import WindowedFusion
-from kitchenwatch.simulation.modalities_fuser import ModalityFuser
-from kitchenwatch.simulation.models.fused_record import FusedRecord
-from kitchenwatch.simulation.models.trial import Trial
-from kitchenwatch.simulation.models.windowed_fused_record import WindowedFusedRecord
+from cortexguard.simulation.fusion_strategies.windowed import WindowedFusion
+from cortexguard.simulation.modalities_fuser import ModalityFuser
+from cortexguard.simulation.models.fused_record import FusedRecord
+from cortexguard.simulation.models.trial import Trial
+from cortexguard.simulation.models.windowed_fused_record import WindowedFusedRecord
 
 
 @pytest.fixture
@@ -75,7 +75,7 @@ def test_fuse_trial_uses_strategy(
 ) -> None:
     """fuse_trial should call the fusion strategy and return FusedRecords."""
     monkeypatch.setattr(
-        "kitchenwatch.simulation.modalities_fuser.ManifestLoader", lambda _: mock_manifest_loader
+        "cortexguard.simulation.modalities_fuser.ManifestLoader", lambda _: mock_manifest_loader
     )
 
     mock_strategy = MagicMock()
@@ -114,7 +114,7 @@ def test_fuse_trial_windowed(
     mock_manifest_loader: MagicMock,
 ) -> None:
     monkeypatch.setattr(
-        "kitchenwatch.simulation.modalities_fuser.ManifestLoader", lambda _: mock_manifest_loader
+        "cortexguard.simulation.modalities_fuser.ManifestLoader", lambda _: mock_manifest_loader
     )
 
     fuser = ModalityFuser(manifest_loader=mock_manifest_loader)

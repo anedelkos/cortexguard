@@ -1,16 +1,198 @@
-# You can override the included template(s) by including variable overrides
-# SAST customization: https://docs.gitlab.com/ee/user/application_security/sast/#customizing-the-sast-settings
-# Secret Detection customization: https://docs.gitlab.com/user/application_security/secret_detection/pipeline/configure
-# Dependency Scanning customization: https://docs.gitlab.com/ee/user/application_security/dependency_scanning/#customizing-the-dependency-scanning-settings
-# Container Scanning customization: https://docs.gitlab.com/ee/user/application_security/container_scanning/#customizing-the-container-scanning-settings
-# Note that environment variables can be set in several places
-# See https://docs.gitlab.com/ee/ci/variables/#cicd-variable-precedence
 stages:
+  - lint
   - test
+  - coverage
+  - security
+  - build
+  - release
+
+variables:
+  PYTHONPATH: "src:$CI_PROJECT_DIR"
+  SAST_STAGE: security
+  SECRET_DETECTION_STAGE: security
+  DOCKER_BUILDKIT: "1"
+  DOCKER_TLS_CERTDIR: "/certs"
+  UV_CACHE_DIR: .cache/uv
 
 include:
   - template: Security/SAST.gitlab-ci.yml
   - template: Security/Secret-Detection.gitlab-ci.yml
 
-variables:
-  SECRET_DETECTION_ENABLED: 'true'
+# ─── Shared templates ─────────────────────────────────────────────────────────
+
+.python-job:
+  image: python:3.12-slim-bookworm
+  cache:
+    key:
+      files:
+        - uv.lock
+    paths:
+      - .cache/uv
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq curl
+    - curl -fsSL https://taskfile.dev/install.sh | sh && mv ./bin/task /usr/local/bin/task
+    - curl -fsSL https://astral.sh/uv/install.sh | sh && mv $HOME/.local/bin/uv /usr/local/bin/uv
+    - uv sync --group dev --frozen
+
+.rules-all:
+  &rules-all
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+
+.rules-develop-main:
+  &rules-develop-main
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+.*/
+
+.rules-main:
+  &rules-main
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+.*/
+
+# ─── Lint ─────────────────────────────────────────────────────────────────────
+
+lint:
+  extends: .python-job
+  stage: lint
+  <<: *rules-all
+  script:
+    - task lint
+    - task typecheck
+
+# ─── Test ─────────────────────────────────────────────────────────────────────
+
+test-unit:
+  extends: .python-job
+  stage: test
+  <<: *rules-all
+  script:
+    - PYTHONPATH=src:$CI_PROJECT_DIR uv run pytest -v tests/unit
+      --maxfail=1 --disable-warnings --cov=src/cortexguard --cov-report=term-missing
+      --cov-fail-under=0
+    - mv .coverage .coverage.unit
+  artifacts:
+    paths:
+      - .coverage.unit
+    expire_in: 1 hour
+
+test-integration:
+  extends: .python-job
+  stage: test
+  <<: *rules-all
+  script:
+    - PYTHONPATH=src:$CI_PROJECT_DIR uv run pytest -v
+      -m "integration and not llm_slow" --maxfail=1 --disable-warnings
+      --cov=src/cortexguard --cov-report=term-missing --cov-fail-under=0
+    - mv .coverage .coverage.integration
+  artifacts:
+    paths:
+      - .coverage.integration
+    expire_in: 1 hour
+
+# ─── Coverage ─────────────────────────────────────────────────────────────────
+
+coverage:
+  extends: .python-job
+  stage: coverage
+  <<: *rules-all
+  needs:
+    - job: test-unit
+      artifacts: true
+    - job: test-integration
+      artifacts: true
+  script:
+    - uv run coverage combine .coverage.unit .coverage.integration
+    - uv run coverage report --fail-under=80
+    - uv run coverage xml
+  coverage: '/TOTAL.*\s(\d+)%/'
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+
+# ─── Security ─────────────────────────────────────────────────────────────────
+
+# SAST and Secret Detection are injected here via the included templates
+# (SAST_STAGE and SECRET_DETECTION_STAGE are set to "security" above)
+
+security:
+  extends: .python-job
+  stage: security
+  <<: *rules-all
+  allow_failure: true  # vulture has false positives until whitelist is in place
+  script:
+    - task safety
+    - task vulture
+
+# ─── Build ────────────────────────────────────────────────────────────────────
+
+build:
+  stage: build
+  image: docker:27-cli
+  services:
+    - docker:27-dind
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+    DOCKER_DRIVER: overlay2
+  <<: *rules-develop-main
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    # Full image
+    - >
+      docker build
+      --cache-from $CI_REGISTRY_IMAGE/edge:cache
+      --build-arg BUILDKIT_INLINE_CACHE=1
+      -f docker/edge.Dockerfile
+      -t $CI_REGISTRY_IMAGE/edge:$CI_COMMIT_SHORT_SHA
+      -t $CI_REGISTRY_IMAGE/edge:$CI_COMMIT_REF_SLUG
+      .
+    - docker push $CI_REGISTRY_IMAGE/edge:$CI_COMMIT_SHORT_SHA
+    - docker push $CI_REGISTRY_IMAGE/edge:$CI_COMMIT_REF_SLUG
+    # Slim image
+    - >
+      docker build
+      --cache-from $CI_REGISTRY_IMAGE/edge:cache-slim
+      --build-arg BUILDKIT_INLINE_CACHE=1
+      --build-arg SLIM=true
+      -f docker/edge.Dockerfile
+      -t $CI_REGISTRY_IMAGE/edge:$CI_COMMIT_SHORT_SHA-slim
+      -t $CI_REGISTRY_IMAGE/edge:$CI_COMMIT_REF_SLUG-slim
+      .
+    - docker push $CI_REGISTRY_IMAGE/edge:$CI_COMMIT_SHORT_SHA-slim
+    - docker push $CI_REGISTRY_IMAGE/edge:$CI_COMMIT_REF_SLUG-slim
+    # Update build cache
+    - docker tag $CI_REGISTRY_IMAGE/edge:$CI_COMMIT_SHORT_SHA $CI_REGISTRY_IMAGE/edge:cache
+    - docker push $CI_REGISTRY_IMAGE/edge:cache
+    - docker tag $CI_REGISTRY_IMAGE/edge:$CI_COMMIT_SHORT_SHA-slim $CI_REGISTRY_IMAGE/edge:cache-slim
+    - docker push $CI_REGISTRY_IMAGE/edge:cache-slim
+
+# ─── Release ──────────────────────────────────────────────────────────────────
+
+release:
+  stage: release
+  image: docker:27-cli
+  needs: [build]
+  <<: *rules-main
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker pull $CI_REGISTRY_IMAGE/edge:$CI_COMMIT_SHORT_SHA
+    - docker pull $CI_REGISTRY_IMAGE/edge:$CI_COMMIT_SHORT_SHA-slim
+    - docker tag $CI_REGISTRY_IMAGE/edge:$CI_COMMIT_SHORT_SHA $CI_REGISTRY_IMAGE/edge:latest
+    - docker tag $CI_REGISTRY_IMAGE/edge:$CI_COMMIT_SHORT_SHA-slim $CI_REGISTRY_IMAGE/edge:latest-slim
+    - docker push $CI_REGISTRY_IMAGE/edge:latest
+    - docker push $CI_REGISTRY_IMAGE/edge:latest-slim
+    - |
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        docker tag $CI_REGISTRY_IMAGE/edge:$CI_COMMIT_SHORT_SHA $CI_REGISTRY_IMAGE/edge:$CI_COMMIT_TAG
+        docker tag $CI_REGISTRY_IMAGE/edge:$CI_COMMIT_SHORT_SHA-slim $CI_REGISTRY_IMAGE/edge:$CI_COMMIT_TAG-slim
+        docker push $CI_REGISTRY_IMAGE/edge:$CI_COMMIT_TAG
+        docker push $CI_REGISTRY_IMAGE/edge:$CI_COMMIT_TAG-slim
+      fi

@@ -2,9 +2,11 @@
 set -euo pipefail
 
 # --- Default values ---
-RATE=1.0
+RATE=0.5
 REPEAT=0
 MANIFEST_PATH=""
+ENDPOINT="http://edge:8080/api/v1/ingest"
+VERBOSE=""
 
 # --- Parse CLI arguments ---
 while [[ $# -gt 0 ]]; do
@@ -21,9 +23,17 @@ while [[ $# -gt 0 ]]; do
       REPEAT="$2"
       shift 2
       ;;
+    --endpoint)
+      ENDPOINT="$2"
+      shift 2
+      ;;
+    --verbose)
+      VERBOSE="$2"
+      shift 2
+      ;;
     *)
       echo "❌ Unknown argument: $1"
-      echo "Usage: $0 [--manifest <path>] [--rate <float>] [--repeat <int>]"
+      echo "Usage: $0 [--manifest <path>] [--rate <float>] [--repeat <int>] [--endpoint <str>] [--verbose <str>]"
       exit 1
       ;;
   esac
@@ -31,8 +41,8 @@ done
 
 
 # --- Detect environment ---
-if [ -d "/workspace/kitchenwatch" ]; then
-    ROOT_DIR="/workspace/kitchenwatch"
+if [ -d "/workspace/cortexguard" ]; then
+    ROOT_DIR="/workspace/cortexguard"
     echo "🧩 Running inside container"
 else
     SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -57,6 +67,8 @@ echo "📂 Using root directory: $ROOT_DIR"
 echo "📄 Manifest path: $MANIFEST_PATH"
 echo "🎛️ Rate: $RATE"
 echo "🔁 Repeat: $REPEAT"
+echo "🔗 Endpoint: ${ENDPOINT:-<not set>}"
+echo "📜 Verbose: ${VERBOSE:-<not set>}"
 
 mkdir -p "$FUSED_DIR"
 
@@ -71,4 +83,6 @@ echo "▶️ Starting simulator (default: infinite repeat)..."
 python3 "$DEMO_DIR/simulate_stream.py" \
     --manifest "$MANIFEST_PATH" \
     --repeat "$REPEAT" \
-    --rate "$RATE"
+    --rate "$RATE" \
+    --endpoint "$ENDPOINT" \
+    --verbose "$VERBOSE"

@@ -6,8 +6,8 @@ from jsonschema import ValidationError as SchemaValidationError
 from jsonschema import validate
 from pydantic import ValidationError
 
-from kitchenwatch.common.constants import FUSED_EVENT_SCHEMA, SAMPLE_DATA_DIR
-from kitchenwatch.simulation.models.fused_record import FusedRecord
+from cortexguard.common.constants import FUSED_EVENT_SCHEMA, SAMPLE_DATA_DIR
+from cortexguard.simulation.models.fused_record import FusedRecord
 
 # --- Fixtures -----------------------------------------------------------
 

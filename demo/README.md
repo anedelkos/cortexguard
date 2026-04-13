@@ -1,49 +1,58 @@
-# KitchenWatch Simulator Demo
+# demo/
 
-## What the demo does
-This demo runs a short simulation of the KitchenWatch robot using a small sample dataset.
-It fuses sensor data (RGB images, depth images, and robot logs) and streams it to the edge module.
+This directory contains scripts and assets for running and exploring CortexGuard scenarios.
 
-**Key points:**
-- Uses a small, committed sample dataset — no need to download the full dataset.
-- Demonstrates the fusion pipeline and streaming engine.
-- Streams fused records locally for inspection.
+| File | Purpose |
+|------|---------|
+| `chaos_stream.py` | Stream anomaly scenarios to a running edge service |
+| `simulate_stream.py` | Lower-level stream replay utility |
 
-## How to run it
-1. Activate the virtual environment. The path may vary depending on your setup:
-   ```bash
-   # Use the actual path to your virtual environment
-    source .venv-local/bin/activate      # host machine
-    source /opt/venvs/kitchenwatch/bin/activate  # container
+Sample data lives in `data/` at the repo root. Scenario definitions are in `data/anomaly_scenarios.yaml`.
 
+---
 
+## Docker demo (recommended)
 
-2. Make the demo executable:
-   ```bash
-    chmod +x demo/run_demo.sh
+See the [Quick Demo](../README.md#-quick-demo) section in the root README. One command starts the full stack (edge service, simulator, Prometheus, Grafana, Tempo):
 
+```bash
+docker compose -f docker-compose.demo.yaml up --build
+```
 
-3. Run the demo:
-   ```bash
-    /demo/run_demo.sh
+---
 
+## chaos_stream.py
 
-The script will:
-1. Fuse the sample dataset into FusedRecord objects.
-2. Stream the fused records to the edge module in real time.
+Streams a named anomaly scenario directly to a running edge service. Useful for testing outside Docker or targeting a specific scenario.
 
+**List available scenarios:**
+```bash
+PYTHONPATH=src uv run python demo/chaos_stream.py --list
+```
 
-See `docs/simulator.md` for usage of fuser and streamer tasks.
+**Run a scenario:**
+```bash
+PYTHONPATH=src uv run python demo/chaos_stream.py --scenario S0.1
+```
 
-## What to expect
+**All options:**
 
-* The simulator outputs logs showing progress of streaming.
-* Each fused record includes:
-    - Timestamp
-    - RGB and depth image paths
-    - Force, torque, and position values
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--scenario` | `S0.1` | Scenario ID to stream |
+| `--endpoint` | `http://localhost:8080/api/v1/ingest` | Edge ingest URL |
+| `--rate` | `1.0` | Records per second |
+| `--repeat` | `1` | Times to repeat; `0` = infinite |
+| `--scenarios-file` | `data/anomaly_scenarios.yaml` | Path to scenario definitions |
+| `--list` | — | Print all available scenarios and exit |
 
-* No anomaly scenarios or drift detection are included yet.
-* The demo lasts roughly 10 seconds and is designed to be lightweight.
+**Example — stream S1.1 twice at 2 req/s against a local edge:**
+```bash
+PYTHONPATH=src uv run python demo/chaos_stream.py \
+  --scenario S1.1 \
+  --endpoint http://localhost:8080/api/v1/ingest \
+  --rate 2.0 \
+  --repeat 2
+```
 
-**Note**: This is a bootstrap/demo feature for local testing and development. Full datasets and cloud integration will be handled in later features.
+Start the edge service first with `task edge:run`.

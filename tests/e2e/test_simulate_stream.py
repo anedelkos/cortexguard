@@ -1,13 +1,15 @@
+import asyncio
 import json
 import logging
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
-from kitchenwatch.edge.local_edge_receiver import LocalEdgeReceiver
-from kitchenwatch.simulation.manifest_loader import ManifestLoader
-from kitchenwatch.simulation.streamers.local_streamer import LocalStreamer
+from cortexguard.edge.local_receiver import LocalReceiver
+from cortexguard.simulation.manifest_loader import ManifestLoader
+from cortexguard.simulation.streamers.local_streamer import LocalStreamer
 
 
 @pytest.fixture
@@ -48,14 +50,18 @@ def test_simulate_stream_end_to_end(
     # --- Dummy receiver to capture streamed records ---
     received = []
 
-    class DummyReceiver(LocalEdgeReceiver):
-        def ingest(self, record: Any) -> None:
+    class DummyReceiver(LocalReceiver):
+        async def ingest(self, record: Any) -> None:
             received.append(record)
 
-    receiver = DummyReceiver()
+    dummy_fusion = AsyncMock()
+    receiver = DummyReceiver(edge_fusion=dummy_fusion, verbose=True)
+
+    def handle_record_sync(record: Any) -> None:
+        asyncio.run(receiver.ingest(record))
 
     # --- Run streamer ---
-    streamer = LocalStreamer(rate_hz=1000.0, handle_record=receiver.ingest)
+    streamer = LocalStreamer(rate_hz=1000.0, handle_record=handle_record_sync)
     records = streamer.load_records_from_trial(trial)
     streamer.stream(records)
 

@@ -15,12 +15,12 @@
 
 3. Docker + Optional Kubernetes
     * Docker ensures reproducibility, containerized ML & agents
-    * Kubernetes optional for scaling agents, orchestrator, cloud detector
+    * Kubernetes optional for scaling sensor data processing
     * Decision: GitHub demo uses Docker Compose; optional K8s for reliability in fleet-wide anomaly detection
 
-4. Multi-Cloud Choice
-    * AWS for training: Python CDK/boto3 for dynamic provisioning
-    * GCP for detection: Terraform for declarative, stable deployment
+4. Single-Cloud Choice (AWS)
+    * AWS for both training and deliberative cloud inference: Python CDK/boto3 for dynamic provisioning, SageMaker for model lifecycle
+    * Rationale: multi-cloud adds operational complexity without sufficient benefit at this scale; consolidating on AWS simplifies IAM, networking, and deployment
 
 5. Explainability & Observability
     * XAI endpoint shows top modalities, anomaly timeline, LLM explanations
@@ -29,7 +29,7 @@
 
 6. Agent Coordination
     * Agents coordinated via CrewAI + vector DB
-    * Multi-agent reasoning: SafetyAgent, RecoveryAgent, StateEstimator, Orchestrator, HumanInterface
+    * Multi-agent reasoning: SafetyAgent, PolicyAgent, MaydayAgent, StateEstimator, Orchestrator, HumanInterface
     * Why: Adds intelligent cutting-edge multi-agent reasoning and planning
 
 7. Dataset Simulation & Testing
@@ -49,44 +49,30 @@
 # Key design choices regarding anomaly detection
 
 
-1. Apply EMA short (1s) and long (30s) per detector
+1. Apply a single EMA per sensor signal (α = 0.1)
 
     🔍 What it means
     * EMA = Exponential Moving Average — a weighted moving average that gives more importance to recent samples.
-    * We're applying two EMAs per detector:
-        - Short-term EMA (1s window) → reacts quickly to changes (fast reflexes)
-        - Long-term EMA (30s window) → tracks stable baseline over time
+    * A single EMA with `alpha=0.1` (heavy smoothing) is applied per sensor key across windows.
 
     💡 Why this is useful
     When we’re streaming sensor data (force, torque, temperature, vision embeddings, etc.), values fluctuate constantly — some spikes are real anomalies, others just noise.
-    The dual-EMA trick helps separate sustained anomalies from transient blips.
+    The low alpha suppresses transient noise while tracking the signal’s sustained trend.
 
     ⚙️ How it works
-    Example with a force sensor:
     ```
-    ema_short = EMA(window=1.0)  # 1 second
-    ema_long = EMA(window=30.0)  # 30 seconds
-
-    for t, value in sensor_stream:
-        short = ema_short.update(value)
-        long = ema_long.update(value)
-        delta = abs(short - long)
-        if delta > threshold:
-            trigger_anomaly("force_drift", magnitude=delta)
+    # EMA Formula: new_ema = α * observation + (1-α) * old_ema
+    # α = 0.1 → heavy smoothing, slow response to transient spikes
+    ema_state[key] = alpha * observation + (1 - alpha) * ema_state[key]
     ```
 
-    - If the short EMA rises sharply above the long EMA → sudden force spike (likely anomaly)
-    - If the short EMA slowly drifts → trend change (wear, sensor drift)
-    - If both move together → normal dynamics
-
-    Do this on every detector (force, temperature, optical flow, etc.), giving you both instant reactions and trend awareness.
-    ✅ Result: fewer false positives, faster reaction to real problems.
+    ✅ Result: fewer false positives from transient noise; sustained anomalies accumulate in the smoothed value.
 
 
 2. Optimistic fallback / Partial connection: Edge acts immediately, cloud later reconciles
 
     🔍 What it means
-    This is a network resilience pattern — how your edge device (the robot) behaves when connectivity to the cloud (AWS/GCP) is slow or temporarily lost.
+    This is a network resilience pattern — how your edge device behaves when connectivity to AWS cloud is slow or temporarily lost.
         * Optimistic fallback = The edge assumes it can make the right decision locally if the cloud isn’t responsive.
         * Partial connection = The system continues operating in “degraded mode,” caching events and syncing later.
 
@@ -99,11 +85,11 @@
     3. When the cloud reconnects, it sends logs for reconciliation — cloud replays what happened and updates its models or policies.
 
     ⚙️ Example
-    Patty starts burning and cloud link lags.
+    A processing step fails and the cloud link lags.
     ```
     if network_latency > 0.5 or no_ack_from_cloud:
-        execute_local_recovery("flip_patty_again")
-        cache_event("local_decision", timestamp, action="retry_flip")
+        execute_local_recovery("retry_step")
+        cache_event("local_decision", timestamp, action="retry_step")
     else:
         ask_cloud_for_plan()
     ```
@@ -121,60 +107,9 @@
         So, Edge = Reflexes, Cloud = Memory + Learning.
 
 
-3. Use a Behavior Tree for runtime control, but allow LLM or RL agents to modify, expand, or repair BTs dynamically
-    🔍 What it means
+3. ~~Use a Behavior Tree for runtime control, but allow LLM or RL agents to modify, expand, or repair BTs dynamically~~
 
-    You’re using a Behavior Tree (BT) to run recipes — a graph of tasks like:
-    ```
-    CookBurger
-    ├── PickBun
-    ├── FlipPatty
-    ├── StackTomato
-    └── ApplySauce
-    ```
-
-    But what happens when an unseen anomaly occurs?
-    Example: “Sauce bottle missing” — not something you explicitly encoded in your BT.
-
-    Here’s where the meta-agent (LLM or RL policy) comes in:
-    It can edit or extend the BT at runtime to handle new situations.
-
-    ⚙️ Example
-    1. BT running node ApplySauce
-    2. Vision detects “no sauce bottle”
-    3. BT node fails → sends failure_event to orchestrator
-    4. LLM meta-agent analyzes event context and proposes patch:
-    ```
-    {
-    "add_subtree_after": "ApplySauce",
-    "new_subtree": {
-        "name": "HandleMissingSauce",
-        "children": [
-            {"action": "search_inventory"},
-            {"condition": "if_found"},
-            {"action": "refill_dispenser"},
-            {"action": "retry_apply_sauce"}
-            ]
-        }
-    }
-    ```
-    5. Orchestrator patches BT graph in memory:
-    ```bt_executor.insert_subtree("ApplySauce", new_subtree)```
-    6. Execution continues seamlessly.
-
-    💡 Why this is powerful
-    - Keeps execution reactive (BT)
-    - Enables self-repairing logic
-    - Lets AI agents generalize to new failure modes without manual reprogramming
-    - RL version can learn which patches succeed more often
-
-🧠 Meta-Agent Behavior
-    Role	            What it edits	                        Input	                                    Output
-    LLM Meta-Agent	    Adds or repairs BT subtrees	            event context, logs, ontology of actions	BT patch
-    RL Policy Updater	Tunes retry thresholds, priorities	    telemetry, rewards	                        new BT parameters
-    Human Supervisor	Approves or refines proposed patches	proposed diff	                            accepted patch
-
-    ✅ Result: a living Behavior Tree — evolving and learning safely, bounded by rules (no arbitrary code execution).
+    > **Superseded.** The Behavior Tree approach was replaced by a `Plan` / `PlanStep` execution model coordinated by the `Orchestrator`. Plans are priority-queued and preemptable; the `PolicyAgent` generates `RemediationPolicy` objects containing corrective steps which are wrapped into `Plan`s and executed via `StepExecutor`. This provides the same reactive and self-repairing properties without the complexity of runtime BT graph patching.
 
 
 
@@ -184,17 +119,16 @@
 # 🧠 System Overview — Edge–Cloud Cooperative Architecture
 1. Mission
 
-    The system executes complex cooking or assembly recipes broken into ordered steps received from a cloud ordering system.
-    Each recipe step (e.g., “flip patty”, “apply sauce”) is executed, monitored, and validated locally on the robot (edge device) for correctness, timing, and safety.
+    The system executes complex task plans broken into ordered steps received from a cloud orchestration system.
+    Each task step (e.g., “process item”, “place component”) is executed, monitored, and validated locally on the edge device for correctness, timing, and safety.
 
 
 2. Control Flow
 
     1. **Cloud → Edge**:
-    The cloud issues a structured recipe plan, describing tasks and constraints.
+    The cloud issues a structured task plan, describing steps and constraints.
     2. **Edge Executor**:
-    A Behavior Tree (BT) orchestrates local step execution, polling classifiers and sensors to verify completion.
-    Each node corresponds to a discrete action (pick, flip, stack, apply).
+    The `Orchestrator` schedules `Plan`s via an async priority queue. Each `Plan` contains ordered `PlanStep`s executed by `StepExecutor`, polling classifiers and sensors to verify completion.
     3. **Monitoring**:
     During execution, local anomaly detectors and state estimators continuously watch sensor streams (vision, force, torque, temperature, etc.).
     4. **Progress & Validation**:
@@ -209,9 +143,9 @@
     * **Immediate safety interrupts**:
     Human intrusion, collision risk, or force overload triggers instant stop or slowdown (<100 ms reaction).
     * **Local retries**:
-    If a step fails (e.g., object slipped), the recovery manager attempts predefined retry routines (re-grip, reposition, etc.).
+    If a step fails (e.g., object slipped), the `PolicyAgent` generates a `RemediationPolicy` with corrective steps (re-grip, reposition, etc.) which the `Orchestrator` executes as a high-priority plan.
     * **EMA filtering**:
-    Each detector applies short (1 s) and long (30 s) Exponential Moving Averages to distinguish transient spikes from sustained anomalies.
+    Each sensor signal is smoothed with a single EMA (α = 0.1) to distinguish transient noise from sustained anomalies.
     * **Resource and deadline awareness**:
     The local scheduler prioritizes urgent tasks using estimated time-to-done (TTD), time-to-failure (TTF), and safety margins.
 
@@ -223,7 +157,7 @@
         - Diagnose complex failures.
         - Generate multi-step recovery plans.
         - Optimize task policies or adjust thresholds.
-    * Updates the edge’s behavior trees or parameters during low-urgency periods.
+    * Updates the edge’s policies or parameters during low-urgency periods.
     * Maintains fleet-level analytics and retraining datasets.
 
     Cloud decisions are integrated asynchronously — the edge acts immediately, while the cloud reconciles or improves policies later (optimistic fallback).
@@ -248,22 +182,22 @@
 7. Fault Tolerance & Recovery
 
     1. **Failure → Event Bus**:
-    If a step fails or anomaly is detected, the BT pauses and emits an event.
-    2. **Recovery Agent (local)**:
-    Executes known recovery primitives (retry flip, re-stack bun).
+    If a step fails or anomaly is detected, the `Orchestrator` pauses the current plan and emits an event.
+    2. **Policy Agent (local)**:
+    Generates a `RemediationPolicy` with corrective steps (retry step, re-stack component) executed as a high-priority plan.
     3. **Escalation**:
-    If retries fail or anomaly is unknown, event escalates to the cloud.
-    4. **LLM Meta-Agent (cloud)**:
-    Generates structured recovery plans or patches Behavior Trees dynamically (e.g., insert “refill sauce” step).
+    If retries fail or the anomaly is unknown, `MaydayAgent` escalates to the cloud.
+    4. **Cloud Decision Agent**:
+    Generates structured multi-step recovery plans and pushes them back to the edge.
     5. **Synchronization**:
-    Edge executes immediately; cloud logs, learns, and may update future BT templates.
+    Edge executes immediately; cloud logs, learns, and may update future policies.
 
 
-8. Behavior Tree Dynamics
-    * BT provides deterministic control, safety, and observability.
-    * Anomaly detectors can interrupt active BT nodes via event signals.
-    * A meta-agent (LLM/RL) can edit or extend BTs at runtime to handle new failure modes safely.
-    * Only one controller (BT or recovery agent) holds motion control at any time.
+8. Plan Execution Dynamics
+    * `Plan`/`PlanStep` model provides deterministic control, safety, and observability.
+    * Anomaly detectors can interrupt active plans via the `Orchestrator`'s preemption mechanism.
+    * Higher-priority `REMEDIATION` plans preempt lower-priority `TASK` plans.
+    * Only one plan holds execution control at any time; the `Orchestrator` enforces this.
 
 9. Design Principle
 
@@ -277,45 +211,46 @@
     * **Low latency, high safety** — local reflexes for human and environmental risks.
     * **Scalable intelligence** — cloud learns from fleet data and updates edge logic.
     * **Resilient operation** — optimistic fallback ensures continued service under network loss.
-    * **Adaptive planning** — BTs evolve through LLM/RL meta-agents for new scenarios.
+    * **Adaptive planning** — `PolicyAgent` generates remediation plans; `MaydayAgent` escalates to cloud for complex scenarios.
     * **Explainable decisions** — every anomaly and action is logged with cause, context, and source detector.
 
 
 
 
 # 💡 Design Takeaways
-    Behavior Trees = “what should happen”
+    Plans/Steps = “what should happen”
     Step Classifiers = “did it happen as planned?”
     Anomaly Detectors = “did anything weird happen?”
-    Recovery Agent = “how do we fix it safely?”
+    Policy Agent = “how do we fix it safely?”
     Orchestrator = “who has control right now?”
     These work together like a nervous system:
         Reflex (local anomaly → pause/retry)
-        Cerebellum (recovery agent → stabilize)
+        Cerebellum (policy agent → stabilize)
         Cortex (cloud planner → update policy)
 
 
 * Coding this for Jetson Orin:
     - Run anomaly detectors and classifiers as independent microservices (Docker containers) publishing events to MQTT.
-    - Run the Behavior Tree executor in a lightweight Python loop.
+    - Run the Orchestrator in a lightweight asyncio loop.
     - Let the orchestrator (FastAPI + asyncio) handle routing and state.
 
 
 
 # High level folder structure
-src/
+src/cortexguard/
 ├── edge/
-│   ├── behavior_tree/
 │   ├── detectors/
+│   ├── models/
+│   ├── policy/
+│   ├── api/
+│   ├── observability/
+│   ├── utils/
 │   ├── safety_agent.py
-│   ├── recovery_agent.py
-│   └── orchestrator.py
-├── cloud/
-│   ├── reasoning_agent.py
-│   ├── analytics/
-│   ├── retraining/
-│   └── llm_planner.py
-└── shared/
-    ├── schemas/
-    ├── utils/
-    └── event_bus.py
+│   ├── policy_agent.py
+│   ├── mayday_agent.py
+│   ├── orchestrator.py
+│   ├── step_executor.py
+│   └── runtime.py
+├── simulation/
+├── common/
+└── core/

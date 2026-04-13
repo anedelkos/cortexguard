@@ -8,10 +8,10 @@ from unittest.mock import Mock
 
 import pytest
 
-from kitchenwatch.simulation.models.base_record import BaseFusedRecord
-from kitchenwatch.simulation.models.fused_record import FusedRecord
-from kitchenwatch.simulation.models.trial import Trial
-from kitchenwatch.simulation.streamers.local_streamer import LocalStreamer
+from cortexguard.simulation.models.base_record import BaseFusedRecord
+from cortexguard.simulation.models.fused_record import FusedRecord
+from cortexguard.simulation.models.trial import Trial
+from cortexguard.simulation.streamers.local_streamer import LocalStreamer
 
 
 @pytest.fixture
@@ -89,7 +89,7 @@ def test_load_fused_records(monkeypatch: pytest.MonkeyPatch, tmp_fused_file: Pat
     ]
 
     monkeypatch.setattr(
-        "kitchenwatch.simulation.streamers.local_streamer.load_fused_records",
+        "cortexguard.simulation.streamers.local_streamer.load_fused_records",
         lambda path: mock_records,
     )
 
@@ -121,7 +121,7 @@ def test_load_records_from_trial_success(
     ]
 
     monkeypatch.setattr(
-        "kitchenwatch.simulation.streamers.local_streamer.load_fused_records",
+        "cortexguard.simulation.streamers.local_streamer.load_fused_records",
         lambda path: mock_records,
     )
 
@@ -164,7 +164,7 @@ def test_load_records_by_id_success(
         ),
     ]
     monkeypatch.setattr(
-        "kitchenwatch.simulation.streamers.local_streamer.LocalStreamer.load_records_from_trial",
+        "cortexguard.simulation.streamers.local_streamer.LocalStreamer.load_records_from_trial",
         lambda self, trial: mock_records,
     )
     result = streamer.load_records_by_id("trial1", manifest)
