@@ -244,3 +244,60 @@ async def test_update_acquires_lock() -> None:
     assert (
         spy.acquired_count >= 1
     ), "update() never acquired self._lock — concurrent calls can corrupt shared state."
+
+
+# ---------------------------------------------------------------------------
+# Regression: infrastructure diagnostics must not pollute the feature set
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_comm_lag_ms_excluded_from_state_estimator() -> None:
+    """comm_lag_ms must never appear in z_scores or symbolic_system_state.
+
+    When the simulator container trains the learner on comm_lag_ms ≈ 1000 ms
+    and a subsequent manual CLI run delivers records with comm_lag_ms ≈ 0,
+    the Z-score spikes to ~3.9 → critical_high → false E-STOP.  The fix
+    excludes comm_lag_ms (and other _DERIVED_EXCLUDE keys) before feature
+    extraction.
+    """
+    from unittest.mock import AsyncMock
+
+    from cortexguard.edge.online_learner_state_estimator import _DERIVED_EXCLUDE
+    from cortexguard.edge.river_online_learner import RiverOnlineLearner
+
+    bb = AsyncMock()
+    bb.get_current_step.return_value = None
+    bb.get_scene_graph.return_value = None
+
+    estimator = OnlineLearnerStateEstimator(learner=RiverOnlineLearner(), blackboard=bb)
+
+    # Train on 15 records with comm_lag_ms ≈ 1000 (more than min_history=10)
+    for i in range(15):
+        snap = FusionSnapshot(
+            id=f"snap-{i}",
+            timestamp=datetime.now(UTC),
+            sensors={},
+            derived={"force_x": 0.01 * i, "comm_lag_ms": 1000 + i},
+        )
+        state = await estimator.update(snap)
+
+    # Now send a record with comm_lag_ms=0 (large deviation from training distribution)
+    snap = FusionSnapshot(
+        id="outlier",
+        timestamp=datetime.now(UTC),
+        sensors={},
+        derived={"force_x": 0.0, "comm_lag_ms": 0},
+    )
+    state = await estimator.update(snap)
+
+    z_scores = state.z_scores or {}
+    assert (
+        "comm_lag_ms" not in z_scores
+    ), "comm_lag_ms must be excluded from z_scores — it is a network diagnostic, not a sensor signal"
+    for key in state.symbolic_system_state:
+        assert "comm_lag_ms" not in key, f"comm_lag_ms leaked into symbolic_system_state as '{key}'"
+
+    # Verify all _DERIVED_EXCLUDE keys are absent
+    for excluded in _DERIVED_EXCLUDE:
+        assert excluded not in z_scores, f"{excluded} must not appear in z_scores"

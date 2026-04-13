@@ -49,6 +49,7 @@ class LogicalRuleDetector(BaseDetector):
         self._recent_snapshot_values: dict[str, collections.deque[float]] = collections.defaultdict(
             lambda: collections.deque(maxlen=self._SNAPSHOT_HISTORY_K)
         )
+        self._last_snapshot_id: str | None = None
 
         logger.debug(
             f"LogicalRuleDetector initialized with consecutive failure limit={self._MAX_CONSECUTIVE_FAILURES}"
@@ -108,15 +109,21 @@ class LogicalRuleDetector(BaseDetector):
                     metadata={"sensor_id": key, "window_range": rng, "window_samples": len(values)},
                 )
 
+        snapshot_id = getattr(snapshot, "id", None)
+        is_new_snapshot = snapshot_id != self._last_snapshot_id
+        if is_new_snapshot:
+            self._last_snapshot_id = snapshot_id
+
         for key in ("temp_celsius",):
             val = sensors.get(key)
             dq = self._recent_snapshot_values[key]
-            if isinstance(val, bool):
-                dq.append(1 if val else 0)
-            elif isinstance(val, (int, float)):
-                dq.append(float(val))
-            else:
-                continue
+            if is_new_snapshot:
+                if isinstance(val, bool):
+                    dq.append(1 if val else 0)
+                elif isinstance(val, (int, float)):
+                    dq.append(float(val))
+                else:
+                    continue
 
             if len(dq) == dq.maxlen:
                 rng = max(dq) - min(dq)

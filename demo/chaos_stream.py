@@ -98,7 +98,7 @@ def _make_synthetic_baseline(
         List of WindowedFusedRecord instances.
     """
     rng = random.Random(seed)
-    base_ts = 1_700_000_000_000_000_000
+    base_ts = time.time_ns()
     records: list[WindowedFusedRecord] = []
 
     drift = {
@@ -129,17 +129,17 @@ def _make_synthetic_baseline(
             sensor_window.append(
                 SensorReading(
                     timestamp_ns=ts - (window_size - j) * 1_000_000,
-                    force_x=drift["force_x"] + rng.uniform(-0.02, 0.02),
-                    force_y=drift["force_y"] + rng.uniform(-0.02, 0.02),
-                    force_z=drift["force_z"] + rng.uniform(-0.02, 0.02),
-                    torque_x=drift["torque_x"] + rng.uniform(-0.02, 0.02),
-                    torque_y=drift["torque_y"] + rng.uniform(-0.02, 0.02),
-                    torque_z=drift["torque_z"] + rng.uniform(-0.02, 0.02),
-                    pos_x=drift["pos_x"] + rng.uniform(-0.02, 0.02),
-                    pos_y=drift["pos_y"] + rng.uniform(-0.02, 0.02),
-                    pos_z=drift["pos_z"] + rng.uniform(-0.02, 0.02),
-                    temp_c=drift["temp_c"] + rng.uniform(-0.02, 0.02),
-                    smoke_ppm=drift["smoke_ppm"] + rng.uniform(-0.02, 0.02),
+                    force_x=drift["force_x"] + rng.uniform(-0.1, 0.1),
+                    force_y=drift["force_y"] + rng.uniform(-0.1, 0.1),
+                    force_z=drift["force_z"] + rng.uniform(-0.1, 0.1),
+                    torque_x=drift["torque_x"] + rng.uniform(-0.1, 0.1),
+                    torque_y=drift["torque_y"] + rng.uniform(-0.1, 0.1),
+                    torque_z=drift["torque_z"] + rng.uniform(-0.1, 0.1),
+                    pos_x=drift["pos_x"] + rng.uniform(-0.1, 0.1),
+                    pos_y=drift["pos_y"] + rng.uniform(-0.1, 0.1),
+                    pos_z=drift["pos_z"] + rng.uniform(-0.1, 0.1),
+                    temp_c=drift["temp_c"] + rng.uniform(-0.5, 0.5),
+                    smoke_ppm=drift["smoke_ppm"] + rng.uniform(-0.1, 0.1),
                 )
             )
 
@@ -290,21 +290,21 @@ def main() -> int:
         print(f"ERROR: edge service unreachable at {_base_url(args.endpoint)}", file=sys.stderr)
         return 1
 
-    # Build stream
-    baseline = _make_synthetic_baseline(n_records=20, window_size=5, seed=scenario.seed or 42)
-    engine = ChaosEngine(scenario)
-    stream = list(engine.inject(iter(baseline)))
-
-    total = len(stream)
     sleep_s = 1.0 / max(args.rate, 0.01)
     base = _base_url(args.endpoint)
     metrics_url = f"{base}/runtime-metrics"
 
     cycle = 0
+    total = 0
     final_metrics: dict[str, Any] = {}
 
     while repeat == 0 or cycle < repeat:
         cycle += 1
+        # Regenerate baseline with fresh timestamps each cycle to avoid out-of-order drops.
+        baseline = _make_synthetic_baseline(n_records=20, window_size=5, seed=scenario.seed or 42)
+        engine = ChaosEngine(scenario)
+        stream = list(engine.inject(iter(baseline)))
+        total = len(stream)
         last_status_t = time.monotonic()
 
         for idx, record in enumerate(stream, start=1):
@@ -327,7 +327,7 @@ def main() -> int:
                 cycle_label = f"cycle {cycle} " if repeat != 1 else ""
                 print(
                     f"[{cycle_label}record {idx:>2}/{total}]  "
-                    f"anomalies={m['anomalies']}  "
+                    f"active_anomalies={m['anomalies']}  "
                     f"plans_executed={m['plans_executed']}  "
                     f"emergency_stop={m['emergency_stop']}"
                 )
@@ -339,7 +339,7 @@ def main() -> int:
     print()
     print("=== Demo complete ===")
     print(f"Records streamed : {total * cycle}")
-    print(f"Anomalies        : {final_metrics.get('anomalies', 'n/a')}")
+    print(f"Active anomalies : {final_metrics.get('anomalies', 'n/a')}")
     print(f"Plans executed   : {final_metrics.get('plans_executed', 'n/a')}")
     print(f"Emergency stop   : {final_metrics.get('emergency_stop', 'n/a')}")
     return 0

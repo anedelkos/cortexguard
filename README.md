@@ -141,6 +141,8 @@ deliberative planning and model retraining.
 
 # ⚡ Quick Demo
 
+![CortexGuard demo](docs/cortexguard-demo.gif)
+
 See anomaly detection in action with a single command — no Python install required:
 
 ```bash

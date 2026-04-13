@@ -30,6 +30,15 @@ _MIN_SIGMA = (
     1e-3  # Practical sigma floor to avoid tiny-variance amplification (tune to sensor noise)
 )
 
+# Derived fields that must not be fed to the state estimator.
+# These are infrastructure / timing diagnostics whose variance reflects network
+# conditions, not physical system state.  Including them causes false critical
+# Z-scores whenever a second stream (e.g. manual CLI run vs. simulator container)
+# delivers records with different inter-arrival gaps.
+_DERIVED_EXCLUDE: frozenset[str] = frozenset(
+    {"comm_lag_ms", "timing_degraded", "scene_graph_frame"}
+)
+
 
 class OnlineLearnerStateEstimator:
     """
@@ -329,8 +338,10 @@ class OnlineLearnerStateEstimator:
                 now = snapshot.timestamp
                 current_intent = await self._fetch_current_intent()
 
-                # 1. Extract base features
-                features = snapshot.derived.copy()
+                # 1. Extract base features (exclude infrastructure diagnostics)
+                features = {
+                    k: v for k, v in (snapshot.derived or {}).items() if k not in _DERIVED_EXCLUDE
+                }
 
                 # 2. Augment with scene graph
                 scene_graph_frame = await self._augment_with_scene_graph(features)
