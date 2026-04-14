@@ -178,6 +178,12 @@ build:
 release:
   stage: release
   image: docker:27-cli
+  services:
+    - docker:27-dind
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+    DOCKER_DRIVER: overlay2
   needs: [build]
   <<: *rules-main
   before_script:
