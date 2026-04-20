@@ -1254,6 +1254,132 @@
       ],
       "title": "Queue Depth vs Plan Completion Rate",
       "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 60 },
+      "id": 70,
+      "panels": [],
+      "title": "Cloud Planner",
+      "type": "row"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 61 },
+      "id": 71,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "targets": [
+        { "expr": "cloud_planning_requests_total", "legendFormat": "Total", "refId": "A" }
+      ],
+      "title": "Escalations Received",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "plan_ready" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "needs_human" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "no_safe_plan" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "gridPos": { "h": 4, "w": 8, "x": 4, "y": 61 },
+      "id": 72,
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "displayMode": "lcd",
+        "orientation": "horizontal"
+      },
+      "targets": [
+        { "expr": "cloud_decisions_total{decision=\"plan_ready\"}", "legendFormat": "plan_ready", "refId": "A" },
+        { "expr": "cloud_decisions_total{decision=\"needs_human\"}", "legendFormat": "needs_human", "refId": "B" },
+        { "expr": "cloud_decisions_total{decision=\"no_safe_plan\"}", "legendFormat": "no_safe_plan", "refId": "C" }
+      ],
+      "title": "Decisions by Type",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 61 },
+      "id": 73,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, rate(cloud_planning_duration_seconds_bucket[5m]))", "legendFormat": "p95", "refId": "A" }
+      ],
+      "title": "Planning p95 Latency",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 61 },
+      "id": 74,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, rate(cloud_llm_duration_seconds_bucket[5m]))", "legendFormat": "LLM p95", "refId": "A" }
+      ],
+      "title": "LLM p95 Latency",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 61 },
+      "id": 75,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "targets": [
+        { "expr": "cloud_validation_failures_total", "legendFormat": "Failures", "refId": "A" }
+      ],
+      "title": "Validation Failures",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 65 },
+      "id": 76,
+      "targets": [
+        { "expr": "rate(cloud_decisions_total{decision=\"plan_ready\"}[2m])", "legendFormat": "plan_ready", "refId": "A" },
+        { "expr": "rate(cloud_decisions_total{decision=\"needs_human\"}[2m])", "legendFormat": "needs_human", "refId": "B" },
+        { "expr": "rate(cloud_decisions_total{decision=\"no_safe_plan\"}[2m])", "legendFormat": "no_safe_plan", "refId": "C" },
+        { "expr": "rate(cloud_planning_requests_total[2m])", "legendFormat": "total requests", "refId": "D" }
+      ],
+      "title": "Cloud Decision Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Loki",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 65 },
+      "id": 77,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "expr": "{container=~\".*cloud-api.*\"} |= \"cloud_plan\" | json | line_format \"{{.msg}}\"",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "title": "Recent Cloud Plans",
+      "type": "logs"
     }
   ],
   "refresh": "5s",

@@ -12,7 +12,7 @@ CortexGuard uses three complementary observability mechanisms:
 |--------|------|---------|
 | **Metrics** | Prometheus + Grafana | Numerical time-series for alerting, dashboards, and SLOs |
 | **Traces** | OpenTelemetry → Tempo | Request-scoped spans for debugging specific events |
-| **Logs** | stdout (JSON in prod) | Human-readable narrative of what happened and why |
+| **Logs** | Loki + Promtail (demo stack) / stdout | Structured log aggregation; cloud plan rationales queryable in Grafana |
 
 These three are complementary, not redundant. Metrics tell you *that* something is wrong. Traces tell you *where*. Logs tell you *why*.
 
@@ -107,9 +107,23 @@ Traces also carry the `ReasoningTraceEntry` log — a structured human-readable 
 
 ## Logs
 
-Logs are written to stdout. In production (Docker), `LOG_JSON=true` emits structured JSON. In development, plain text is used.
+Logs are written to stdout. In Docker, `LOG_JSON=true` emits structured JSON (`{"time":..., "level":..., "trace_id":..., "msg":...}`). In development, plain text is used. Log level is controlled by `LOG_LEVEL` (default: `INFO`).
 
-Log level is controlled by `LOG_LEVEL` (default: `INFO`). Set to `DEBUG` for verbose subsystem output including per-tick details.
+### Loki (demo stack)
+
+The demo stack includes **Loki** (log aggregation) and **Promtail** (Docker log shipper). Promtail tails all container stdout, labels each line with `container=<name>`, and pushes to Loki. Grafana queries Loki to display log panels alongside metrics.
+
+The **"Recent Cloud Plans"** Grafana panel uses the query:
+```
+{container=~".*cloud-api.*"} |= "cloud_plan" | json | line_format "{{.msg}}"
+```
+
+This surfaces every planning decision as a live log entry:
+```
+cloud_plan decision=plan_ready confidence=0.87 steps=3 trace_id=abc123 | Retry grip with adjusted approach angle, reduce torque by 20%...
+```
+
+The `trace_id` in each log line links directly to the corresponding Tempo trace via Grafana's derived fields configuration — clicking "View trace in Tempo" jumps to the full end-to-end span from the edge MaydayAgent through all five cloud planning nodes.
 
 Logs complement traces by providing a lower-level narrative. If a trace shows an anomaly was detected but no policy was generated, the logs will show whether the LLM circuit breaker was open, which fallback was used, and what the exact error message was.
 
@@ -153,12 +167,58 @@ Four stat panels tracking key SLOs: detection loop p95 latency vs 200ms budget, 
 
 ---
 
+---
+
+## Cloud Tier
+
+The cloud API (`cloud-api:8001`) exposes a `/metrics` endpoint scraped by the same Prometheus instance as the edge (configured in `docker/prometheus.yml` under `job_name: cortexguard_cloud`). All cloud metrics use the `cloud_` prefix.
+
+### Cloud Metrics
+
+#### Counters
+
+| Metric | Labels | What it counts |
+|--------|--------|----------------|
+| `cloud_planning_requests_total` | — | Total mayday escalations received |
+| `cloud_decisions_total` | `decision` (`plan_ready`, `needs_human`, `no_safe_plan`) | Planning outcomes by type |
+| `cloud_needs_human_total` | — | Escalations that required human intervention |
+| `cloud_validation_failures_total` | — | Candidate plans that failed the capability/confidence validator |
+| `cloud_outcome_status_total` | `status` | Execution outcomes reported back by the edge |
+
+#### Histograms
+
+| Metric | What it measures |
+|--------|-----------------|
+| `cloud_planning_duration_seconds` | End-to-end planning workflow latency (all 5 nodes) |
+| `cloud_llm_duration_seconds` | LLM plan generation time only |
+| `cloud_retrieval_duration_seconds` | Qdrant vector search latency |
+
+Use `histogram_quantile(0.95, rate(cloud_planning_duration_seconds_bucket[5m]))` for p95 planning latency. Typical p95 target: < 5 s for Groq Llama 3.3 70B.
+
+### Cloud Traces
+
+The cloud API is instrumented with OpenTelemetry. When `OTEL_EXPORTER_OTLP_ENDPOINT` is set, spans are exported to Tempo alongside edge spans, making it possible to trace a full escalation from the MaydayAgent on the edge through all five cloud planning nodes in a single Tempo trace.
+
+| Span | Emitted by |
+|------|-----------|
+| `persist_incident` | `graph/nodes.py` |
+| `retrieve_similar_incidents` | `graph/nodes.py` |
+| `generate_candidate_plan` | `graph/nodes.py` |
+| `validate_candidate_plan` | `graph/nodes.py` |
+| `route_decision` | `graph/nodes.py` |
+
+The service name is `cortexguard-cloud` (set in the OTEL resource).
+
+---
+
 ## See Also
 
 - `docs/metrics_spec.md` — full metric definitions, label constraints, and cardinality rules
 - `docs/architecture.md` — system architecture and latency budget context
-- `src/cortexguard/edge/utils/metrics.py` — metric definitions
+- `docs/cloud_architecture.md` — cloud tier LangGraph workflow and RAG pipeline
+- `src/cortexguard/edge/utils/metrics.py` — edge metric definitions
 - `src/cortexguard/edge/utils/tracing.py` — trace sink and span helpers
+- `src/cortexguard/cloud/runtime.py` — cloud metric definitions
 - `docker/grafana_dashboard.json` — dashboard panel definitions
-- `docker/prometheus.yml` — scrape configuration
+- `docker/prometheus.yml` — scrape configuration (edge + cloud)
 - `docker/cortexguard_alerts.yml` — Prometheus alerting rules

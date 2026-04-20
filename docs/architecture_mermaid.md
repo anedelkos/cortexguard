@@ -62,19 +62,23 @@ flowchart TD
         ORC --> BB
     end
 
-    subgraph CLOUD["Cloud Tier (planned — AWS)"]
-        CDA["Cloud Decision Agent\n(deliberative LLM)"]
-        TRN["Training Pipeline\n(SageMaker)"]
+    subgraph CLOUD["Cloud Tier (implemented)"]
+        CDA["Cloud Planner\n(LangGraph 5-node workflow)\nplan_ready | needs_human | no_safe_plan"]
+        QDR[("Qdrant\n(vector store / RAG)")]
+        DB[("SQLite\n(incident store)")]
+        CDA --> QDR
+        CDA --> DB
     end
 
     MA -->|MaydayPacket| CDA
-    CDA -->|updated policies| PA
-    TRN -->|model weights| EF
+    CDA -->|Plan| MA
 
     subgraph OBS["Observability"]
-        OTEL["OpenTelemetry Traces"]
-        PROM["Prometheus Metrics"]
+        OTEL["OpenTelemetry Traces\n(Tempo)"]
+        PROM["Prometheus Metrics\n(Grafana)"]
+        LOKI["Loki\n(structured logs)"]
     end
 
     EDGE --> OBS
+    CLOUD --> OBS
 ```

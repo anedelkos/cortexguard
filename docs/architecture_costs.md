@@ -48,11 +48,29 @@ Policy calls are only triggered for anomalies that pass the Z-score threshold (`
 
 ---
 
-## AWS Cloud (Planned)
+## Cloud Deliberative Planner (Implemented)
 
-> The deliberative cloud layer is not yet implemented. Estimates below are for planning purposes.
+The cloud tier is implemented as a FastAPI service running a LangGraph planning workflow with Qdrant vector search and a pluggable LLM backend.
 
-### Training Pipeline (AWS SageMaker)
+### Deliberative Inference (Cloud LLM)
+
+| Backend | Model | Cost |
+|---|---|---|
+| Groq (default) | `llama-3.3-70b-versatile` | Free tier available; paid tier ~$0.0006/1K tokens |
+| Anthropic | `claude-haiku-4-5-20251001` | ~$0.00025/1K input tokens |
+| OpenRouter | configurable | varies by model |
+
+Escalations are rare by design — the edge handles the majority of cases locally. Expected volume: < 10 escalations/device/day in normal operation.
+
+### Infrastructure
+
+| Component | Service | Notes |
+|---|---|---|
+| Incident store | SQLite (local) / replaceable | Persistent history of all escalations |
+| Vector store | Qdrant (self-hosted) | 384-dim MiniLM embeddings |
+| Embedder | `all-MiniLM-L6-v2` (CPU) | ~50ms per embed on CPU |
+
+### Future: Model Lifecycle (AWS SageMaker)
 
 | Resource | Instance | Estimated Cost |
 |---|---|---|
@@ -62,15 +80,6 @@ Policy calls are only triggered for anomalies that pass the Z-score threshold (`
 
 Training runs are expected to be periodic (nightly or on-demand), not continuous.
 
-### Deliberative Inference (Cloud LLM)
-
-| Scenario | Model | Estimated Cost |
-|---|---|---|
-| Recovery planning (escalated anomalies) | Claude Haiku / GPT-4o-mini | ~$0.001–$0.01 per escalation |
-| Explanation agent (XAI) | Claude Haiku | ~$0.001 per query |
-
-Escalations are rare by design — the edge handles the majority of cases locally. Expected volume: < 10 escalations/device/day in normal operation.
-
 ---
 
 ## Trade-off Summary
@@ -79,7 +88,7 @@ Escalations are rare by design — the edge handles the majority of cases locall
 |---|---|---|---|
 | Edge only (rules-based) | < 100 ms | Hardware only | Handles known anomaly patterns |
 | Edge + local LLM (Mistral) | 100–500 ms | Hardware only | Handles novel anomalies locally |
-| Edge + cloud escalation (MaydayAgent) | 1–5 s | AWS inference cost | Handles complex / unknown failures |
-| Full deliberative cloud layer (planned) | 1–10 s | AWS compute + LLM API | Fleet-level reasoning, retraining, XAI |
+| Edge + cloud escalation (MaydayAgent) | 1–5 s | LLM API cost per escalation | Handles complex / unknown failures |
+| Fleet-level coordination (future) | 1–10 s | Cloud compute + LLM API | Cross-device reasoning, retraining, XAI |
 
 **Design principle**: never block safety-critical decisions on cloud. Edge acts immediately; cloud reconciles and improves policies asynchronously.

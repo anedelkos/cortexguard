@@ -131,8 +131,8 @@ def test_rule_human_hand_near_hazard_fires_on_safety_critical_property() -> None
 # ---------------------------------------------------------------------------
 
 
-def test_is_near_returns_false_for_objects_far_from_robot() -> None:
-    """Two objects both far from the robot must not be classified as near each other."""
+def test_is_near_returns_false_for_objects_far_from_device() -> None:
+    """Two objects both far from the device must not be classified as near each other."""
     from cortexguard.edge.edge_fusion import _is_near
     from cortexguard.edge.models.scene_graph import SceneObject
 

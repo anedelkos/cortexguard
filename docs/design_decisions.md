@@ -18,9 +18,10 @@
     * Kubernetes optional for scaling sensor data processing
     * Decision: GitHub demo uses Docker Compose; optional K8s for reliability in fleet-wide anomaly detection
 
-4. Single-Cloud Choice (AWS)
-    * AWS for both training and deliberative cloud inference: Python CDK/boto3 for dynamic provisioning, SageMaker for model lifecycle
-    * Rationale: multi-cloud adds operational complexity without sufficient benefit at this scale; consolidating on AWS simplifies IAM, networking, and deployment
+4. Cloud LLM Backend — Pluggable via Factory
+    * Cloud deliberative planner uses a factory pattern (`get_llm_client(backend)`) to select between Groq, Anthropic, OpenRouter, and mock backends at startup via `CLOUD_LLM_BACKEND` env var.
+    * Groq (Llama 3.3 70B) is the default: free tier available, OpenAI-compatible API, no local GPU required.
+    * AWS SageMaker is a future deployment target for model lifecycle management (fine-tuning, periodic retraining).
 
 5. Explainability & Observability
     * XAI endpoint shows top modalities, anomaly timeline, LLM explanations
@@ -28,9 +29,9 @@
     * Reasoning: Human operators and troubleshooters care about trustworthy, observable AI
 
 6. Agent Coordination
-    * Agents coordinated via CrewAI + vector DB
-    * Multi-agent reasoning: SafetyAgent, PolicyAgent, MaydayAgent, StateEstimator, Orchestrator, HumanInterface
-    * Why: Adds intelligent cutting-edge multi-agent reasoning and planning
+    * Cloud deliberative planner uses LangGraph (5-node DAG) rather than CrewAI; this provides explicit, testable graph structure with typed state at each node.
+    * Edge agents (SafetyAgent, PolicyAgent, MaydayAgent) coordinate via the async Blackboard shared state bus.
+    * Why LangGraph over CrewAI: deterministic node ordering, cleaner async support, and easier to unit-test individual nodes in isolation.
 
 7. Dataset Simulation & Testing
     * Public IoT dataset used to simulate real-time events

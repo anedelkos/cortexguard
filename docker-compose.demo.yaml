@@ -9,8 +9,11 @@ services:
       - "8080:8080"
     environment:
       LOG_LEVEL: INFO
+      CLOUD_API_URL: http://cloud-api:8001
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318
     depends_on:
       - tempo
+      - cloud-api
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/healthz/live"]
       interval: 3s
@@ -28,7 +31,7 @@ services:
     entrypoint: ["python"]
     command: >
       demo/chaos_stream.py
-        --scenario ${SCENARIO:-S0.2}
+        --scenario ${SCENARIO:-S1.1}
         --endpoint http://edge:8080/api/v1/ingest
         --rate ${RATE:-1.0}
         --repeat 0
@@ -67,5 +70,53 @@ services:
       - "4318:4318"
       - "3100:3100"
 
+  qdrant:
+    image: qdrant/qdrant:latest
+    volumes:
+      - qdrant_demo_data:/qdrant/storage
+
+  cloud-api:
+    build:
+      context: .
+      dockerfile: docker/cloud.Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      CLOUD_LLM_BACKEND: groq
+      CLOUD_GROQ_API_KEY: ${CLOUD_GROQ_API_KEY}
+      CLOUD_EMBEDDER_BACKEND: miniLM
+      CLOUD_VECTOR_STORE_BACKEND: qdrant
+      CLOUD_INCIDENT_STORE: sqlite
+      CLOUD_DB_PATH: /data/cortexguard_cloud.db
+      CLOUD_QDRANT_URL: http://qdrant:6333
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318
+      LOG_JSON: "true"
+    volumes:
+      - cloud_demo_db:/data
+    depends_on:
+      - qdrant
+      - tempo
+
+  loki:
+    image: grafana/loki:latest
+    volumes:
+      - ./docker/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki_demo_data:/loki
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    ports:
+      - "3101:3100"
+
+  promtail:
+    image: grafana/promtail:latest
+    volumes:
+      - ./docker/promtail-demo.yaml:/etc/promtail/promtail.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: ["-config.file=/etc/promtail/promtail.yaml"]
+    depends_on:
+      - loki
+
 volumes:
   grafana_demo_data:
+  qdrant_demo_data:
+  cloud_demo_db:
+  loki_demo_data:

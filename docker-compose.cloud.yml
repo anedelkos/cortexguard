@@ -1,0 +1,31 @@
+services:
+  cloud-api:
+    build:
+      context: .
+      dockerfile: docker/cloud.Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      - CLOUD_LLM_BACKEND=groq
+      - CLOUD_GROQ_API_KEY=${CLOUD_GROQ_API_KEY}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - CLOUD_EMBEDDER_BACKEND=miniLM
+      - CLOUD_VECTOR_STORE_BACKEND=qdrant
+      - CLOUD_INCIDENT_STORE=sqlite
+      - CLOUD_DB_PATH=/data/cortexguard_cloud.db
+      - CLOUD_QDRANT_URL=http://qdrant:6333
+    volumes:
+      - cloud-db:/data
+    depends_on:
+      - qdrant
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant-storage:/qdrant/storage
+
+volumes:
+  cloud-db:
+  qdrant-storage:

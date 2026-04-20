@@ -1,0 +1,29 @@
+{
+  "incident": {
+    "incident_id": "11111111-0000-0000-0000-000000000004",
+    "escalation_id": "seed-esc-s3-0-001",
+    "trace_id": "seed-trace-s3-0-001",
+    "device_id": "robot-arm-02",
+    "anomaly_key": "S3.0_UNKNOWN_FAULT",
+    "anomaly_type": "unknown_fault",
+    "severity": "high",
+    "summary": "Unclassified anomaly pattern detected; no matching local remediation rule. Arm halted and escalated for cloud planning.",
+    "raw_packet_json": "{\"trace_id\": \"seed-trace-s3-0-001\", \"device_id\": \"robot-arm-02\", \"anomalies\": [{\"key\": \"S3.0_UNKNOWN_FAULT\", \"severity\": \"high\", \"score\": 0.88}]}",
+    "retrieved_incident_ids_json": "[]",
+    "candidate_plan_json": null,
+    "validation_errors_json": "[]",
+    "decision": "needs_human",
+    "created_at": "2026-03-01T11:00:00+00:00"
+  },
+  "outcome": {
+    "outcome_id": "seed-out-s3-0-001",
+    "escalation_id": "seed-esc-s3-0-001",
+    "decision_id": "seed-dec-s3-0-001",
+    "device_id": "robot-arm-02",
+    "status": "completed",
+    "completed_at": "2026-03-01T11:10:00+00:00",
+    "notes": "Operator identified intermittent power rail noise as root cause; shielding applied.",
+    "failure_reason": null,
+    "linked_at": "2026-03-01T11:10:30+00:00"
+  }
+}

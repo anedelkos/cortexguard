@@ -175,8 +175,11 @@ class RuntimeConfig:
 
     # MaydayAgent cloud escalation
     mayday_timeout_s: float = field(
-        default_factory=lambda: float(os.getenv("MAYDAY_TIMEOUT_S", "30.0"))
+        default_factory=lambda: float(os.getenv("MAYDAY_TIMEOUT_S", "60.0"))
     )
+
+    # Cloud API URL — when set, use HttpCloudAgentClient instead of MockCloudAgentClient
+    cloud_api_url: str | None = field(default_factory=lambda: os.getenv("CLOUD_API_URL"))
 
     # Sensor timing
     fusion_expected_period_ms: int = field(
@@ -205,7 +208,14 @@ class EdgeRuntime:
         # --- CORE AGENT SUBSYSTEMS ---
         # Create controller & registry
         self.controller = MockController()  # or real hardware controller
-        self.cloud_agent = MockCloudAgentClient()
+        if self.config.cloud_api_url:
+            from cortexguard.core.http_cloud_client import HttpCloudAgentClient
+
+            self.cloud_agent: MockCloudAgentClient | HttpCloudAgentClient = HttpCloudAgentClient(
+                cloud_base_url=self.config.cloud_api_url
+            )
+        else:
+            self.cloud_agent = MockCloudAgentClient()
         self.capability_registry = CapabilityRegistry()
         self.step_classifier = MockStepClassifier()
 
