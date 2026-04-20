@@ -2,7 +2,7 @@
 
 ---
 
-## Edge Agents (Implemented)
+## Edge Agents (Reflex Layer)
 
 These agents run locally on the edge device and are part of the current edge runtime.
 
@@ -24,30 +24,33 @@ These agents run locally on the edge device and are part of the current edge run
 
 ---
 
-## Cloud Agents (Planned — Deliberative Layer)
+## Cloud Agents (Deliberative Layer)
 
-> **Not yet implemented.** The following agents are planned for the deliberative cloud layer. The edge `MaydayAgent` already handles escalation to the cloud; these agents would live on the AWS side and respond to escalations.
+The cloud tier receives escalations from the edge `MaydayAgent` and runs a LangGraph 5-node deliberative planning workflow.
 
-### 1. Recovery Planner (Reasoning Agent)
+### 1. Cloud Planner (Implemented)
 
-- **Purpose**: Generate multi-step recovery plans for complex anomalies where edge rule-based logic isn't sufficient.
-- **Example**: *"Sensor malfunction detected in joint 2. Retry calibration, then resume task from step 3."*
-- **How it works**: LLM is given context (anomaly type, system state, recent task history) and generates a structured recovery plan. The plan is pushed back to the edge for execution.
+- **Purpose**: Generate multi-step recovery plans for complex anomalies that edge local recovery could not resolve.
+- **Example**: *"Repeated misgrasp on joint 2 — approach angle adjusted, retry grip with reduced torque, then resume task."*
+- **How it works**: A LangGraph workflow runs five sequential nodes — persist incident → retrieve similar incidents (RAG over Qdrant) → generate candidate plan (LLM) → validate plan (capability + confidence checks) → route decision. Returns `plan_ready`, `needs_human`, or `no_safe_plan`.
+- **Where it lives**: `src/cortexguard/cloud/`
 
-### 2. Explanation Agent (XAI Layer)
+See `docs/cloud_architecture.md` for a full breakdown of the LangGraph workflow and RAG pipeline.
+
+---
+
+## Future Cloud Agents
+
+These agents are planned but not yet implemented.
+
+### Explanation Agent (XAI Layer)
 
 - **Purpose**: Translate low-level anomaly events into human-readable explanations for operators and debugging.
 - **Example**: *"The torque sensor spiked during the stirring step — likely due to excessive resistance in the mixture. Recommend slowing the rotation speed."*
-- **How it works**: LLM receives structured anomaly event JSON and produces a plain-language summary with a recommended action.
 
-### 3. Human-in-the-Loop Agent
+### Human-in-the-Loop Agent
 
-- **Purpose**: Interface between the operator and the system. Allows operators to query system state in natural language and receive dynamic explanations.
+- **Purpose**: Interface between the operator and the system. Routes high-uncertainty plans to operator approval before the edge executes them.
 - **Example**:
   - *User: "Why did device 5 pause during task 2?"*
   - *LLM: "It detected an abnormal torque pattern during mixing, suggesting the whisk got stuck."*
-
-### 4. Multi-Agent Reasoning Coordinator
-
-- **Purpose**: Coordinates multiple cloud sub-agents (data integrity, recovery, communication) to handle complex failure scenarios that require parallel reasoning.
-- **Example prompt**: *"Decide which agent should handle this anomaly event: safety-critical, mechanical, or data drift."*

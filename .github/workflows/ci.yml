@@ -41,7 +41,7 @@ jobs:
 
 
           curl -fsSL https://astral.sh/uv/install.sh | sh && mv $HOME/.local/bin/uv /usr/local/bin/uv
-          uv sync --group dev --frozen
+          uv sync --group dev --extra cloud --frozen
 
       - name: Lint
         run: task lint
@@ -72,7 +72,7 @@ jobs:
 
 
           curl -fsSL https://astral.sh/uv/install.sh | sh && mv $HOME/.local/bin/uv /usr/local/bin/uv
-          uv sync --group dev --frozen
+          uv sync --group dev --extra cloud --frozen
 
       - name: Run unit tests
         run: |
@@ -110,7 +110,7 @@ jobs:
 
 
           curl -fsSL https://astral.sh/uv/install.sh | sh && mv $HOME/.local/bin/uv /usr/local/bin/uv
-          uv sync --group dev --frozen
+          uv sync --group dev --extra cloud --frozen
 
       - name: Run integration tests
         run: |
@@ -151,7 +151,7 @@ jobs:
 
 
           curl -fsSL https://astral.sh/uv/install.sh | sh && mv $HOME/.local/bin/uv /usr/local/bin/uv
-          uv sync --group dev --frozen
+          uv sync --group dev --extra cloud --frozen
 
       - uses: actions/download-artifact@v4
         with:
@@ -197,7 +197,7 @@ jobs:
 
 
           curl -fsSL https://astral.sh/uv/install.sh | sh && mv $HOME/.local/bin/uv /usr/local/bin/uv
-          uv sync --group dev --frozen
+          uv sync --group dev --extra cloud --frozen
 
       - name: Safety + Vulture
         run: |

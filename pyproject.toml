@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi[standard]>=0.121.0",
+    "httpx>=0.28.1",
     "pandas>=2.3.3",
     "pydantic>=2.12.3",
     "pyyaml>=6.0.3",
@@ -22,6 +23,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+cloud = [
+    "aiosqlite>=0.22.1",
+    "langgraph>=1.1.6",
+    "qdrant-client>=1.17.1",
+    "fastembed>=0.4.0",
+    "instructor>=1.15.1",
+    "anthropic>=0.96.0",
+    "openai>=1.82.0",
+]
 ml = [
     "torch>=2.9.1",
     "torchvision>=0.24.1",

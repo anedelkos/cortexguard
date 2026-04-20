@@ -46,6 +46,18 @@
       repeat: 3
   expected_outcome: "escalate_to_cloud"
 
+- scenario_id: "S1.2"
+  title: "Persistent Vision Occlusion"
+  tier: 1
+  seed: 55
+  duration_s: 25
+  baseline_recipe: "make_burger"
+  anomalies:
+    - type: "vision_occlusion"
+      opacity: 0.95
+      duration_s: 6.0
+  expected_outcome: "escalate_to_cloud"
+
 - scenario_id: "S2.3"
   title: "Sensor Freeze"
   tier: 2
@@ -55,6 +67,16 @@
   anomalies:
     - type: "sensor_freeze"
   expected_outcome: "recovery_success"
+
+- scenario_id: "S3.0"
+  title: "Unknown Anomaly Fallback"
+  tier: 3
+  seed: 7
+  duration_s: 20
+  baseline_recipe: "make_burger"
+  anomalies:
+    - type: "unknown_fault"
+  expected_outcome: "escalate_to_cloud"
 
 - scenario_id: "S4.1"
   title: "Compound Fault: Slip + Occlusion + Comm Lag"

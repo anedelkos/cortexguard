@@ -1,0 +1,29 @@
+{
+  "incident": {
+    "incident_id": "11111111-0000-0000-0000-000000000001",
+    "escalation_id": "seed-esc-s1-1-001",
+    "trace_id": "seed-trace-s1-1-001",
+    "device_id": "robot-arm-01",
+    "anomaly_key": "S1.1_MISGRASP",
+    "anomaly_type": "repeated_failure",
+    "severity": "high",
+    "summary": "Robot arm failed to grip part A after 3 consecutive attempts due to sensor drift in gripper pressure sensor.",
+    "raw_packet_json": "{\"trace_id\": \"seed-trace-s1-1-001\", \"device_id\": \"robot-arm-01\", \"anomalies\": [{\"key\": \"S1.1_MISGRASP\", \"severity\": \"high\", \"score\": 0.92}]}",
+    "retrieved_incident_ids_json": "[]",
+    "candidate_plan_json": null,
+    "validation_errors_json": "[]",
+    "decision": "plan_ready",
+    "created_at": "2026-01-15T10:30:00+00:00"
+  },
+  "outcome": {
+    "outcome_id": "seed-out-s1-1-001",
+    "escalation_id": "seed-esc-s1-1-001",
+    "decision_id": "seed-dec-s1-1-001",
+    "device_id": "robot-arm-01",
+    "status": "completed",
+    "completed_at": "2026-01-15T10:35:00+00:00",
+    "notes": "Grip reset successful; slow approach recovered nominal operation.",
+    "failure_reason": null,
+    "linked_at": "2026-01-15T10:35:30+00:00"
+  }
+}

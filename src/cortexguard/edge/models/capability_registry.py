@@ -13,6 +13,7 @@ class RiskLevel(str, Enum):
     LOW = "LOW"
     MEDIUM = "MEDIUM"
     HIGH = "HIGH"
+    E_STOP = "E-STOP"
 
 
 class FunctionSchema(BaseModel):
@@ -116,16 +117,17 @@ class CapabilityRegistry(BaseModel):
     def load_from_yaml(cls, config_path: Path | None = None) -> CapabilityRegistry:
         """
         Loads the capabilities from the provided YAML configuration file.
-        If config_path is None, it defaults to 'capability_registry.yaml' in the
-        same directory as this module file.
+        If config_path is None, it defaults to 'capability_registry.yaml' in
+        ``src/cortexguard/common/``, which is the shared location accessible to
+        both the edge and cloud tiers.
         """
         import yaml
 
         # Resolve the path if not explicitly provided
         if config_path is None:
-            # Assumes the configuration file is named 'capability_registry.yaml'
-            # and resides next to this file.
-            config_path = Path(__file__).parent / "capability_registry.yaml"
+            # The canonical registry lives in the shared common/ package so both
+            # edge and cloud can load it from the same location.
+            config_path = Path(__file__).parents[2] / "common" / "capability_registry.yaml"
 
         if not config_path.exists():
             raise FileNotFoundError(f"Configuration file not found at: {config_path}")

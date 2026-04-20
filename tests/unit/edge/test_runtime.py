@@ -355,3 +355,20 @@ async def test_runtime_signal_handler_removal_exception(
 
     # Ensure stop is called afterward for proper cleanup
     await runtime.stop()
+
+
+def test_runtime_uses_mock_cloud_agent_when_no_url() -> None:
+    from cortexguard.core.mocks.mock_cloud_agent import MockCloudAgentClient
+
+    config = RuntimeConfig()
+    runtime = EdgeRuntime(config)
+    assert isinstance(runtime.cloud_agent, MockCloudAgentClient)
+
+
+def test_runtime_uses_http_cloud_agent_when_url_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    from cortexguard.core.http_cloud_client import HttpCloudAgentClient
+
+    monkeypatch.setenv("CLOUD_API_URL", "http://cloud:8001")
+    config = RuntimeConfig()
+    runtime = EdgeRuntime(config)
+    assert isinstance(runtime.cloud_agent, HttpCloudAgentClient)

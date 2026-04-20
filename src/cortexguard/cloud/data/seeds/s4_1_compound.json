@@ -1,0 +1,29 @@
+{
+  "incident": {
+    "incident_id": "11111111-0000-0000-0000-000000000005",
+    "escalation_id": "seed-esc-s4-1-001",
+    "trace_id": "seed-trace-s4-1-001",
+    "device_id": "robot-arm-02",
+    "anomaly_key": "S4.1_COMPOUND_FAULT",
+    "anomaly_type": "compound_fault",
+    "severity": "high",
+    "summary": "Compound fault: simultaneous grip slip, vision occlusion, and communication lag detected. Safe park initiated pending operator.",
+    "raw_packet_json": "{\"trace_id\": \"seed-trace-s4-1-001\", \"device_id\": \"robot-arm-02\", \"anomalies\": [{\"key\": \"S4.1_COMPOUND_FAULT\", \"severity\": \"high\", \"score\": 0.97}]}",
+    "retrieved_incident_ids_json": "[]",
+    "candidate_plan_json": null,
+    "validation_errors_json": "[]",
+    "decision": "plan_ready",
+    "created_at": "2026-02-03T09:15:00+00:00"
+  },
+  "outcome": {
+    "outcome_id": "seed-out-s4-1-001",
+    "escalation_id": "seed-esc-s4-1-001",
+    "decision_id": "seed-dec-s4-1-001",
+    "device_id": "robot-arm-02",
+    "status": "completed",
+    "completed_at": "2026-02-03T09:22:00+00:00",
+    "notes": "Safe park executed; operator confirmed system nominal after comm lag resolved.",
+    "failure_reason": null,
+    "linked_at": "2026-02-03T09:22:30+00:00"
+  }
+}

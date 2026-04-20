@@ -10,20 +10,19 @@ environments, combining local reflexive AI and cloud deliberative AI agents.
 # 🧭 Overview
 CortexGuard is a real-time, multimodal anomaly detection and recovery system for edge-deployed systems operating in
 human environments.
-It utilizes cutting-edge AI techniques across sensor fusion, anomaly detection, and multi-agent fault tolerance — with
-AWS handling both training and deliberative cloud inference.
+It utilizes cutting-edge AI techniques across sensor fusion, anomaly detection, and multi-agent fault tolerance.
 
 It achieves situational awareness by fusing multiple sensor streams with camera feeds and task intent, enabling recovery
 from varying-urgency faults using hierarchical anomaly reasoning.
 A local edge cognitive safety layer handles reflexive and semi-complex anomalous situations while complex,
-resource-intensive problems are escalated to the cloud — all while respecting in-progress tasks.
+resource-intensive problems are escalated to the cloud deliberative planner — all while respecting in-progress tasks.
 
 
 # 🧩 Key Features
 * 🧠 Multimodal anomaly detection (sensor, vision, intent fusion)
-* ⚡ Two-tier architecture (Edge: real-time reflexive | Cloud: deliberative, planned)
+* ⚡ Two-tier architecture (Edge: real-time reflexive | Cloud: deliberative, implemented)
 * 🤖 AI Agents for safety, policy generation, and cloud escalation
-* ☁️ AWS for model training and deliberative cloud inference
+* ☁️ Cloud deliberative planner (LangGraph + RAG + LLM, Docker service)
 * 📊 Prometheus/Grafana dashboards for observability
 * 🔭 OpenTelemetry distributed tracing
 * 🧪 Dataset simulator with chaos engine for anomaly injection
@@ -94,14 +93,16 @@ flowchart TD
         ORC --> BB
     end
 
-    subgraph CLOUD["Cloud Tier (planned — AWS)"]
-        CDA["Cloud Decision Agent\n(deliberative LLM)"]
-        TRN["Training Pipeline\n(SageMaker)"]
+    subgraph CLOUD["Cloud Tier (implemented)"]
+        CDA["Cloud Planner\n(LangGraph + RAG + LLM)\nplan_ready | needs_human | no_safe_plan"]
+        QDR[("Qdrant\n(vector store)")]
+        DB[("SQLite\n(incident store)")]
+        CDA --> QDR
+        CDA --> DB
     end
 
     MA -->|MaydayPacket| CDA
-    CDA -->|updated policies| PA
-    TRN -->|model weights| EF
+    CDA -->|Plan| MA
 
     subgraph OBS["Observability"]
         OTEL["OpenTelemetry Traces"]
@@ -121,8 +122,8 @@ deliberative planning and model retraining.
     3. SafetyAgent evaluates hard rules every tick → E-STOP / PAUSE / NOMINAL.
     4. PolicyAgent generates RemediationPolicy for active anomalies (rules + local LLM).
     5. Orchestrator schedules and preempts Plans; StepExecutor drives the Arbiter → Controller.
-    6. MaydayAgent escalates to AWS cloud when local recovery fails.
-    7. AWS training pipeline continuously improves detectors and meta-models.
+    6. MaydayAgent escalates to cloud planner when local recovery fails.
+    7. Cloud planner retrieves similar incidents, generates a validated Plan via LLM, returns it to edge.
 
 
 # 🧠 AI Concepts
@@ -132,9 +133,10 @@ deliberative planning and model retraining.
 |Online Anomaly Detection     |Z-score / SPC (River), rule-based ensemble, vision proximity|
 |Multimodal Fusion            |Sensor + Vision + Intent (EMA smoothing, torchvision embeddings)|
 |Edge-Cloud Partitioning      |Local reflex vs cloud deliberation (optimistic fallback)|
-|Agentic AI                   |SafetyAgent, PolicyAgent, MaydayAgent|
-|LLM Policy Generation        |Mistral-7B-Instruct (on-device)|
-|Model Lifecycle              |AWS SageMaker training, edge weight deployment|
+|Agentic AI                   |SafetyAgent, PolicyAgent, MaydayAgent, Cloud Planner|
+|LLM Policy Generation        |Mistral-7B-Instruct (on-device edge), pluggable cloud LLM (Groq/Anthropic/mock)|
+|Cloud Deliberative Planning  |LangGraph 5-node workflow, RAG over incident history (Qdrant + MiniLM), capability validation|
+|Model Lifecycle              |AWS SageMaker (future deployment target)|
 |Observability                |Prometheus/Grafana metrics, OpenTelemetry traces|
 |Testing & Validation         |Unit, integration (chaos engine), e2e — 80% coverage enforced|
 
@@ -143,22 +145,33 @@ deliberative planning and model retraining.
 
 ![CortexGuard demo](docs/cortexguard-demo.gif)
 
-See anomaly detection in action with a single command — no Python install required:
+See anomaly detection and cloud deliberative planning in action with a single command — no Python install required:
 
 ```bash
-# Overheat + smoke → E-STOP (default)
+# Default: repeated misgrasp → edge retries → escalates to cloud planner → Grafana shows plan
 docker compose -f docker-compose.demo.yaml up --build
+
+# With Groq API key for real LLM plans (free tier available at console.groq.com)
+CLOUD_GROQ_API_KEY=<your-key> docker compose -f docker-compose.demo.yaml up --build
 
 # Try other scenarios
 SCENARIO=S0.1 docker compose -f docker-compose.demo.yaml up --build   # human in safety radius → E-STOP
-SCENARIO=S1.1 docker compose -f docker-compose.demo.yaml up --build   # repeated misgrasp → escalate to cloud
+SCENARIO=S0.2 docker compose -f docker-compose.demo.yaml up --build   # overheat + smoke → E-STOP
 SCENARIO=S2.3 docker compose -f docker-compose.demo.yaml up --build   # sensor freeze → local recovery
 SCENARIO=S4.1 docker compose -f docker-compose.demo.yaml up --build   # compound fault → recovery or escalate
 ```
 
 The simulator streams synthetic sensor data with injected anomalies to the edge service in an infinite loop. Watch the simulator logs for live detection output, or open Grafana at `http://localhost:3000` (no login required).
 
-> **Note:** The Docker demo runs in mock mode — the LLM policy engine returns canned responses (no model weights downloaded). The system is wired to a **real model** (`mistralai/Mistral-7B-Instruct-v0.2`) and can run full inference outside Docker: install the full dependencies with `task venv`, start the edge service directly, and set `POLICY_USE_MOCK=false`. The model downloads from HuggingFace on first run (~4GB with 4-bit quantization on CUDA; ~14GB on CPU). A CUDA-enabled GPU equivalent to or better than an NVIDIA RTX 3060 is recommended — expect ~10–15s per inference on an RTX 3060.
+**Grafana shows:**
+- Edge: anomaly detection, safety state, plan execution latency, LLM circuit breaker
+- Cloud Planner row: escalation count, plan decisions (plan_ready / needs_human), p95 planning latency
+- Recent Cloud Plans panel: live log of LLM-generated recovery plan rationales (Loki)
+- Tempo: full distributed traces linking edge MaydayAgent spans to cloud planning nodes
+
+> **No API key?** The cloud planner automatically falls back to mock mode — canned recovery plans are generated and the full workflow (RAG retrieval, validation, Prometheus metrics, Loki logs, OTEL traces) still runs. Set `CLOUD_GROQ_API_KEY` for real LLM-generated plans via Groq (free tier, no credit card required).
+
+> **Edge LLM (Mistral-7B):** The Docker demo runs edge policy in mock mode — no model weights downloaded. Set `POLICY_USE_MOCK=false` outside Docker with `task venv` + `task edge:run` to enable real on-device inference. Requires ~4GB download on first run; CUDA GPU recommended (RTX 3060 or better, ~10–15s per inference).
 
 To list all available scenarios:
 ```bash
@@ -211,8 +224,8 @@ task test-e2e      # end-to-end
 | `SafetyAgent` | Evaluates hard safety rules every tick → E-STOP / PAUSE / NOMINAL | Edge (implemented) |
 | `PolicyAgent` | Generates RemediationPolicy via rules-based dispatch or local LLM | Edge (implemented) |
 | `MaydayAgent` | Escalates to cloud when local recovery fails; handles retry/backoff | Edge (implemented) |
-| Cloud Decision Agent | Deliberative LLM planning for complex anomalies | Cloud (planned) |
-| Explanation Agent | Translates anomaly events into human-readable summaries | Cloud (planned) |
+| Cloud Planner | 5-node LangGraph workflow: retrieval → LLM planning → validation → routing | Cloud (implemented) |
+| Explanation Agent | Translates anomaly events into human-readable summaries | Cloud (future) |
 
 
 # 🛠️ Testing Scenarios
@@ -241,16 +254,19 @@ task test-e2e      # end-to-end
 
 |Languages:          |Python 3.12|
 |---|---|
-|Frameworks:         |FastAPI, PyTorch, HuggingFace Transformers, River|
-|LLM:                |Mistral-7B-Instruct-v0.2 (on-device inference)|
-|Infrastructure:     |AWS SageMaker, Docker, Prometheus, Grafana|
+|Frameworks:         |FastAPI, LangGraph, PyTorch, HuggingFace Transformers, River|
+|LLM (edge):         |Mistral-7B-Instruct-v0.2 (on-device inference)|
+|LLM (cloud):        |Pluggable — Groq (Llama 3.3 70B), Anthropic (Claude Haiku), mock|
+|Vector store:       |Qdrant + sentence-transformers MiniLM (384-dim)|
+|Infrastructure:     |Docker, Prometheus, Grafana, OpenTelemetry/Tempo|
 |Observability:      |OpenTelemetry|
 |Data Fusion:        |NumPy, Pandas, torchvision|
 |Testing:            |pytest, pytest-asyncio, pytest-cov|
 
 
 # 🧩 Future Work
-* Deliberative cloud layer (AWS) — Recovery Planner, Explanation Agent, Human-in-the-Loop
+* Explanation Agent — translate anomaly events to human-readable operator summaries (cloud)
+* Human-in-the-Loop operator approval flow for high-uncertainty cloud plans
 * Fleet-wide detection and coordination
 * Reinforcement learning for recovery strategies
 * Federated anomaly training

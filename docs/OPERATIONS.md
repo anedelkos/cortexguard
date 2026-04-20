@@ -8,35 +8,81 @@ Audience: deploying, configuring, or debugging the edge service.
 
 All variables are optional with the defaults shown. Set them in your shell, `.env` file, or Docker Compose `environment:` block.
 
+| Variable | Default | Purpose                                                                                                              |
+|----------|---------|----------------------------------------------------------------------------------------------------------------------|
+| `DEVICE_ID` | `mock_01` | Device identity tag in logs and traces                                                                               |
+| `RUNTIME_PROFILE` | `default` | Runtime profile selector                                                                                             |
+| `POLICY_MODEL_ID` | `mistralai/Mistral-7B-Instruct-v0.2` | HuggingFace model ID for LLM policy engine                                                                           |
+| `POLICY_USE_MOCK` | `true` | `false` to enable real Mistral-7B inference (requires full deps + GPU recommended)                                   |
+| `POLICY_REMEDIATION_COOLDOWN_S` | `30.0` | Minimum seconds between remediation policy generations for the same anomaly                                          |
+| `LLM_TIMEOUT_S` | `30.0` | Per-call timeout in seconds for the LLM policy engine                                                                |
+| `LLM_FAILURE_THRESHOLD` | `3` | Consecutive LLM failures before the circuit breaker opens                                                            |
+| `LLM_COOLDOWN_S` | `60.0` | Duration in seconds the LLM circuit breaker stays open before resetting                                              |
+| `PERSISTENCE_ENABLED` | `false` | Enable periodic blackboard snapshots to disk                                                                         |
+| `PERSISTENCE_FILE_PATH` | `/var/lib/cortexguard/blackboard.json` | Blackboard snapshot location                                                                                         |
+| `PERSISTENCE_SNAPSHOT_INTERVAL` | `5.0` | Seconds between snapshots                                                                                            |
+| `OTLP_ENDPOINT` | `http://tempo:4318/v1/traces` | OpenTelemetry trace collector endpoint                                                                               |
+| `LOG_LEVEL` | `INFO` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`)                                                                      |
+| `LOG_JSON` | `true` | JSON structured logs in prod; set `false` for readable local output                                                  |
+| `INGEST_RATE_LIMIT` | `100/second` | Rate limit for `POST /api/v1/ingest` per client IP (slowapi format, e.g. `200/second`, `1000/minute`)                |
+| `FUSION_FORCE_MIN_N` | `0.0` | Force sensor floor in Newtons (values below are clamped)                                                             |
+| `FUSION_FORCE_DROP_PCT` | `100.1` | Force drop detection threshold as % change                                                                           |
+| `FUSION_DRIFT_FAIL_MM` | `10.0` | Position drift failure threshold in mm                                                                               |
+| `FUSION_SMOKE_PPM_THRESHOLD` | `50.0` | Smoke sensor threshold in PPM above which smoke is flagged                                                           |
+| `FUSION_EXPECTED_PERIOD_MS` | `50` | Expected sensor window arrival interval in milliseconds                                                              |
+| `FUSION_SOFT_DEGRADE_MS` | `200` | Arrival lag threshold in milliseconds above which timing is marked degraded                                          |
+| `FUSION_MAX_GAP_MS` | `500` | Maximum tolerated arrival gap in milliseconds before data is considered stale                                        |
+| `SAFETY_RADIUS_M` | `0.5` | Minimum safe distance in metres between hardware and detected humans                                                 |
+| `DETECTOR_TEMP_THRESHOLD_C` | `70.0` | Temperature threshold in °C above which an overheat anomaly is raised                                                |
+| `DETECTOR_Z_SCORE_THRESHOLD` | `5.0` | Z-score threshold above which the statistical impulse detector fires                                                 |
+| `ESTIMATOR_SIGMA_THRESHOLD` | `3.0` | Standard deviation threshold used by the online state estimator for anomaly classification                           |
+| `MAYDAY_TIMEOUT_S` | `30.0` | Per-call timeout in seconds for cloud escalation via `MaydayAgent` (increase if using a hosted LLM with higher latency) |
+| `CLOUD_API_URL` | `http://localhost:8001` | URL of the cloud deliberative planner. Set on the **edge** service so `MaydayAgent` knows where to escalate.         |
+
+---
+
+## Cloud Service — Environment Variables
+
+Set these on the **cloud-api** container (or process). All are optional; defaults shown.
+
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `DEVICE_ID` | `mock_01` | Device identity tag in logs and traces |
-| `RUNTIME_PROFILE` | `default` | Runtime profile selector |
-| `POLICY_MODEL_ID` | `mistralai/Mistral-7B-Instruct-v0.2` | HuggingFace model ID for LLM policy engine |
-| `POLICY_USE_MOCK` | `true` | `false` to enable real Mistral-7B inference (requires full deps + GPU recommended) |
-| `POLICY_REMEDIATION_COOLDOWN_S` | `30.0` | Minimum seconds between remediation policy generations for the same anomaly |
-| `LLM_TIMEOUT_S` | `30.0` | Per-call timeout in seconds for the LLM policy engine |
-| `LLM_FAILURE_THRESHOLD` | `3` | Consecutive LLM failures before the circuit breaker opens |
-| `LLM_COOLDOWN_S` | `60.0` | Duration in seconds the LLM circuit breaker stays open before resetting |
-| `PERSISTENCE_ENABLED` | `false` | Enable periodic blackboard snapshots to disk |
-| `PERSISTENCE_FILE_PATH` | `/var/lib/cortexguard/blackboard.json` | Blackboard snapshot location |
-| `PERSISTENCE_SNAPSHOT_INTERVAL` | `5.0` | Seconds between snapshots |
-| `OTLP_ENDPOINT` | `http://tempo:4318/v1/traces` | OpenTelemetry trace collector endpoint |
-| `LOG_LEVEL` | `INFO` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
-| `LOG_JSON` | `true` | JSON structured logs in prod; set `false` for readable local output |
-| `INGEST_RATE_LIMIT` | `100/second` | Rate limit for `POST /api/v1/ingest` per client IP (slowapi format, e.g. `200/second`, `1000/minute`) |
-| `FUSION_FORCE_MIN_N` | `0.0` | Force sensor floor in Newtons (values below are clamped) |
-| `FUSION_FORCE_DROP_PCT` | `100.1` | Force drop detection threshold as % change |
-| `FUSION_DRIFT_FAIL_MM` | `10.0` | Position drift failure threshold in mm |
-| `FUSION_SMOKE_PPM_THRESHOLD` | `50.0` | Smoke sensor threshold in PPM above which smoke is flagged |
-| `FUSION_EXPECTED_PERIOD_MS` | `50` | Expected sensor window arrival interval in milliseconds |
-| `FUSION_SOFT_DEGRADE_MS` | `200` | Arrival lag threshold in milliseconds above which timing is marked degraded |
-| `FUSION_MAX_GAP_MS` | `500` | Maximum tolerated arrival gap in milliseconds before data is considered stale |
-| `SAFETY_RADIUS_M` | `0.5` | Minimum safe distance in metres between robot and detected humans |
-| `DETECTOR_TEMP_THRESHOLD_C` | `70.0` | Temperature threshold in °C above which an overheat anomaly is raised |
-| `DETECTOR_Z_SCORE_THRESHOLD` | `5.0` | Z-score threshold above which the statistical impulse detector fires |
-| `ESTIMATOR_SIGMA_THRESHOLD` | `3.0` | Standard deviation threshold used by the online state estimator for anomaly classification |
-| `MAYDAY_TIMEOUT_S` | `30.0` | Per-call timeout in seconds for cloud escalation via `MaydayAgent` (increase if using a hosted LLM with higher latency) |
+| `CLOUD_LLM_BACKEND` | `mock` | LLM backend: `groq`, `anthropic`, `openrouter`, `grok`, or `mock` |
+| `CLOUD_GROQ_API_KEY` | — | API key for Groq (required when `CLOUD_LLM_BACKEND=groq`) |
+| `CLOUD_ANTHROPIC_API_KEY` | — | API key for Anthropic (required when `CLOUD_LLM_BACKEND=anthropic`) |
+| `CLOUD_OPENROUTER_API_KEY` | — | API key for OpenRouter (required when `CLOUD_LLM_BACKEND=openrouter`) |
+| `CLOUD_XAI_API_KEY` | — | API key for xAI/Grok (required when `CLOUD_LLM_BACKEND=grok`) |
+| `CLOUD_EMBEDDER_BACKEND` | `mock` | Embedder for RAG: `miniLM` (sentence-transformers) or `mock` (zeros) |
+| `CLOUD_VECTOR_STORE_BACKEND` | `in_memory` | Vector store: `qdrant` or `in_memory` |
+| `CLOUD_QDRANT_URL` | `http://localhost:6333` | Qdrant service URL (used when `CLOUD_VECTOR_STORE_BACKEND=qdrant`) |
+| `CLOUD_INCIDENT_STORE` | `sqlite` | Incident persistence: `sqlite` or `in_memory` |
+| `CLOUD_DB_PATH` | `cortexguard_cloud.db` | SQLite database file path |
+| `CLOUD_MIN_CONFIDENCE` | `0.5` | Minimum LLM confidence score to accept a candidate plan; plans below this threshold are rejected as `needs_human` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | — | OpenTelemetry OTLP HTTP endpoint (e.g. `http://tempo:4318`). Unset disables tracing. |
+
+### Recommended production configuration
+
+```bash
+CLOUD_LLM_BACKEND=groq
+CLOUD_GROQ_API_KEY=<your-key>
+CLOUD_EMBEDDER_BACKEND=miniLM
+CLOUD_VECTOR_STORE_BACKEND=qdrant
+CLOUD_QDRANT_URL=http://qdrant:6333
+CLOUD_INCIDENT_STORE=sqlite
+CLOUD_DB_PATH=/data/cortexguard_cloud.db
+CLOUD_MIN_CONFIDENCE=0.5
+OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4318
+```
+
+### Cloud Health Endpoints
+
+```
+GET /healthz/live    → {"status": "alive"}
+GET /healthz/ready   → {"status": "ok"} | HTTP 503
+GET /metrics         → Prometheus exposition format
+```
+
+The readiness check verifies the SQLite database and Qdrant connection (if configured).
 
 ---
 

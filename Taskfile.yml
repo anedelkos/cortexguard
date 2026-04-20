@@ -15,13 +15,13 @@ tasks:
   venv:
     desc: "Install dev dependencies including ML extras (uv manages .venv)"
     cmds:
-      - "uv sync --extra ml --group dev"
+      - "uv sync --extra ml --extra cloud --group dev"
       - "uv run pre-commit install"
 
   venv-slim:
     desc: "Install dev dependencies without heavy ML deps (no torch/transformers)"
     cmds:
-      - "uv sync --group dev"
+      - "uv sync --extra cloud --group dev"
       - "uv run pre-commit install"
 
   reinstall:
@@ -284,7 +284,12 @@ tasks:
 
 
   demo:up:
-    desc: "Start demo stack: edge + chaos simulator + observability (Docker)"
+    desc: "Start full demo stack: edge + cloud planner + chaos simulator + observability (Docker) - default SCENARIO=S1.1"
+    cmds:
+      - "docker compose -f docker-compose.demo.yaml up"
+
+  demo:up-rebuild:
+    desc: "Force rebuild and start demo stack: edge + cloud planner + chaos simulator + observability (Docker) - default SCENARIO=S1.1"
     cmds:
       - "docker compose -f docker-compose.demo.yaml up --build"
 
