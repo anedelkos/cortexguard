@@ -16,6 +16,8 @@ _DEFAULT_MODEL = "llama-3.3-70b-versatile"
 
 
 class GroqLLMClient:
+    provider_name: str = "groq"
+
     def __init__(
         self,
         api_key: str | None = None,

@@ -59,6 +59,13 @@ Set these on the **cloud-api** container (or process). All are optional; default
 | `CLOUD_DB_PATH` | `cortexguard_cloud.db` | SQLite database file path |
 | `CLOUD_MIN_CONFIDENCE` | `0.5` | Minimum LLM confidence score to accept a candidate plan; plans below this threshold are rejected as `needs_human` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | — | OpenTelemetry OTLP HTTP endpoint (e.g. `http://tempo:4318`). Unset disables tracing. |
+| `CLOUD_MAYDAY_RATE_LIMIT` | `10/minute` | Rate limit for `POST /api/v1/mayday` per client IP (slowapi format) |
+| `CLOUD_RESULT_RATE_LIMIT` | `60/minute` | Rate limit for `GET /api/v1/mayday/{trace_id}/result` per client IP |
+| `CLOUD_OUTCOME_RATE_LIMIT` | `30/minute` | Rate limit for `POST /api/v1/outcomes` per client IP |
+| `CLOUD_LLM_TIMEOUT_S` | `20.0` | Per-call timeout in seconds for outbound LLM requests; exceeded calls route to `needs_human` |
+| `CLOUD_LLM_MAX_CONCURRENCY` | `4` | Maximum number of concurrent in-flight LLM calls; additional calls queue behind the semaphore |
+| `CLOUD_LLM_MAX_RETRIES` | `2` | Maximum retry attempts for retryable LLM errors (HTTP 429, 5xx) before routing to `needs_human` |
+| `CLOUD_LLM_BASE_BACKOFF_MS` | `500` | Base backoff in milliseconds for LLM retry delays; actual delay uses full-jitter exponential backoff |
 
 ### Recommended production configuration
 
@@ -72,6 +79,13 @@ CLOUD_INCIDENT_STORE=sqlite
 CLOUD_DB_PATH=/data/cortexguard_cloud.db
 CLOUD_MIN_CONFIDENCE=0.5
 OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4318
+CLOUD_MAYDAY_RATE_LIMIT=10/minute
+CLOUD_RESULT_RATE_LIMIT=60/minute
+CLOUD_OUTCOME_RATE_LIMIT=30/minute
+CLOUD_LLM_TIMEOUT_S=20
+CLOUD_LLM_MAX_CONCURRENCY=4
+CLOUD_LLM_MAX_RETRIES=2
+CLOUD_LLM_BASE_BACKOFF_MS=500
 ```
 
 ### Cloud Health Endpoints

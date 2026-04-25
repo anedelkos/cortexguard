@@ -16,6 +16,8 @@ _DEFAULT_MODEL = "qwen/qwen3-coder:free"
 
 
 class OpenRouterLLMClient:
+    provider_name: str = "openrouter"
+
     def __init__(
         self,
         api_key: str | None = None,

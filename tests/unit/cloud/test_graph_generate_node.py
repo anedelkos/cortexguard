@@ -79,3 +79,22 @@ async def test_generate_node_failure_sets_errors_and_null_plan() -> None:
     assert result["candidate_plan"] is None
     assert len(result["errors"]) > 0
     assert result["decision"] == "needs_human"
+
+
+@pytest.mark.asyncio
+async def test_generate_node_llm_throttle_error_routes_to_needs_human_without_errors() -> None:
+    """LLMThrottleError must route to needs_human with an empty errors list (not a generic crash)."""
+    from cortexguard.cloud.planner.throttler import LLMThrottleError
+
+    class _ThrottledClient:
+        async def generate_structured_plan(self, request: PlannerRequest) -> PlannerResponse:
+            raise LLMThrottleError("timeout")
+
+    node = make_generate_candidate_plan_node(_ThrottledClient())  # type: ignore[arg-type]
+    state = _make_state(_make_packet())
+    result = await node(state)
+    assert result["decision"] == "needs_human"
+    assert result["candidate_plan"] is None
+    # The throttle path must NOT populate errors — it is a known, expected condition
+    # distinct from the generic exception fallback which does populate errors.
+    assert result.get("errors", []) == []

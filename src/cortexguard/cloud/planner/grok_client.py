@@ -16,6 +16,8 @@ _DEFAULT_MODEL = "grok-3-mini"
 
 
 class GrokLLMClient:
+    provider_name: str = "grok"
+
     def __init__(
         self,
         api_key: str | None = None,

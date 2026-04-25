@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
-from prometheus_client import Counter, Histogram
+from fastapi import FastAPI, Request, Response
+from prometheus_client import Counter, Gauge, Histogram
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from slowapi.util import get_remote_address
 
 from cortexguard.cloud.api.health import get_health_router
 from cortexguard.cloud.api.mayday import get_mayday_router
@@ -88,11 +93,45 @@ cloud_outcome_status_total = Counter(
     ["status"],
 )
 
+cloud_http_requests_total = Counter(
+    "cloud_http_requests_total",
+    "Total HTTP requests to the cloud planner API",
+    ["method", "status_code", "route"],
+)
+cloud_http_request_duration_ms = Histogram(
+    "cloud_http_request_duration_ms",
+    "HTTP request duration in milliseconds for the cloud planner API",
+    ["route"],
+)
+cloud_rate_limited_total = Counter(
+    "cloud_rate_limited_total",
+    "Total rate-limited requests to the cloud planner API",
+    ["route"],
+)
+
+cloud_llm_requests_total = Counter(
+    "cloud_llm_requests_total",
+    "Total outbound LLM requests by provider and outcome",
+    ["provider", "outcome"],
+)
+cloud_llm_retries_total = Counter(
+    "cloud_llm_retries_total",
+    "Total outbound LLM retry attempts by provider",
+    ["provider"],
+)
+cloud_llm_inflight = Gauge(
+    "cloud_llm_inflight",
+    "Current number of in-flight LLM requests by provider",
+    ["provider"],
+)
+
 
 def create_cloud_app(
     config: CloudConfig,
     readiness_checks: list[Callable[[], Awaitable[None]]] | None = None,
+    llm_client: LLMClientProtocol | None = None,
 ) -> FastAPI:
+    """Assemble the FastAPI cloud planner application with all subsystems wired."""
     # --- Incident store ---
     _sqlite_repo: SQLiteIncidentRepository | None = None
     repo: IncidentRepositoryProtocol
@@ -115,9 +154,13 @@ def create_cloud_app(
     retrieval_store = RetrievalStore(embedder, vector_store)
 
     # --- LLM client ---
-    llm_client: LLMClientProtocol | None = get_llm_client(
-        config.llm_backend, api_key=config.anthropic_api_key
-    )
+    if llm_client is None:
+        llm_client = get_llm_client(config.llm_backend, api_key=config.anthropic_api_key)
+
+    if llm_client is not None:
+        from cortexguard.cloud.planner.throttler import LLMThrottler
+
+        llm_client = LLMThrottler(llm_client, config)
 
     validator = PlanValidator(
         CapabilityAdapter.load_default(), min_confidence=config.min_confidence
@@ -157,14 +200,56 @@ def create_cloud_app(
         lifespan=lifespan,
     )
 
-    from fastapi import Response
+    limiter = Limiter(key_func=get_remote_address)
+    app.state.limiter = limiter
+    app.add_middleware(SlowAPIMiddleware)
+
+    @app.exception_handler(RateLimitExceeded)
+    async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> Response:
+        route = request.url.path
+        cloud_rate_limited_total.labels(route=route).inc()
+        return Response(
+            content='{"error": "Too many requests"}',
+            status_code=429,
+            media_type="application/json",
+        )
+
+    @app.middleware("http")
+    async def _track_request_metrics(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        start = time.perf_counter()
+        response = await call_next(request)
+        duration_ms = (time.perf_counter() - start) * 1000
+        route = request.url.path
+        cloud_http_requests_total.labels(
+            method=request.method, status_code=str(response.status_code), route=route
+        ).inc()
+        cloud_http_request_duration_ms.labels(route=route).observe(duration_ms)
+        return response
+
     from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
     app.include_router(
         get_health_router(readiness_checks=readiness_checks or default_checks), prefix=""
     )
-    app.include_router(get_mayday_router(orchestrator=orchestrator), prefix="/api/v1")
-    app.include_router(get_outcomes_router(repo=repo), prefix="/api/v1")
+    app.include_router(
+        get_mayday_router(
+            orchestrator=orchestrator,
+            mayday_rate_limit=config.cloud_mayday_rate_limit,
+            result_rate_limit=config.cloud_result_rate_limit,
+            _limiter=limiter,
+        ),
+        prefix="/api/v1",
+    )
+    app.include_router(
+        get_outcomes_router(
+            repo=repo,
+            outcome_rate_limit=config.cloud_outcome_rate_limit,
+            _limiter=limiter,
+        ),
+        prefix="/api/v1",
+    )
 
     @app.get("/metrics", include_in_schema=False)
     def prometheus_metrics() -> Response:
