@@ -644,7 +644,7 @@ def get_api_app(profile: str = "default") -> FastAPI:
     async def rate_limit_exception_handler(request: Request, exc: RateLimitExceeded) -> Response:
         http_requests_total.labels(method="POST", status_code="429").inc()
         return Response(
-            content=f'{{"error": "Rate limit exceeded: {exc.detail}"}}',
+            content='{"error": "Too many requests"}',
             status_code=429,
             media_type="application/json",
         )

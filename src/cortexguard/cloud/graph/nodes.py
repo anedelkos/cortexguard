@@ -196,7 +196,23 @@ def make_generate_candidate_plan_node(
                     severity=severity,
                 )
                 t0 = time.monotonic()
-                planner_response = await llm_client.generate_structured_plan(request)
+                try:
+                    planner_response = await llm_client.generate_structured_plan(request)
+                except Exception as throttle_exc:
+                    from cortexguard.cloud.planner.throttler import LLMThrottleError
+
+                    if isinstance(throttle_exc, LLMThrottleError):
+                        logger.warning(
+                            "LLM unavailable (outcome=%s), routing to needs_human",
+                            throttle_exc.outcome,
+                        )
+                        return {
+                            **state,
+                            "candidate_plan": None,
+                            "decision": "needs_human",
+                            "rationale": f"LLM provider unavailable: {throttle_exc.outcome}",
+                        }
+                    raise
                 _observe_cloud_metric_seconds("cloud_llm_duration_seconds", time.monotonic() - t0)
                 plan = _normalise_plan(planner_response.candidate_plan, packet.trace_id)
                 return {

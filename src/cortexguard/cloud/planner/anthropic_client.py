@@ -10,6 +10,7 @@ from cortexguard.cloud.planner.prompts import build_planner_prompt
 
 
 class AnthropicLLMClient:
+    provider_name: str = "anthropic"
     MODEL = "claude-haiku-4-5-20251001"
 
     def __init__(self, api_key: str | None = None) -> None:
