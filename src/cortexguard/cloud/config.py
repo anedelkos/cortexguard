@@ -47,3 +47,16 @@ class CloudConfig:
     cloud_llm_base_backoff_ms: int = field(
         default_factory=lambda: int(os.getenv("CLOUD_LLM_BASE_BACKOFF_MS", "500"))
     )
+    cloud_explain_backend: str = field(
+        default_factory=lambda: os.getenv("CLOUD_EXPLAIN_BACKEND", "")
+    )
+    cloud_explain_model: str = field(default_factory=lambda: os.getenv("CLOUD_EXPLAIN_MODEL", ""))
+    cloud_explain_base_url: str = field(
+        default_factory=lambda: os.getenv("CLOUD_EXPLAIN_BASE_URL", "")
+    )
+    cloud_retrieval_outcome_boost: float = field(
+        default_factory=lambda: float(os.getenv("CLOUD_RETRIEVAL_OUTCOME_BOOST", "0.2"))
+    )
+    cloud_retrieval_failure_penalty: float = field(
+        default_factory=lambda: float(os.getenv("CLOUD_RETRIEVAL_FAILURE_PENALTY", "0.1"))
+    )

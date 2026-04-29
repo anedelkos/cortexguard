@@ -37,6 +37,7 @@ def _make_state(packet: MaydayPacket) -> CloudPlanningState:
         request=packet,
         incident_id="test-incident-id",
         retrieved_incidents=[],
+        retrieved_incident_records=[],
         candidate_plan=None,
         validation_result=None,
         decision=None,

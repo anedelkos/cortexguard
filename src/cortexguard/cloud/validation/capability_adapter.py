@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Protocol
 
-from cortexguard.edge.models.capability_registry import CapabilityRegistry
+from cortexguard.edge.models.capability_registry import CapabilityRegistry, FunctionSchema
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +27,10 @@ class CapabilityAdapter:
         except Exception:
             logger.warning("Failed to load capability registry; using empty registry")
             return cls(CapabilityRegistry())
+
+    def capabilities(self) -> dict[str, FunctionSchema]:
+        """Return the full capabilities dict from the registry."""
+        return self._registry.capabilities
 
     def is_known_capability(self, name: str) -> bool:
         return name in self._registry.capabilities

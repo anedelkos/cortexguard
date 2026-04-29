@@ -34,13 +34,19 @@
       "id": 1,
       "panels": [],
       "title": "System Health",
-      "type": "row"
+      "type": "row",
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014"
+        }
+      }
     },
     {
       "datasource": "Prometheus",
       "fieldConfig": {
         "defaults": {
-          "unit": "none"
+          "unit": "none",
+          "noValue": "\u2014"
         },
         "overrides": []
       },
@@ -74,7 +80,8 @@
       "datasource": "Prometheus",
       "fieldConfig": {
         "defaults": {
-          "unit": "none"
+          "unit": "none",
+          "noValue": "\u2014"
         },
         "overrides": []
       },
@@ -108,7 +115,8 @@
       "datasource": "Prometheus",
       "fieldConfig": {
         "defaults": {
-          "unit": "percentunit"
+          "unit": "percentunit",
+          "noValue": "\u2014"
         },
         "overrides": []
       },
@@ -142,7 +150,8 @@
       "datasource": "Prometheus",
       "fieldConfig": {
         "defaults": {
-          "unit": "none"
+          "unit": "none",
+          "noValue": "\u2014"
         },
         "overrides": []
       },
@@ -208,7 +217,8 @@
                 "value": 3
               }
             ]
-          }
+          },
+          "noValue": "\u2014"
         },
         "overrides": []
       },
@@ -242,7 +252,8 @@
       "datasource": "Prometheus",
       "fieldConfig": {
         "defaults": {
-          "unit": "reqps"
+          "unit": "reqps",
+          "noValue": "\u2014"
         },
         "overrides": []
       },
@@ -277,7 +288,8 @@
           "datasource": "Prometheus",
           "fieldConfig": {
             "defaults": {
-              "unit": "reqps"
+              "unit": "reqps",
+              "noValue": "\u2014"
             },
             "overrides": []
           },
@@ -302,7 +314,8 @@
           "datasource": "Prometheus",
           "fieldConfig": {
             "defaults": {
-              "unit": "percent"
+              "unit": "percent",
+              "noValue": "\u2014"
             },
             "overrides": []
           },
@@ -336,7 +349,8 @@
           "datasource": "Prometheus",
           "fieldConfig": {
             "defaults": {
-              "unit": "ms"
+              "unit": "ms",
+              "noValue": "\u2014"
             },
             "overrides": []
           },
@@ -370,7 +384,8 @@
           "datasource": "Prometheus",
           "fieldConfig": {
             "defaults": {
-              "unit": "ms"
+              "unit": "ms",
+              "noValue": "\u2014"
             },
             "overrides": []
           },
@@ -415,7 +430,8 @@
                     "value": 10
                   }
                 ]
-              }
+              },
+              "noValue": "\u2014"
             },
             "overrides": []
           },
@@ -447,7 +463,12 @@
         }
       ],
       "title": "HTTP RED",
-      "type": "row"
+      "type": "row",
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014"
+        }
+      }
     },
     {
       "collapsed": false,
@@ -460,13 +481,19 @@
       "id": 10,
       "panels": [],
       "title": "Subsystem Latency Percentiles",
-      "type": "row"
+      "type": "row",
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014"
+        }
+      }
     },
     {
       "datasource": "Prometheus",
       "fieldConfig": {
         "defaults": {
-          "unit": "ms"
+          "unit": "ms",
+          "noValue": "\u2014"
         },
         "overrides": []
       },
@@ -501,7 +528,8 @@
       "datasource": "Prometheus",
       "fieldConfig": {
         "defaults": {
-          "unit": "ms"
+          "unit": "ms",
+          "noValue": "\u2014"
         },
         "overrides": []
       },
@@ -536,7 +564,8 @@
       "datasource": "Prometheus",
       "fieldConfig": {
         "defaults": {
-          "unit": "ms"
+          "unit": "ms",
+          "noValue": "\u2014"
         },
         "overrides": []
       },
@@ -571,7 +600,8 @@
       "datasource": "Prometheus",
       "fieldConfig": {
         "defaults": {
-          "unit": "ms"
+          "unit": "ms",
+          "noValue": "\u2014"
         },
         "overrides": []
       },
@@ -606,7 +636,8 @@
       "datasource": "Prometheus",
       "fieldConfig": {
         "defaults": {
-          "unit": "ms"
+          "unit": "ms",
+          "noValue": "\u2014"
         },
         "overrides": []
       },
@@ -641,7 +672,8 @@
       "datasource": "Prometheus",
       "fieldConfig": {
         "defaults": {
-          "unit": "ms"
+          "unit": "ms",
+          "noValue": "\u2014"
         },
         "overrides": []
       },
@@ -683,7 +715,12 @@
       "id": 20,
       "panels": [],
       "title": "Flow Rates and Outcomes",
-      "type": "row"
+      "type": "row",
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014"
+        }
+      }
     },
     {
       "datasource": "Prometheus",
@@ -702,7 +739,12 @@
         }
       ],
       "title": "Total Anomalies Emitted",
-      "type": "stat"
+      "type": "stat",
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014"
+        }
+      }
     },
     {
       "datasource": "Prometheus",
@@ -721,7 +763,12 @@
         }
       ],
       "title": "Detector Failures",
-      "type": "stat"
+      "type": "stat",
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014"
+        }
+      }
     },
     {
       "datasource": "Prometheus",
@@ -740,13 +787,19 @@
         }
       ],
       "title": "Policy Escalations",
-      "type": "stat"
+      "type": "stat",
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014"
+        }
+      }
     },
     {
       "datasource": "Prometheus",
       "fieldConfig": {
         "defaults": {
-          "unit": "reqps"
+          "unit": "reqps",
+          "noValue": "\u2014"
         },
         "overrides": []
       },
@@ -771,7 +824,8 @@
       "datasource": "Prometheus",
       "fieldConfig": {
         "defaults": {
-          "unit": "percent"
+          "unit": "percent",
+          "noValue": "\u2014"
         },
         "overrides": []
       },
@@ -805,7 +859,8 @@
       "datasource": "Prometheus",
       "fieldConfig": {
         "defaults": {
-          "unit": "reqps"
+          "unit": "reqps",
+          "noValue": "\u2014"
         },
         "overrides": []
       },
@@ -830,7 +885,8 @@
       "datasource": "Prometheus",
       "fieldConfig": {
         "defaults": {
-          "unit": "reqps"
+          "unit": "reqps",
+          "noValue": "\u2014"
         },
         "overrides": []
       },
@@ -855,7 +911,8 @@
       "datasource": "Prometheus",
       "fieldConfig": {
         "defaults": {
-          "unit": "reqps"
+          "unit": "reqps",
+          "noValue": "\u2014"
         },
         "overrides": []
       },
@@ -907,7 +964,8 @@
                     "value": 200
                   }
                 ]
-              }
+              },
+              "noValue": "\u2014"
             },
             "overrides": []
           },
@@ -958,7 +1016,8 @@
                     "value": 99
                   }
                 ]
-              }
+              },
+              "noValue": "\u2014"
             },
             "overrides": []
           },
@@ -992,7 +1051,8 @@
           "datasource": "Prometheus",
           "fieldConfig": {
             "defaults": {
-              "unit": "none"
+              "unit": "none",
+              "noValue": "\u2014"
             },
             "overrides": []
           },
@@ -1058,7 +1118,8 @@
                     "value": 99
                   }
                 ]
-              }
+              },
+              "noValue": "\u2014"
             },
             "overrides": []
           },
@@ -1090,7 +1151,12 @@
         }
       ],
       "title": "SLO Error Budgets",
-      "type": "row"
+      "type": "row",
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014"
+        }
+      }
     },
     {
       "datasource": "Prometheus",
@@ -1122,7 +1188,8 @@
                 }
               }
             }
-          ]
+          ],
+          "noValue": "\u2014"
         },
         "overrides": []
       },
@@ -1155,20 +1222,38 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 47 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 47
+      },
       "id": 60,
       "panels": [],
       "title": "Queues & Flows",
-      "type": "row"
+      "type": "row",
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014"
+        }
+      }
     },
     {
       "datasource": "Prometheus",
       "description": "Stock: pending plans accumulate when the orchestrator can't keep up.",
       "fieldConfig": {
-        "defaults": { "unit": "short" },
+        "defaults": {
+          "unit": "short",
+          "noValue": "\u2014"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 48 },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 48
+      },
       "id": 61,
       "targets": [
         {
@@ -1184,10 +1269,18 @@
       "datasource": "Prometheus",
       "description": "Source flow (ingest) vs consequence flow (anomalies detected). Divergence indicates burst-driven anomaly spikes.",
       "fieldConfig": {
-        "defaults": { "unit": "ops" },
+        "defaults": {
+          "unit": "ops",
+          "noValue": "\u2014"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 48 },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 48
+      },
       "id": 62,
       "targets": [
         {
@@ -1208,10 +1301,18 @@
       "datasource": "Prometheus",
       "description": "Stock of unresolved anomalies. A rising level means remediation is not keeping up with detection.",
       "fieldConfig": {
-        "defaults": { "unit": "short" },
+        "defaults": {
+          "unit": "short",
+          "noValue": "\u2014"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 54 },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 54
+      },
       "id": 63,
       "targets": [
         {
@@ -1227,18 +1328,35 @@
       "datasource": "Prometheus",
       "description": "Queue depth (stock) overlaid with plan completion rate (outflow). Queue should drain as completions rise.",
       "fieldConfig": {
-        "defaults": { "unit": "short" },
+        "defaults": {
+          "unit": "short",
+          "noValue": "\u2014"
+        },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "Plan completion rate" },
+            "matcher": {
+              "id": "byName",
+              "options": "Plan completion rate"
+            },
             "properties": [
-              { "id": "custom.axisPlacement", "value": "right" },
-              { "id": "unit", "value": "ops" }
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "unit",
+                "value": "ops"
+              }
             ]
           }
         ]
       },
-      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 54 },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 54
+      },
       "id": 64,
       "targets": [
         {
@@ -1257,20 +1375,53 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 60 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 60
+      },
       "id": 70,
       "panels": [],
       "title": "Cloud Planner",
-      "type": "row"
+      "type": "row",
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014"
+        }
+      }
     },
     {
       "datasource": "Prometheus",
-      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
-      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 61 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "\u2014"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 61
+      },
       "id": 71,
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
       "targets": [
-        { "expr": "cloud_planning_requests_total", "legendFormat": "Total", "refId": "A" }
+        {
+          "expr": "cloud_planning_requests_total",
+          "legendFormat": "Total",
+          "refId": "A"
+        }
       ],
       "title": "Escalations Received",
       "type": "stat"
@@ -1278,90 +1429,250 @@
     {
       "datasource": "Prometheus",
       "fieldConfig": {
-        "defaults": { "unit": "short" },
+        "defaults": {
+          "unit": "short",
+          "noValue": "\u2014"
+        },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "plan_ready" },
-            "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }]
+            "matcher": {
+              "id": "byName",
+              "options": "plan_ready"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              }
+            ]
           },
           {
-            "matcher": { "id": "byName", "options": "needs_human" },
-            "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }]
+            "matcher": {
+              "id": "byName",
+              "options": "needs_human"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              }
+            ]
           },
           {
-            "matcher": { "id": "byName", "options": "no_safe_plan" },
-            "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }]
+            "matcher": {
+              "id": "byName",
+              "options": "no_safe_plan"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
           }
         ]
       },
-      "gridPos": { "h": 4, "w": 8, "x": 4, "y": 61 },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 4,
+        "y": 61
+      },
       "id": 72,
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
         "displayMode": "lcd",
         "orientation": "horizontal"
       },
       "targets": [
-        { "expr": "cloud_decisions_total{decision=\"plan_ready\"}", "legendFormat": "plan_ready", "refId": "A" },
-        { "expr": "cloud_decisions_total{decision=\"needs_human\"}", "legendFormat": "needs_human", "refId": "B" },
-        { "expr": "cloud_decisions_total{decision=\"no_safe_plan\"}", "legendFormat": "no_safe_plan", "refId": "C" }
+        {
+          "expr": "cloud_decisions_total{decision=\"plan_ready\"}",
+          "legendFormat": "plan_ready",
+          "refId": "A"
+        },
+        {
+          "expr": "cloud_decisions_total{decision=\"needs_human\"}",
+          "legendFormat": "needs_human",
+          "refId": "B"
+        },
+        {
+          "expr": "cloud_decisions_total{decision=\"no_safe_plan\"}",
+          "legendFormat": "no_safe_plan",
+          "refId": "C"
+        }
       ],
       "title": "Decisions by Type",
       "type": "stat"
     },
     {
       "datasource": "Prometheus",
-      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
-      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 61 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "\u2014"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 61
+      },
       "id": 73,
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
       "targets": [
-        { "expr": "histogram_quantile(0.95, rate(cloud_planning_duration_seconds_bucket[5m]))", "legendFormat": "p95", "refId": "A" }
+        {
+          "expr": "histogram_quantile(0.95, rate(cloud_planning_duration_seconds_bucket[5m]))",
+          "legendFormat": "p95",
+          "refId": "A"
+        }
       ],
       "title": "Planning p95 Latency",
       "type": "stat"
     },
     {
       "datasource": "Prometheus",
-      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
-      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 61 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "\u2014"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 61
+      },
       "id": 74,
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
       "targets": [
-        { "expr": "histogram_quantile(0.95, rate(cloud_llm_duration_seconds_bucket[5m]))", "legendFormat": "LLM p95", "refId": "A" }
+        {
+          "expr": "histogram_quantile(0.95, rate(cloud_llm_duration_seconds_bucket[5m]))",
+          "legendFormat": "LLM p95",
+          "refId": "A"
+        }
       ],
       "title": "LLM p95 Latency",
       "type": "stat"
     },
     {
       "datasource": "Prometheus",
-      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
-      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 61 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "\u2014"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 61
+      },
       "id": 75,
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
       "targets": [
-        { "expr": "cloud_validation_failures_total", "legendFormat": "Failures", "refId": "A" }
+        {
+          "expr": "cloud_validation_failures_total",
+          "legendFormat": "Failures",
+          "refId": "A"
+        }
       ],
       "title": "Validation Failures",
       "type": "stat"
     },
     {
       "datasource": "Prometheus",
-      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 65 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "\u2014"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 65
+      },
       "id": 76,
       "targets": [
-        { "expr": "rate(cloud_decisions_total{decision=\"plan_ready\"}[2m])", "legendFormat": "plan_ready", "refId": "A" },
-        { "expr": "rate(cloud_decisions_total{decision=\"needs_human\"}[2m])", "legendFormat": "needs_human", "refId": "B" },
-        { "expr": "rate(cloud_decisions_total{decision=\"no_safe_plan\"}[2m])", "legendFormat": "no_safe_plan", "refId": "C" },
-        { "expr": "rate(cloud_planning_requests_total[2m])", "legendFormat": "total requests", "refId": "D" }
+        {
+          "expr": "rate(cloud_decisions_total{decision=\"plan_ready\"}[2m])",
+          "legendFormat": "plan_ready",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(cloud_decisions_total{decision=\"needs_human\"}[2m])",
+          "legendFormat": "needs_human",
+          "refId": "B"
+        },
+        {
+          "expr": "rate(cloud_decisions_total{decision=\"no_safe_plan\"}[2m])",
+          "legendFormat": "no_safe_plan",
+          "refId": "C"
+        },
+        {
+          "expr": "rate(cloud_planning_requests_total[2m])",
+          "legendFormat": "total requests",
+          "refId": "D"
+        }
       ],
       "title": "Cloud Decision Rate",
       "type": "timeseries"
     },
     {
       "datasource": "Loki",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 65 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 65
+      },
       "id": 77,
       "options": {
         "dedupStrategy": "none",
@@ -1379,7 +1690,427 @@
         }
       ],
       "title": "Recent Cloud Plans",
-      "type": "logs"
+      "type": "logs",
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014"
+        }
+      }
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "\u2014"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 73
+      },
+      "id": 96,
+      "targets": [
+        {
+          "expr": "rate(cloud_decisions_total{decision=\"needs_human\"}[5m])",
+          "legendFormat": "needs_human",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(cloud_operator_resolutions_total[5m])",
+          "legendFormat": "operator resolved",
+          "refId": "B"
+        }
+      ],
+      "title": "needs_human vs Operator Resolutions",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "\u2014"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 73
+      },
+      "id": 97,
+      "targets": [
+        {
+          "expr": "rate(cloud_mcp_tool_calls_total[5m])",
+          "legendFormat": "{{tool}}",
+          "refId": "A"
+        }
+      ],
+      "title": "MCP Tool Call Rate",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 90
+      },
+      "id": 80,
+      "panels": [
+        {
+          "datasource": "Prometheus",
+          "description": "Cloud API request rate broken down by route and HTTP status code.",
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "noValue": "\u2014"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 74
+          },
+          "id": 81,
+          "targets": [
+            {
+              "expr": "rate(cloud_http_requests_total[1m])",
+              "legendFormat": "{{method}} {{route}} {{status_code}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Cloud API Request Rate by Route/Status",
+          "type": "timeseries"
+        },
+        {
+          "datasource": "Prometheus",
+          "description": "Rate of 429 responses per cloud API route \u2014 indicates clients hitting rate limits.",
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.1
+                  },
+                  {
+                    "color": "red",
+                    "value": 1
+                  }
+                ]
+              },
+              "noValue": "\u2014"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 74
+          },
+          "id": 82,
+          "targets": [
+            {
+              "expr": "rate(cloud_rate_limited_total[2m])",
+              "legendFormat": "{{route}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Cloud API 429 Rate by Route",
+          "type": "timeseries"
+        },
+        {
+          "datasource": "Prometheus",
+          "description": "p95 and p99 response latency for each cloud API route.",
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ms",
+              "noValue": "\u2014"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 82
+          },
+          "id": 83,
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, rate(cloud_http_request_duration_ms_bucket[5m]))",
+              "legendFormat": "p95 {{route}}",
+              "refId": "A"
+            },
+            {
+              "expr": "histogram_quantile(0.99, rate(cloud_http_request_duration_ms_bucket[5m]))",
+              "legendFormat": "p99 {{route}}",
+              "refId": "B"
+            }
+          ],
+          "title": "Cloud API Latency p95/p99 by Route",
+          "type": "timeseries"
+        }
+      ],
+      "title": "Cloud API Rate Limiting",
+      "type": "row",
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014"
+        }
+      }
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 99
+      },
+      "id": 90,
+      "panels": [
+        {
+          "datasource": "Prometheus",
+          "description": "Outbound LLM call rate by provider and outcome (success, timeout, exhausted, parse_error, provider_error).",
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "noValue": "\u2014"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 91
+          },
+          "id": 91,
+          "targets": [
+            {
+              "expr": "rate(cloud_llm_requests_total[2m])",
+              "legendFormat": "{{provider}} \u2014 {{outcome}}",
+              "refId": "A"
+            }
+          ],
+          "title": "LLM Request Rate by Provider/Outcome",
+          "type": "timeseries"
+        },
+        {
+          "datasource": "Prometheus",
+          "description": "p95 and p99 LLM call latency by provider.",
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "noValue": "\u2014"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 91
+          },
+          "id": 92,
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, rate(cloud_llm_duration_seconds_bucket[5m]))",
+              "legendFormat": "p95 {{provider}}",
+              "refId": "A"
+            },
+            {
+              "expr": "histogram_quantile(0.99, rate(cloud_llm_duration_seconds_bucket[5m]))",
+              "legendFormat": "p99 {{provider}}",
+              "refId": "B"
+            }
+          ],
+          "title": "LLM Latency p95/p99 by Provider",
+          "type": "timeseries"
+        },
+        {
+          "datasource": "Prometheus",
+          "description": "LLM retry rate by provider \u2014 rising retries indicate provider instability.",
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "noValue": "\u2014"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 0,
+            "y": 99
+          },
+          "id": 93,
+          "targets": [
+            {
+              "expr": "rate(cloud_llm_retries_total[2m])",
+              "legendFormat": "{{provider}}",
+              "refId": "A"
+            }
+          ],
+          "title": "LLM Retry Rate by Provider",
+          "type": "timeseries"
+        },
+        {
+          "datasource": "Prometheus",
+          "description": "Current number of in-flight LLM calls per provider (semaphore occupancy).",
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 3
+                  },
+                  {
+                    "color": "red",
+                    "value": 4
+                  }
+                ]
+              },
+              "noValue": "\u2014"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 8,
+            "y": 99
+          },
+          "id": 94,
+          "targets": [
+            {
+              "expr": "cloud_llm_inflight",
+              "legendFormat": "{{provider}}",
+              "refId": "A"
+            }
+          ],
+          "title": "LLM Inflight Calls (Semaphore)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": "Prometheus",
+          "description": "Rate of non-success LLM outcomes routed to needs_human fallback (exhausted, timeout, parse_error, provider_error).",
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.01
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.1
+                  }
+                ]
+              },
+              "noValue": "\u2014"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 16,
+            "y": 99
+          },
+          "id": 95,
+          "targets": [
+            {
+              "expr": "rate(cloud_llm_requests_total{outcome=~\"exhausted|timeout|parse_error|provider_error\"}[2m])",
+              "legendFormat": "{{outcome}}",
+              "refId": "A"
+            }
+          ],
+          "title": "LLM Exhausted / Fallback Rate",
+          "type": "timeseries"
+        }
+      ],
+      "title": "Cloud LLM Throttling",
+      "type": "row",
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014"
+        }
+      }
+    },
+    {
+      "id": 98,
+      "title": "RAG Retrieval Similarity",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 81
+      },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "cloud_retrieval_similarity_score_sum / cloud_retrieval_similarity_score_count",
+          "legendFormat": "avg {{anomaly_key}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "noValue": "\u2014"
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
     }
   ],
   "refresh": "5s",

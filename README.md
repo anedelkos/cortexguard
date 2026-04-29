@@ -20,9 +20,10 @@ resource-intensive problems are escalated to the cloud deliberative planner — 
 
 # 🧩 Key Features
 * 🧠 Multimodal anomaly detection (sensor, vision, intent fusion)
-* ⚡ Two-tier architecture (Edge: real-time reflexive | Cloud: deliberative, implemented)
+* ⚡ Two-tier architecture (Edge: real-time reflexive | Cloud: deliberative)
 * 🤖 AI Agents for safety, policy generation, and cloud escalation
 * ☁️ Cloud deliberative planner (LangGraph + RAG + LLM, Docker service)
+* 🔌 MCP server for operator inspection, on-demand planning, and human resolution capture (Claude Code integration)
 * 📊 Prometheus/Grafana dashboards for observability
 * 🔭 OpenTelemetry distributed tracing
 * 🧪 Dataset simulator with chaos engine for anomaly injection
@@ -40,7 +41,7 @@ flowchart TD
         DS --> CE
     end
 
-    subgraph EDGE["Edge Tier (implemented)"]
+    subgraph EDGE["Edge Tier "]
 
         subgraph S1["① Sensing & Fusion"]
             RCV["LocalReceiver\n(REST /ingest)"]
@@ -93,13 +94,20 @@ flowchart TD
         ORC --> BB
     end
 
-    subgraph CLOUD["Cloud Tier (implemented)"]
+    subgraph CLOUD["Cloud Tier "]
         CDA["Cloud Planner\n(LangGraph + RAG + LLM)\nplan_ready | needs_human | no_safe_plan"]
         QDR[("Qdrant\n(vector store)")]
         DB[("SQLite\n(incident store)")]
+        MCPS["MCP Server\n(operator interface)"]
         CDA --> QDR
         CDA --> DB
+        MCPS --> DB
+        MCPS --> QDR
+        MCPS --> CDA
     end
+
+    OP["Operator / AI Assistant\n(Claude Code + MCP)"]
+    OP -->|MCP| MCPS
 
     MA -->|MaydayPacket| CDA
     CDA -->|Plan| MA
@@ -114,7 +122,7 @@ flowchart TD
 
 Edge performs low-latency sensing + lightweight detector ensemble → fusion layer maintains smoothed state → control
 arbiter enforces safety (stop/slow) and dispatches to agents (automated recovery or escalation), while cloud handles
-deliberative planning and model retraining.
+deliberative planning via LLM and surfaces operator tooling via MCP.
 
 # Flow summary:
     1. Edge collects telemetry + camera + sensor + intent data.
@@ -145,38 +153,88 @@ deliberative planning and model retraining.
 
 ![CortexGuard demo](docs/cortexguard-demo.gif)
 
-See anomaly detection and cloud deliberative planning in action with a single command — no Python install required:
+See anomaly detection and cloud deliberative planning in action — no Python install required. Copy your Groq API key to `.env` first (free tier at console.groq.com):
 
-```bash
-# Default: repeated misgrasp → edge retries → escalates to cloud planner → Grafana shows plan
-docker compose -f docker-compose.demo.yaml up --build
-
-# With Groq API key for real LLM plans (free tier available at console.groq.com)
-CLOUD_GROQ_API_KEY=<your-key> docker compose -f docker-compose.demo.yaml up --build
-
-# Try other scenarios
-SCENARIO=S0.1 docker compose -f docker-compose.demo.yaml up --build   # human in safety radius → E-STOP
-SCENARIO=S0.2 docker compose -f docker-compose.demo.yaml up --build   # overheat + smoke → E-STOP
-SCENARIO=S2.3 docker compose -f docker-compose.demo.yaml up --build   # sensor freeze → local recovery
-SCENARIO=S4.1 docker compose -f docker-compose.demo.yaml up --build   # compound fault → recovery or escalate
+```
+CLOUD_GROQ_API_KEY=gsk_...
 ```
 
-The simulator streams synthetic sensor data with injected anomalies to the edge service in an infinite loop. Watch the simulator logs for live detection output, or open Grafana at `http://localhost:3000` (no login required).
+**Terminal 1** — start the full stack (normal baseline, S0.0):
+```bash
+task demo:up          # or: task demo:up-rebuild on first run
+```
+
+**Terminal 2** — seed the RAG store with resolved historical incidents (once per fresh volume):
+```bash
+task demo:seed-rag
+```
+
+**Terminal 2** — inject an anomaly scenario to trigger cloud escalation:
+```bash
+task demo:inject SCENARIO=S1.1   # repeated misgrasp → escalates to cloud planner
+```
+
+Grafana is at `http://localhost:3000` (no login). Other scenarios:
+```bash
+task demo:inject SCENARIO=S0.1   # human in safety radius → E-STOP
+task demo:inject SCENARIO=S0.2   # overheat + smoke → E-STOP
+task demo:inject SCENARIO=S2.3   # sensor freeze → local recovery
+task demo:inject SCENARIO=S4.1   # compound fault → recovery or escalate
+```
 
 **Grafana shows:**
 - Edge: anomaly detection, safety state, plan execution latency, LLM circuit breaker
 - Cloud Planner row: escalation count, plan decisions (plan_ready / needs_human), p95 planning latency
+- RAG Retrieval Similarity: top-1 similarity score per planning run (labelled by anomaly type)
 - Recent Cloud Plans panel: live log of LLM-generated recovery plan rationales (Loki)
 - Tempo: full distributed traces linking edge MaydayAgent spans to cloud planning nodes
 
-> **No API key?** The cloud planner automatically falls back to mock mode — canned recovery plans are generated and the full workflow (RAG retrieval, validation, Prometheus metrics, Loki logs, OTEL traces) still runs. Set `CLOUD_GROQ_API_KEY` for real LLM-generated plans via Groq (free tier, no credit card required).
+> **No API key?** The cloud planner falls back to mock mode automatically — canned recovery plans are generated and the full observability stack (Prometheus, Loki, Tempo) still runs.
 
 > **Edge LLM (Mistral-7B):** The Docker demo runs edge policy in mock mode — no model weights downloaded. Set `POLICY_USE_MOCK=false` outside Docker with `task venv` + `task edge:run` to enable real on-device inference. Requires ~4GB download on first run; CUDA GPU recommended (RTX 3060 or better, ~10–15s per inference).
 
 To list all available scenarios:
 ```bash
-PYTHONPATH=src uv run python demo/chaos_stream.py --list
+task demo:inject --list   # or: uv run python demo/chaos_stream.py --list
 ```
+
+
+# 🧑‍💻 MCP Operator Demo (Human-in-the-Loop)
+
+![CortexGuard MCP demo](docs/cortexguard-mcp-demo.gif)
+
+When the cloud planner returns `needs_human`, an operator connects via Claude Code and resolves the incident interactively — inspecting the plan, requesting alternatives, and feeding the outcome back into the RAG store.
+
+The demo stack (`task demo:up`) forces `needs_human` on every cloud escalation (`CLOUD_MIN_CONFIDENCE=1.1`), so every injected anomaly reaches the operator queue.
+
+**1. Start the stack and seed RAG** (see demo section above), then inject an anomaly:
+
+```bash
+task demo:inject SCENARIO=S1.1
+```
+
+**2. Register the MCP server with Claude Code** (one-time):
+
+```bash
+claude mcp add cortexguard -- docker exec -i cortexguard-cloud-api python -m cortexguard.cloud.mcp_server
+```
+
+**3. Open a new Claude Code session and interact naturally:**
+
+```
+> A CortexGuard needs_human alert just fired. Use get_latest_incident to see what happened.
+> Explain the proposed plan in plain English — I'm a hardware operator, not an engineer.
+> The plan looks good. Record that I resolved this by re-seating the gripper. Outcome: resolved.
+```
+
+```
+> I can't do the force-retry step — it's not safe given current device state. Generate an alternative plan that avoids it.
+> Record that I intervened manually and brought the device back to nominal. Outcome: resolved.
+```
+
+Claude calls the MCP tools automatically. Each resolution is re-embedded in Qdrant — the next similar escalation retrieves it as a prior example, and Groq generates a more informed plan.
+
+> **With a real LLM:** Set `CLOUD_GROQ_API_KEY=<your-key>` in `.env` for Groq (free tier). The explain step uses the same backend unless `CLOUD_EXPLAIN_BACKEND` is set separately (e.g. a local Ollama model).
 
 
 # ⚙️ Getting Started
@@ -221,11 +279,11 @@ task test-e2e      # end-to-end
 
 | Agent | Purpose | Location |
 |---|---|---|
-| `SafetyAgent` | Evaluates hard safety rules every tick → E-STOP / PAUSE / NOMINAL | Edge (implemented) |
-| `PolicyAgent` | Generates RemediationPolicy via rules-based dispatch or local LLM | Edge (implemented) |
-| `MaydayAgent` | Escalates to cloud when local recovery fails; handles retry/backoff | Edge (implemented) |
-| Cloud Planner | 5-node LangGraph workflow: retrieval → LLM planning → validation → routing | Cloud (implemented) |
-| Explanation Agent | Translates anomaly events into human-readable summaries | Cloud (future) |
+| `SafetyAgent` | Evaluates hard safety rules every tick → E-STOP / PAUSE / NOMINAL | Edge |
+| `PolicyAgent` | Generates RemediationPolicy via rules-based dispatch or local LLM | Edge |
+| `MaydayAgent` | Escalates to cloud when local recovery fails; handles retry/backoff | Edge |
+| Cloud Planner | 5-node LangGraph workflow: retrieval → LLM planning → validation → routing | Cloud |
+| MCP Server | Operator inspection interface — incident history, on-demand planning, plan explanation, and resolution capture via Claude Code | Cloud |
 
 
 # 🛠️ Testing Scenarios
@@ -265,8 +323,6 @@ task test-e2e      # end-to-end
 
 
 # 🧩 Future Work
-* Explanation Agent — translate anomaly events to human-readable operator summaries (cloud)
-* Human-in-the-Loop operator approval flow for high-uncertainty cloud plans
 * Fleet-wide detection and coordination
 * Reinforcement learning for recovery strategies
 * Federated anomaly training

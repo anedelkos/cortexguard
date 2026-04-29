@@ -100,6 +100,60 @@ The readiness check verifies the SQLite database and Qdrant connection (if confi
 
 ---
 
+## MCP Operator Interface
+
+The MCP server gives an operator or AI assistant access to incident history,
+on-demand planning, plan explanation, and resolution capture — without
+affecting the operational edge-to-cloud path.
+
+### Prerequisites
+
+The cloud API container must be running:
+
+```bash
+docker compose -f docker-compose.demo.yaml up cloud-api qdrant
+```
+
+### Connect via Claude Code
+
+```bash
+claude mcp add cortexguard -- docker exec -i cortexguard-cloud-api python -m cortexguard.cloud.mcp_server
+```
+
+Verify the connection is working by asking:
+> "List the available capabilities from the CortexGuard registry"
+
+### Environment Variables (cloud-api container)
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `CLOUD_EXPLAIN_BACKEND` | (uses `CLOUD_LLM_BACKEND`) | LLM backend for `explain_plan`: `mock`, `ollama`, `groq`, `anthropic`, `openrouter` |
+| `CLOUD_EXPLAIN_MODEL` | (provider default) | Model name when using `ollama` or `openrouter` |
+| `CLOUD_EXPLAIN_BASE_URL` | `http://localhost:11434/v1` | Base URL for `ollama` or other OpenAI-compatible backends |
+
+### Operator workflow for `needs_human`
+
+When the cloud planner returns `needs_human`, connect via Claude Code and ask naturally:
+
+1. *"A needs_human alert fired — use get_latest_incident to see what happened"* — calls `get_latest_incident`, returns decision, plan, rationale, and retrieved similar incidents with similarity scores
+2. *"Explain the plan it was going to run"* — calls `explain_plan`
+3. *"Try without the recalibration step"* — calls `propose_alternative_plan`
+4. After resolving manually: *"I intervened manually and the device is back to nominal — record outcome: resolved"* — calls `record_operator_resolution`, re-embeds the enriched incident in Qdrant for future RAG retrieval
+
+Valid `outcome` values: `resolved`, `escalated_further`, `hardware_replaced`, `aborted`.
+
+### Seeding the RAG store
+
+On a fresh deployment the RAG store is empty and the planner has no historical context. Seed it with resolved reference incidents before running the demo:
+
+```bash
+task demo:seed-rag
+```
+
+This inserts synthetic resolved incidents for common anomaly types and indexes them into Qdrant. The next planning run will retrieve them as context.
+
+---
+
 ## Health Endpoints
 
 ### Liveness

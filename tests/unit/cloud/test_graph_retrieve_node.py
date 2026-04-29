@@ -40,6 +40,7 @@ def _make_state(packet: MaydayPacket) -> CloudPlanningState:
         request=packet,
         incident_id=None,
         retrieved_incidents=[],
+        retrieved_incident_records=[],
         candidate_plan=None,
         validation_result=None,
         decision=None,
@@ -56,7 +57,7 @@ async def test_retrieve_node_populates_retrieved_incidents() -> None:
     record = make_incident(anomaly_key="S1.1_MISGRASP")
     await repo.save_incident(record)
 
-    store = RetrievalStore(embedder=MockEmbedder(), vector_store=InMemoryVectorStore())
+    store = RetrievalStore(embedder=MockEmbedder(), vector_store=InMemoryVectorStore(), repo=repo)
     await store.index_incident(record)
 
     node = make_retrieve_similar_incidents_node(retrieval_store=store, repo=repo)
@@ -65,7 +66,10 @@ async def test_retrieve_node_populates_retrieved_incidents() -> None:
     result = await node(state)
 
     assert len(result["retrieved_incidents"]) > 0
-    assert result["retrieved_incidents"][0].incident_id == record.incident_id
+    assert result["retrieved_incidents"][0]["incident_id"] == record.incident_id
+    assert "similarity_score" in result["retrieved_incidents"][0]
+    assert len(result["retrieved_incident_records"]) > 0
+    assert result["retrieved_incident_records"][0].incident_id == record.incident_id
 
 
 @pytest.mark.asyncio

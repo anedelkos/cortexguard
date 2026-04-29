@@ -24,6 +24,10 @@ class IncidentRecord:
     created_at: datetime
     rationale: str | None = None
     confidence: float | None = None
+    parent_incident_id: str | None = None
+    source: str = "edge"
+    operator_resolution_json: str | None = None
+    retrieved_incidents_json: str | None = None
 
 
 @dataclass

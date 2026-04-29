@@ -33,3 +33,17 @@ class ExecutionOutcome(BaseModel):
     completed_at: datetime
     notes: str | None = None
     failure_reason: str | None = None
+
+
+class RecentOutcomeResponse(BaseModel):
+    """Read-side view of a recently recorded execution outcome."""
+
+    outcome_id: str
+    escalation_id: str
+    decision_id: str
+    device_id: str
+    status: str
+    completed_at: datetime
+    notes: str | None = None
+    failure_reason: str | None = None
+    linked_at: datetime

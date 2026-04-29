@@ -37,6 +37,17 @@ def _observe_cloud_metric_seconds(metric_name: str, duration_seconds: float) -> 
         metric.observe(duration_seconds)
 
 
+def _observe_labeled_histogram(metric_name: str, value: float, **labels: str) -> None:
+    try:
+        from cortexguard.cloud import runtime as cloud_runtime
+    except ImportError:
+        logger.debug("Cloud runtime unavailable while observing labeled metric %s", metric_name)
+        return
+    metric = getattr(cloud_runtime, metric_name, None)
+    if metric is not None:
+        metric.labels(**labels).observe(value)
+
+
 def _increment_cloud_metric(metric_name: str) -> None:
     try:
         from cortexguard.cloud import runtime as cloud_runtime
@@ -110,7 +121,7 @@ def make_persist_incident_node(
                     summary=summary,
                     raw_packet_json=packet.model_dump_json(),
                     retrieved_incident_ids_json=json.dumps(
-                        [r.incident_id for r in state["retrieved_incidents"]]
+                        [r["incident_id"] for r in state.get("retrieved_incidents", [])]
                     ),
                     candidate_plan_json=None,
                     validation_errors_json="[]",
@@ -118,7 +129,12 @@ def make_persist_incident_node(
                     created_at=datetime.now(UTC),
                 )
                 await repo.save_incident(record)
-                return {**state, "incident_id": incident_id}
+                return {
+                    **state,
+                    "incident_id": incident_id,
+                    "retrieved_incidents": [],
+                    "retrieved_incident_records": [],
+                }
             except Exception as exc:
                 errors = list(state["errors"]) + [str(exc)]
                 return {
@@ -139,29 +155,53 @@ def make_retrieve_similar_incidents_node(
         with _tracer.start_as_current_span("retrieve_similar_incidents"):
             try:
                 if retrieval_store is None:
-                    return {**state, "retrieved_incidents": []}
+                    return {
+                        **state,
+                        "retrieved_incidents": [],
+                        "retrieved_incident_records": [],
+                    }
                 t0 = time.monotonic()
-                results = await retrieval_store.retrieve_similar(state["request"])
+                results: list[tuple[str, float, IncidentRecord | None]] = (
+                    await retrieval_store.retrieve_similar(state["request"])
+                )
                 _observe_cloud_metric_seconds(
                     "cloud_retrieval_duration_seconds", time.monotonic() - t0
                 )
-                incidents: list[IncidentRecord] = []
+
+                if results:
+                    packet = state["request"]
+                    anomaly_key = packet.anomalies[0].key if packet.anomalies else "UNKNOWN"
+                    _observe_labeled_histogram(
+                        "cloud_retrieval_similarity_score",
+                        results[0][1],
+                        anomaly_key=anomaly_key,
+                    )
+
+                retrieved_incidents: list[dict[str, Any]] = [
+                    {"incident_id": rid, "similarity_score": score} for rid, score, _ in results
+                ]
+                # Records are already loaded by the store (for re-ranking). The store handles
+                # re-ranking; the node handles hydration into state for the LLM prompt. Both
+                # use the same loaded records — no second repo fetch needed.
+                records: list[IncidentRecord] = [rec for _, _, rec in results if rec is not None]
                 if repo is not None:
-                    # back-fill retrieved_incident_ids into the incident saved by persist_incident
                     incident_id = state.get("incident_id")
                     if incident_id is not None:
                         current = await repo.get_incident(str(incident_id))
                         if current is not None:
                             updated = _dc_replace(
                                 current,
-                                retrieved_incident_ids_json=json.dumps([r.id for r in results]),
+                                retrieved_incident_ids_json=json.dumps(
+                                    [rid for rid, _, _ in results]
+                                ),
+                                retrieved_incidents_json=json.dumps(retrieved_incidents),
                             )
                             await repo.save_incident(updated)
-                    for result in results:
-                        record = await repo.get_incident(result.id)
-                        if record is not None:
-                            incidents.append(record)
-                return {**state, "retrieved_incidents": incidents}
+                return {
+                    **state,
+                    "retrieved_incidents": retrieved_incidents,
+                    "retrieved_incident_records": records,
+                }
             except Exception as exc:
                 errors = list(state["errors"]) + [str(exc)]
                 return {
@@ -186,7 +226,9 @@ def make_generate_candidate_plan_node(
                 packet = state["request"]
                 anomaly_key = packet.anomalies[0].key if packet.anomalies else "UNKNOWN"
                 severity = packet.anomalies[0].severity.value if packet.anomalies else "unknown"
-                retrieved_summaries = [r.summary for r in state["retrieved_incidents"]]
+                retrieved_summaries = [
+                    r.summary for r in state.get("retrieved_incident_records", [])  # type: ignore[attr-defined]
+                ]
                 request = PlannerRequest(
                     escalation_summary=f"device={packet.device_id} anomaly={anomaly_key}",
                     state_summary=json.dumps(packet.state_estimate or {}),
