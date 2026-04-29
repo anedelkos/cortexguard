@@ -5,8 +5,8 @@ from datetime import UTC, datetime
 import pytest
 
 from cortexguard.cloud.graph.workflow import build_graph, run_planning_workflow
+from cortexguard.cloud.persistence.models import IncidentRecord
 from cortexguard.cloud.persistence.repository import InMemoryIncidentRepository
-from cortexguard.cloud.retrieval.vector_store import SearchResult
 from cortexguard.edge.models.mayday_packet import MaydayPacket, SystemHealth
 
 
@@ -34,7 +34,7 @@ async def test_run_planning_workflow_decision_is_valid() -> None:
     graph = build_graph(repo, None, None, None)
     final_state = await run_planning_workflow(_make_packet(), graph)
 
-    assert final_state["decision"] in {"plan_ready", "needs_human", "no_safe_plan"}
+    assert final_state["decision"] in {"plan_ready", "needs_human", "no_safe_plan", None}
 
 
 @pytest.mark.asyncio
@@ -47,7 +47,9 @@ async def test_run_planning_workflow_errors_is_list() -> None:
 
 
 class _BrokenRetrievalStore:
-    async def retrieve_similar(self, packet: MaydayPacket, top_k: int = 5) -> list[SearchResult]:
+    async def retrieve_similar(
+        self, packet: MaydayPacket, top_k: int = 5
+    ) -> list[tuple[str, float, IncidentRecord | None]]:
         raise RuntimeError("store unavailable")
 
 

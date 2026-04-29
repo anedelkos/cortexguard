@@ -11,6 +11,7 @@ services:
       LOG_LEVEL: INFO
       CLOUD_API_URL: http://cloud-api:8001
       OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318
+      MAYDAY_TIMEOUT_S: "60"
     depends_on:
       - tempo
       - cloud-api
@@ -31,7 +32,7 @@ services:
     entrypoint: ["python"]
     command: >
       demo/chaos_stream.py
-        --scenario ${SCENARIO:-S1.1}
+        --scenario ${SCENARIO:-S0.0}
         --endpoint http://edge:8080/api/v1/ingest
         --rate ${RATE:-1.0}
         --repeat 0
@@ -79,6 +80,7 @@ services:
     build:
       context: .
       dockerfile: docker/cloud.Dockerfile
+    container_name: cortexguard-cloud-api
     ports:
       - "8001:8001"
     environment:
@@ -91,6 +93,8 @@ services:
       CLOUD_QDRANT_URL: http://qdrant:6333
       OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318
       LOG_JSON: "true"
+      CLOUD_MIN_CONFIDENCE: "1.1"
+      CLOUD_LLM_TIMEOUT_S: "45"
     volumes:
       - cloud_demo_db:/data
     depends_on:

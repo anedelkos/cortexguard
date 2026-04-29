@@ -284,21 +284,34 @@ tasks:
 
 
   demo:up:
-    desc: "Start full demo stack: edge + cloud planner + chaos simulator + observability (Docker) - default SCENARIO=S1.1"
+    desc: "Start full demo stack with normal baseline (S0.0). Use 'task demo:inject SCENARIO=S1.1' to trigger anomalies mid-session."
     cmds:
       - "docker compose -f docker-compose.demo.yaml up"
 
   demo:up-rebuild:
-    desc: "Force rebuild and start demo stack: edge + cloud planner + chaos simulator + observability (Docker) - default SCENARIO=S1.1"
+    desc: "Force rebuild and start demo stack (S0.0 baseline by default)"
     cmds:
       - "docker compose -f docker-compose.demo.yaml up --build"
 
-  demo:scenario:
-    desc: "Run a named scenario against a running edge service"
+  demo:inject:
+    desc: "Inject an anomaly scenario into a running demo stack (default: S1.1 repeated misgrasp → cloud escalation)"
     vars:
-      SCENARIO: '{{.SCENARIO | default "S0.1"}}'
+      SCENARIO: '{{.SCENARIO | default "S1.1"}}'
     cmds:
       - "PYTHONPATH=src {{.uv_run}} python demo/chaos_stream.py --scenario {{.SCENARIO}} --endpoint http://localhost:8080/api/v1/ingest"
+
+  demo:scenario:
+    desc: "Run a named scenario against a running edge service (alias for demo:inject)"
+    vars:
+      SCENARIO: '{{.SCENARIO | default "S1.1"}}'
+    cmds:
+      - "PYTHONPATH=src {{.uv_run}} python demo/chaos_stream.py --scenario {{.SCENARIO}} --endpoint http://localhost:8080/api/v1/ingest"
+
+  demo:seed-rag:
+    desc: "Seed Qdrant with resolved historical incidents so the planner generates plans with steps"
+    cmds:
+      - "docker cp demo/seed_rag.py cortexguard-cloud-api:/tmp/seed_rag.py"
+      - "docker exec cortexguard-cloud-api python /tmp/seed_rag.py"
 
   # --- Utility -------------------------------------------------------
   default:

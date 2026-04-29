@@ -158,6 +158,17 @@ class AlwaysSlowCloudClient:
         return None  # not reached if timeout shorter
 
 
+class AlwaysNoPlanCloudClient:
+    """Immediately returns None (simulates needs_human / no_safe_plan)."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def send_escalation(self, packet: MaydayPacket) -> Plan | None:
+        self.calls += 1
+        return None
+
+
 # Minimal fake blackboard used across tests
 class FakeBlackboard:
     def __init__(self) -> None:
@@ -461,6 +472,32 @@ async def test_send_escalation_exhausts_retries_and_returns_none() -> None:
     assert metrics["escalations_sent"] == 1
     assert metrics["attempts_sent"] == 3  # max_retries + 1
     assert metrics["responses_received"] == 0
+
+
+@pytest.mark.asyncio
+async def test_send_escalation_no_retry_on_definitive_no_plan() -> None:
+    """needs_human / no_safe_plan returns None without error — must not retry."""
+    client = AlwaysNoPlanCloudClient()
+    agent = MaydayAgent(
+        cloud_agent_client=client,
+        device_id="dev-1",
+        max_retries=2,  # would retry twice if not for the fix
+    )
+
+    bb = cast(Blackboard, FakeBlackboard())
+    policy = make_policy()
+    packet = await agent.build_packet_from_policy(
+        policy=cast(RemediationPolicy, policy),
+        blackboard=bb,
+        health=SystemHealth(
+            cpu_load_pct=None, net_rtt_ms=None, packet_loss_pct=None, disk_pressure_pct=None
+        ),
+        trace_id="t-noplan",
+    )
+
+    plan = await agent.send_escalation(packet)
+    assert plan is None
+    assert client.calls == 1  # cloud answered definitively — no retry
 
 
 @pytest.mark.asyncio

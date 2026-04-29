@@ -16,11 +16,17 @@ class IncidentRepositoryProtocol(Protocol):
 
     async def get_incident(self, incident_id: str) -> IncidentRecord | None: ...
 
+    async def get_incident_by_trace_id(self, trace_id: str) -> IncidentRecord | None: ...
+
     async def save_outcome(self, record: OutcomeRecord) -> None: ...
 
     async def get_outcome_by_escalation(self, escalation_id: str) -> OutcomeRecord | None: ...
 
+    async def list_recent_outcomes(self, limit: int) -> list[OutcomeRecord]: ...
+
     async def list_recent_incidents(self, limit: int) -> list[IncidentRecord]: ...
+
+    async def update_operator_resolution(self, incident_id: str, resolution_json: str) -> bool: ...
 
 
 _CREATE_INCIDENTS = """
@@ -40,7 +46,11 @@ CREATE TABLE IF NOT EXISTS incidents (
     decision TEXT NOT NULL,
     created_at TEXT NOT NULL,
     rationale TEXT,
-    confidence REAL
+    confidence REAL,
+    parent_incident_id TEXT,
+    source TEXT NOT NULL DEFAULT 'edge',
+    operator_resolution_json TEXT,
+    retrieved_incidents_json TEXT
 )
 """
 
@@ -79,6 +89,10 @@ def _row_to_incident(row: aiosqlite.Row) -> IncidentRecord:
         created_at=datetime.fromisoformat(row[13]),
         rationale=row[14],
         confidence=float(row[15]) if row[15] is not None else None,
+        parent_incident_id=row[16] if len(row) > 16 else None,
+        source=row[17] if len(row) > 17 and row[17] is not None else "edge",
+        operator_resolution_json=row[18] if len(row) > 18 else None,
+        retrieved_incidents_json=row[19] if len(row) > 19 else None,
     )
 
 
@@ -106,8 +120,15 @@ class SQLiteIncidentRepository:
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(_CREATE_INCIDENTS)
             await db.execute(_CREATE_OUTCOMES)
-            # Migrate existing DBs that predate rationale/confidence columns
-            for col, typedef in (("rationale", "TEXT"), ("confidence", "REAL")):
+            # Migrate existing DBs that predate optional columns
+            for col, typedef in (
+                ("rationale", "TEXT"),
+                ("confidence", "REAL"),
+                ("parent_incident_id", "TEXT"),
+                ("source", "TEXT NOT NULL DEFAULT 'edge'"),
+                ("operator_resolution_json", "TEXT"),
+                ("retrieved_incidents_json", "TEXT"),
+            ):
                 try:
                     await db.execute(f"ALTER TABLE incidents ADD COLUMN {col} {typedef}")
                 except aiosqlite.OperationalError as exc:
@@ -122,7 +143,7 @@ class SQLiteIncidentRepository:
             await db.execute(
                 """
                 INSERT OR REPLACE INTO incidents VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                 )
                 """,
                 (
@@ -142,6 +163,10 @@ class SQLiteIncidentRepository:
                     record.created_at.isoformat(),
                     record.rationale,
                     record.confidence,
+                    record.parent_incident_id,
+                    record.source,
+                    record.operator_resolution_json,
+                    record.retrieved_incidents_json,
                 ),
             )
             await db.commit()
@@ -150,6 +175,16 @@ class SQLiteIncidentRepository:
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
                 "SELECT * FROM incidents WHERE incident_id = ?", (incident_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                return _row_to_incident(row) if row is not None else None
+
+    async def get_incident_by_trace_id(self, trace_id: str) -> IncidentRecord | None:
+        """Look up an incident by its trace_id column (distinct from incident_id)."""
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT * FROM incidents WHERE trace_id = ? ORDER BY rowid DESC LIMIT 1",
+                (trace_id,),
             ) as cursor:
                 row = await cursor.fetchone()
                 return _row_to_incident(row) if row is not None else None
@@ -184,6 +219,14 @@ class SQLiteIncidentRepository:
                 row = await cursor.fetchone()
                 return _row_to_outcome(row) if row is not None else None
 
+    async def list_recent_outcomes(self, limit: int) -> list[OutcomeRecord]:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT * FROM outcomes ORDER BY rowid DESC LIMIT ?", (limit,)
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [_row_to_outcome(r) for r in rows]
+
     async def list_recent_incidents(self, limit: int) -> list[IncidentRecord]:
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
@@ -191,6 +234,21 @@ class SQLiteIncidentRepository:
             ) as cursor:
                 rows = await cursor.fetchall()
                 return [_row_to_incident(r) for r in rows]
+
+    async def update_operator_resolution(self, incident_id: str, resolution_json: str) -> bool:
+        """Persist an operator-recorded resolution for an existing incident.
+
+        Returns:
+            ``True`` if a row was updated, ``False`` if the incident was not found.
+        """
+        async with aiosqlite.connect(self._db_path) as db:
+            cursor = await db.execute(
+                "UPDATE incidents SET operator_resolution_json = ? WHERE incident_id = ?",
+                (resolution_json, incident_id),
+            )
+            await db.commit()
+            rowcount = int(cursor.rowcount or 0)
+            return rowcount > 0
 
 
 class InMemoryIncidentRepository:
@@ -207,6 +265,14 @@ class InMemoryIncidentRepository:
     async def get_incident(self, incident_id: str) -> IncidentRecord | None:
         return self._incidents.get(incident_id)
 
+    async def get_incident_by_trace_id(self, trace_id: str) -> IncidentRecord | None:
+        """Look up an incident by its trace_id field (distinct from incident_id)."""
+        for iid in reversed(self._incident_order):
+            record = self._incidents[iid]
+            if record.trace_id == trace_id:
+                return record
+        return None
+
     async def save_outcome(self, record: OutcomeRecord) -> None:
         self._outcomes[record.outcome_id] = record
 
@@ -216,5 +282,19 @@ class InMemoryIncidentRepository:
                 return record
         return None
 
+    async def list_recent_outcomes(self, limit: int) -> list[OutcomeRecord]:
+        return list(reversed(list(self._outcomes.values())))[:limit]
+
     async def list_recent_incidents(self, limit: int) -> list[IncidentRecord]:
         return [self._incidents[iid] for iid in reversed(self._incident_order)][:limit]
+
+    async def update_operator_resolution(self, incident_id: str, resolution_json: str) -> bool:
+        """Update the operator resolution field in the in-memory store.
+
+        Returns:
+            ``True`` if the incident was found and updated, ``False`` otherwise.
+        """
+        if incident_id in self._incidents:
+            self._incidents[incident_id].operator_resolution_json = resolution_json
+            return True
+        return False

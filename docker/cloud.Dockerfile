@@ -21,6 +21,9 @@ RUN pip install uv && \
 
 ENV PATH="/workspace/cortexguard/.venv/bin:$PATH"
 
+# Pre-download MiniLM embedder model so it survives container rebuilds
+RUN python -c "from fastembed import TextEmbedding; TextEmbedding('sentence-transformers/all-MiniLM-L6-v2')"
+
 COPY src ./src
 
 EXPOSE 8001

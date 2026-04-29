@@ -55,7 +55,8 @@ Embeds a summary of the incoming `MaydayPacket` (`device_id + anomaly_keys + pla
 and performs an approximate nearest-neighbour search in Qdrant.
 
 - **Filter**: if the packet has a single anomaly key, the search is pre-filtered to only return incidents with the same `anomaly_key`. This prevents cross-anomaly noise.
-- **Outcome boost**: incidents whose stored `decision` is `plan_ready` receive a score multiplier of `1.1x` — previously successful recoveries are ranked higher as priors.
+- **Learning-to-rank re-ranking**: after Qdrant retrieval, results are re-scored by a composite function (`src/cortexguard/cloud/retrieval/ranker.py`): `composite = similarity + outcome_boost - failure_penalty`. `resolved` operator resolutions add `CLOUD_RETRIEVAL_OUTCOME_BOOST` (default `0.2`); high-confidence `plan_ready` adds half that; unresolved `needs_human`/`no_safe_plan` decisions subtract `CLOUD_RETRIEVAL_FAILURE_PENALTY` (default `0.1`). Results are re-sorted by composite score before being passed to the LLM.
+- **Similarity scores surfaced**: the node stores `retrieved_incidents` as `[{incident_id, similarity_score}]` on the persisted record and in graph state — visible via the MCP `get_latest_incident` tool and `latest_planner_decision` resource.
 - Returns up to 5 similar `IncidentRecord`s. Their summaries are injected into the LLM prompt as context.
 
 ### Node 3 — `generate_candidate_plan`

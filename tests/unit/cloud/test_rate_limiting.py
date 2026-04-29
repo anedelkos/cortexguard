@@ -140,3 +140,13 @@ class TestOutcomeRateLimit:
 
         resp2 = client.post("/api/v1/outcomes", json=payload)
         assert resp2.status_code == 429
+
+    def test_recent_outcomes_exceeds_limit_returns_429(self) -> None:
+        app = _make_rate_limited_app(outcome_rate_limit="1/minute")
+        client = TestClient(app, raise_server_exceptions=False)
+
+        resp1 = client.get("/api/v1/outcomes/recent")
+        assert resp1.status_code == 200
+
+        resp2 = client.get("/api/v1/outcomes/recent")
+        assert resp2.status_code == 429

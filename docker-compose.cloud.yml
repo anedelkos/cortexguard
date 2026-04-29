@@ -3,21 +3,25 @@ services:
     build:
       context: .
       dockerfile: docker/cloud.Dockerfile
+    container_name: cortexguard-cloud-api
     ports:
       - "8001:8001"
     environment:
-      - CLOUD_LLM_BACKEND=groq
-      - CLOUD_GROQ_API_KEY=${CLOUD_GROQ_API_KEY}
-      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - CLOUD_LLM_BACKEND=${CLOUD_LLM_BACKEND:-mock}
+      - CLOUD_GROQ_API_KEY=${CLOUD_GROQ_API_KEY:-}
+      - CLOUD_ANTHROPIC_API_KEY=${CLOUD_ANTHROPIC_API_KEY:-}
       - CLOUD_EMBEDDER_BACKEND=miniLM
       - CLOUD_VECTOR_STORE_BACKEND=qdrant
       - CLOUD_INCIDENT_STORE=sqlite
       - CLOUD_DB_PATH=/data/cortexguard_cloud.db
       - CLOUD_QDRANT_URL=http://qdrant:6333
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4318
+      - LOG_JSON=true
     volumes:
       - cloud-db:/data
     depends_on:
       - qdrant
+      - tempo
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -26,6 +30,60 @@ services:
     volumes:
       - qdrant-storage:/qdrant/storage
 
+  prometheus:
+    image: prom/prometheus:v2.53.2
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./docker/cortexguard_alerts.yml:/etc/prometheus/cortexguard_alerts.yml:ro
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    ports:
+      - "3000:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: "/var/lib/grafana/dashboards/cortexguard-edge.json"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./docker/grafana_datasources.yaml:/etc/grafana/provisioning/datasources/cortexguard.yaml:ro
+      - ./docker/grafana_dashboards.yaml:/etc/grafana/provisioning/dashboards/cortexguard-dashboards.yaml:ro
+      - ./docker/grafana_dashboard.json:/var/lib/grafana/dashboards/cortexguard-edge.json:ro
+
+  tempo:
+    image: grafana/tempo:latest
+    volumes:
+      - ./docker/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    command: ["--config.file=/etc/tempo.yaml"]
+    ports:
+      - "4318:4318"
+      - "3100:3100"
+
+  loki:
+    image: grafana/loki:latest
+    volumes:
+      - ./docker/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki-data:/loki
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    ports:
+      - "3101:3100"
+
+  promtail:
+    image: grafana/promtail:latest
+    volumes:
+      - ./docker/promtail-demo.yaml:/etc/promtail/promtail.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: ["-config.file=/etc/promtail/promtail.yaml"]
+    depends_on:
+      - loki
+
 volumes:
   cloud-db:
   qdrant-storage:
+  grafana-data:
+  tempo-data:
+  loki-data:

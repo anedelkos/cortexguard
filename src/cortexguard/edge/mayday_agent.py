@@ -438,7 +438,11 @@ class MaydayAgent:
                 if plan is not None:
                     return plan
 
-                # retry if attempts remain
+                # Only retry on transport errors — a definitive cloud decision
+                # (needs_human / no_safe_plan) has last_exc=None and should not
+                # be retried, as the same LLM will give the same answer.
+                if last_exc is None:
+                    break
                 if attempt <= self._max_retries:
                     backoff = (self._backoff_factor ** (attempt - 1)) * 0.1
                     try:

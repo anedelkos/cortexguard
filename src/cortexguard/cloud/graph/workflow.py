@@ -77,6 +77,7 @@ async def run_planning_workflow(
         "request": packet,
         "incident_id": None,
         "retrieved_incidents": [],
+        "retrieved_incident_records": [],
         "candidate_plan": None,
         "validation_result": None,
         "decision": None,

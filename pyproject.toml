@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi[standard]>=0.121.0",
     "httpx>=0.28.1",
+    "mcp>=1.0",
     "pandas>=2.3.3",
     "pydantic>=2.12.3",
     "pyyaml>=6.0.3",

@@ -61,6 +61,7 @@ def _make_state(plan: Plan | None, confidence: float = 0.8) -> CloudPlanningStat
         request=_make_packet(),
         incident_id="test-id",
         retrieved_incidents=[],
+        retrieved_incident_records=[],
         candidate_plan=plan,
         validation_result=None,
         decision=None,

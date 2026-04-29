@@ -106,3 +106,10 @@ def test_mayday_end_to_end_flow() -> None:
         )
         assert outcome_resp.status_code == 200
         assert outcome_resp.json()["ok"] is True
+
+        recent_resp = client.get("/api/v1/outcomes/recent")
+        assert recent_resp.status_code == 200
+        recent = recent_resp.json()
+        assert len(recent) == 1
+        assert recent[0]["escalation_id"] == trace_id
+        assert recent[0]["status"] == "completed"

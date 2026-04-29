@@ -68,7 +68,9 @@ class TestRetrievalStore:
         packet = _make_packet(record.anomaly_key)
         results = await store.retrieve_similar(packet)
         assert len(results) == 1
-        assert results[0].id == record.incident_id
+        incident_id, score, record_out = results[0]
+        assert incident_id == record.incident_id
+        assert isinstance(score, float)
 
     @pytest.mark.asyncio
     async def test_top_k_limits_results(self) -> None:
@@ -88,8 +90,8 @@ class TestRetrievalStore:
         await store.index_incident(record_b)
         packet = _make_packet("S1.1_MISGRASP")
         results = await store.retrieve_similar(packet, top_k=5)
-        assert all(r.payload["anomaly_key"] == "S1.1_MISGRASP" for r in results)
         assert len(results) == 1
+        assert results[0][0] == record_a.incident_id
 
 
 class TestSeedLoader:

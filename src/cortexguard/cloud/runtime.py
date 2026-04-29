@@ -125,6 +125,23 @@ cloud_llm_inflight = Gauge(
     ["provider"],
 )
 
+cloud_mcp_tool_calls_total = Counter(
+    "cloud_mcp_tool_calls_total",
+    "MCP tool invocations",
+    ["tool"],
+)
+cloud_operator_resolutions_total = Counter(
+    "cloud_operator_resolutions_total",
+    "Operator resolutions recorded via MCP",
+    ["outcome"],
+)
+
+cloud_retrieval_similarity_score = Histogram(
+    "cloud_retrieval_similarity_score",
+    "Top-1 RAG similarity score per planning run",
+    ["anomaly_key"],
+)
+
 
 def create_cloud_app(
     config: CloudConfig,
@@ -151,7 +168,13 @@ def create_cloud_app(
     else:
         vector_store = InMemoryVectorStore()
 
-    retrieval_store = RetrievalStore(embedder, vector_store)
+    retrieval_store = RetrievalStore(
+        embedder,
+        vector_store,
+        repo,
+        outcome_boost=config.cloud_retrieval_outcome_boost,
+        failure_penalty=config.cloud_retrieval_failure_penalty,
+    )
 
     # --- LLM client ---
     if llm_client is None:
@@ -254,6 +277,20 @@ def create_cloud_app(
     @app.get("/metrics", include_in_schema=False)
     def prometheus_metrics() -> Response:
         return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+    @app.post("/internal/mcp-event", include_in_schema=False)
+    async def mcp_event(request: Request) -> Response:
+        try:
+            body = await request.json()
+            tool = body.get("tool")
+            outcome = body.get("outcome")
+            if tool:
+                cloud_mcp_tool_calls_total.labels(tool=tool).inc()
+            if outcome:
+                cloud_operator_resolutions_total.labels(outcome=outcome).inc()
+        except Exception:  # nosec B110 — best-effort metric update; never fail the caller
+            pass
+        return Response(content='{"ok":true}', media_type="application/json")
 
     return app
 

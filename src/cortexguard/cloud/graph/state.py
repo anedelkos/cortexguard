@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TypedDict
+from typing import Any, TypedDict
 
 from cortexguard.cloud.persistence.models import IncidentRecord
 from cortexguard.edge.models.mayday_packet import MaydayPacket
@@ -20,7 +20,8 @@ class ValidationResult:
 class CloudPlanningState(TypedDict):
     request: MaydayPacket
     incident_id: str | None
-    retrieved_incidents: list[IncidentRecord]
+    retrieved_incidents: list[dict[str, Any]]
+    retrieved_incident_records: list[IncidentRecord]
     candidate_plan: Plan | None
     validation_result: ValidationResult | None
     decision: str | None
