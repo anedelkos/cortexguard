@@ -1,33 +1,31 @@
 # CortexGuard
-Real-Time Multimodal Anomaly Detection & Fault-Tolerant AI Architecture
+Runtime safety and recovery layer for autonomous systems
 
 
 ## Short Description
-A distributed, real-time multimodal anomaly detection and recovery framework for edge systems operating in human
-environments, combining local reflexive AI and cloud deliberative AI agents.
+Autonomous systems fail mid-task — dropped items, thermal spikes, sensor faults, vision anomalies. Recovery has to
+happen in milliseconds, but deliberative AI is too slow for hard real-time and too rigid to handle novel failures.
+CortexGuard is the control layer between them: a two-tier safety and recovery system for autonomous systems executing
+tasks in proximity to humans and equipment.
 
 
 # 🧭 Overview
-CortexGuard is a real-time, multimodal anomaly detection and recovery system for edge-deployed systems operating in
-human environments.
-It utilizes cutting-edge AI techniques across sensor fusion, anomaly detection, and multi-agent fault tolerance.
+CortexGuard monitors autonomous systems in real time, detects faults across sensor, vision, and task-intent streams,
+and drives recovery — locally when possible, via cloud deliberative AI when the fault is complex. Built for systems
+that execute physical tasks near humans: robot arms, autonomous vehicles, and similar edge-deployed actuators.
 
-It achieves situational awareness by fusing multiple sensor streams with camera feeds and task intent, enabling recovery
-from varying-urgency faults using hierarchical anomaly reasoning.
-A local edge cognitive safety layer handles reflexive and semi-complex anomalous situations while complex,
-resource-intensive problems are escalated to the cloud deliberative planner — all while respecting in-progress tasks.
+The edge tier makes reflexive decisions in milliseconds (E-STOP, PAUSE, local remediation plan). When a fault exceeds
+local reasoning capacity, it escalates to the cloud planner, which retrieves similar past incidents, generates a
+validated recovery plan via LLM, and returns it to the edge — all while the edge continues operating safely.
 
 
 # 🧩 Key Features
-* 🧠 Multimodal anomaly detection (sensor, vision, intent fusion)
-* ⚡ Two-tier architecture (Edge: real-time reflexive | Cloud: deliberative)
-* 🤖 AI Agents for safety, policy generation, and cloud escalation
-* ☁️ Cloud deliberative planner (LangGraph + RAG + LLM, Docker service)
-* 🔌 MCP server for operator inspection, on-demand planning, and human resolution capture (Claude Code integration)
-* 📊 Prometheus/Grafana dashboards for observability
-* 🔭 OpenTelemetry distributed tracing
-* 🧪 Dataset simulator with chaos engine for anomaly injection
-* 🧹 Production-grade code quality (Ruff, mypy strict, Bandit, pre-commit)
+* 🧠 Detects faults across sensor, vision, and task-intent streams — statistical, rule-based, and vision detectors run in parallel every tick
+* ⚡ Sub-millisecond edge decisions (E-STOP / PAUSE / NOMINAL) with LLM-generated remediation for non-trivial faults
+* ☁️ Cloud deliberative planner handles novel failures: RAG over incident history → LLM plan → capability validation → edge execution
+* 🔌 Human-in-the-loop via MCP: operators inspect incidents, approve or override plans, and feed resolutions back into the RAG store
+* 📊 Full observability: Prometheus/Grafana dashboards, OpenTelemetry distributed traces (edge → cloud), structured JSON logs
+* 🧪 Chaos engine for anomaly injection — replay real datasets or inject fault scenarios against a live edge
 
 
 🏗️ Architecture
@@ -125,16 +123,16 @@ arbiter enforces safety (stop/slow) and dispatches to agents (automated recovery
 deliberative planning via LLM and surfaces operator tooling via MCP.
 
 # Flow summary:
-    1. Edge collects telemetry + camera + sensor + intent data.
-    2. Detector ensemble (statistical, rule-based, vision) analyses fused streams.
-    3. SafetyAgent evaluates hard rules every tick → E-STOP / PAUSE / NOMINAL.
-    4. PolicyAgent generates RemediationPolicy for active anomalies (rules + local LLM).
-    5. Orchestrator schedules and preempts Plans; StepExecutor drives the Arbiter → Controller.
-    6. MaydayAgent escalates to cloud planner when local recovery fails.
-    7. Cloud planner retrieves similar incidents, generates a validated Plan via LLM, returns it to edge.
+    1. Sensor readings, camera frames, and task intent are fused into a smoothed state snapshot every tick.
+    2. Four detectors run in parallel: statistical impulse, hard-limit thresholds, logical rules, vision proximity.
+    3. SafetyAgent evaluates hard safety rules → E-STOP / PAUSE / NOMINAL command issued immediately.
+    4. PolicyAgent generates a RemediationPolicy (rules-based or local LLM) and schedules a recovery Plan.
+    5. Orchestrator executes the Plan via StepExecutor → Arbiter (capability gating) → Controller.
+    6. If local recovery fails after retries, MaydayAgent escalates to the cloud planner.
+    7. Cloud planner retrieves similar past incidents via RAG, generates a validated Plan via LLM, returns it to the edge.
 
 
-# 🧠 AI Concepts
+# 🧠 How the detection and planning stack works
 
 |Concept                      |Implementation|
 |---                          |---|
@@ -320,14 +318,6 @@ task test-e2e      # end-to-end
 |Observability:      |OpenTelemetry|
 |Data Fusion:        |NumPy, Pandas, torchvision|
 |Testing:            |pytest, pytest-asyncio, pytest-cov|
-
-
-# 🧩 Future Work
-* Fleet-wide detection and coordination
-* Reinforcement learning for recovery strategies
-* Federated anomaly training
-* Integration with real edge hardware controllers
-* OTA updates of edge agents
 
 
 # 🧹 Code Quality
