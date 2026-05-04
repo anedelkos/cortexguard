@@ -26,6 +26,9 @@ dependencies = [
 [project.optional-dependencies]
 cloud = [
     "aiosqlite>=0.22.1",
+    "asyncpg>=0.30.0",
+    "boto3>=1.34.0",
+    "starlette>=0.41.0",
     "langgraph>=1.1.6",
     "qdrant-client>=1.17.1",
     "fastembed>=0.4.0",
@@ -201,3 +204,6 @@ pillow = "PIL"
 
 [tool.deptry.per_rule_ignores]
 DEP002 = ["uvicorn", "bitsandbytes", "accelerate"]
+# asyncpg, boto3, starlette are in [project.optional-dependencies].cloud;
+# deptry treats optional extras as non-direct and flags them as DEP003.
+DEP003 = ["asyncpg", "boto3", "starlette"]

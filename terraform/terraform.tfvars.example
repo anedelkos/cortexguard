@@ -1,0 +1,39 @@
+# Copy to terraform.tfvars and fill in your values.
+# terraform.tfvars is gitignored — never commit secrets.
+
+aws_region   = "eu-west-1"
+project      = "cortexguard"
+environment  = "demo"
+
+# ECS task sizing — minimum for a demo deployment
+task_cpu      = 512
+task_memory   = 1024
+desired_count = 1
+worker_count  = 1
+
+# Container image tags — must be pinned in non-demo environments.
+# image_tag is the tag pushed to ECR (set after: docker push / deploy.sh).
+# qdrant_image_tag is required — never use "latest" (risks silent schema breakage on EFS).
+image_tag        = "latest"   # replace after push: e.g. "abc1234"
+qdrant_image_tag = "v1.9.4"   # pin to a specific Qdrant semver
+
+# Observability
+log_retention_days = 7
+dlq_alarm_email    = ""  # set to receive alerts when mayday messages land in the DLQ
+
+# LLM backend — set groq_api_key or anthropic_api_key depending on llm_backend
+llm_backend       = "groq"
+groq_api_key      = "<your-groq-api-key>"
+anthropic_api_key = ""  # leave empty if using groq
+
+# Shared secret — edge sends this in X-CortexGuard-Key header
+# Must be at least 32 characters. Generate with: openssl rand -hex 32
+cloud_api_key = "<replace-with-random-64-char-hex-string>"
+
+# HTTPS — set to an ACM certificate ARN to enable TLS on the ALB.
+# Strongly recommended for any non-private deployment: the API key is sent as an HTTP header.
+# Leave empty for HTTP-only demo deployments inside a private VPC.
+acm_certificate_arn = ""  # e.g. "arn:aws:acm:eu-central-1:123456789012:certificate/abc-123"
+
+# Postgres and Qdrant are provisioned automatically by Terraform (RDS + ECS).
+# No external services needed.

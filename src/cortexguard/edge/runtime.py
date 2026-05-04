@@ -180,6 +180,8 @@ class RuntimeConfig:
 
     # Cloud API URL — when set, use HttpCloudAgentClient instead of MockCloudAgentClient
     cloud_api_url: str | None = field(default_factory=lambda: os.getenv("CLOUD_API_URL"))
+    # Shared-secret sent in X-CortexGuard-Key header; required when cloud enforces auth
+    cloud_api_key: str | None = field(default_factory=lambda: os.getenv("CLOUD_API_KEY"))
 
     # Sensor timing
     fusion_expected_period_ms: int = field(
@@ -212,7 +214,8 @@ class EdgeRuntime:
             from cortexguard.core.http_cloud_client import HttpCloudAgentClient
 
             self.cloud_agent: MockCloudAgentClient | HttpCloudAgentClient = HttpCloudAgentClient(
-                cloud_base_url=self.config.cloud_api_url
+                cloud_base_url=self.config.cloud_api_url,
+                api_key=self.config.cloud_api_key,
             )
         else:
             self.cloud_agent = MockCloudAgentClient()

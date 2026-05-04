@@ -88,3 +88,11 @@ data/*.pkl
 # Experiments
 # --------------------------
 scripts/scratchpad.py
+
+# --------------------------
+# Terraform
+# --------------------------
+terraform/.terraform/
+*.tfstate
+*.tfstate.backup
+terraform/terraform.tfvars
