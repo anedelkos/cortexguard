@@ -38,6 +38,7 @@ All variables are optional with the defaults shown. Set them in your shell, `.en
 | `ESTIMATOR_SIGMA_THRESHOLD` | `3.0` | Standard deviation threshold used by the online state estimator for anomaly classification                           |
 | `MAYDAY_TIMEOUT_S` | `30.0` | Per-call timeout in seconds for cloud escalation via `MaydayAgent` (increase if using a hosted LLM with higher latency) |
 | `CLOUD_API_URL` | `http://localhost:8001` | URL of the cloud deliberative planner. Set on the **edge** service so `MaydayAgent` knows where to escalate.         |
+| `CLOUD_API_KEY` | — | Shared-secret sent in `X-CortexGuard-Key` header on every cloud request. Must match `CLOUD_API_KEY` set on the cloud service. Leave unset for local development. |
 
 ---
 
@@ -55,8 +56,10 @@ Set these on the **cloud-api** container (or process). All are optional; default
 | `CLOUD_EMBEDDER_BACKEND` | `mock` | Embedder for RAG: `miniLM` (sentence-transformers) or `mock` (zeros) |
 | `CLOUD_VECTOR_STORE_BACKEND` | `in_memory` | Vector store: `qdrant` or `in_memory` |
 | `CLOUD_QDRANT_URL` | `http://localhost:6333` | Qdrant service URL (used when `CLOUD_VECTOR_STORE_BACKEND=qdrant`) |
-| `CLOUD_INCIDENT_STORE` | `sqlite` | Incident persistence: `sqlite` or `in_memory` |
-| `CLOUD_DB_PATH` | `cortexguard_cloud.db` | SQLite database file path |
+| `CLOUD_INCIDENT_STORE` | `sqlite` | Incident persistence: `sqlite`, `postgres`, or `in_memory` |
+| `CLOUD_DB_PATH` | `cortexguard_cloud.db` | SQLite database file path (used when `CLOUD_INCIDENT_STORE=sqlite`) |
+| `CLOUD_DB_URL` | — | Postgres DSN (required when `CLOUD_INCIDENT_STORE=postgres`), e.g. `postgresql://user:pass@host:5432/db` |
+| `CLOUD_API_KEY` | — | Shared-secret key the edge must send in `X-CortexGuard-Key` header. Unset disables auth (local dev only). |
 | `CLOUD_MIN_CONFIDENCE` | `0.5` | Minimum LLM confidence score to accept a candidate plan; plans below this threshold are rejected as `needs_human` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | — | OpenTelemetry OTLP HTTP endpoint (e.g. `http://tempo:4318`). Unset disables tracing. |
 | `CLOUD_MAYDAY_RATE_LIMIT` | `10/minute` | Rate limit for `POST /api/v1/mayday` per client IP (slowapi format) |
@@ -66,6 +69,8 @@ Set these on the **cloud-api** container (or process). All are optional; default
 | `CLOUD_LLM_MAX_CONCURRENCY` | `4` | Maximum number of concurrent in-flight LLM calls; additional calls queue behind the semaphore |
 | `CLOUD_LLM_MAX_RETRIES` | `2` | Maximum retry attempts for retryable LLM errors (HTTP 429, 5xx) before routing to `needs_human` |
 | `CLOUD_LLM_BASE_BACKOFF_MS` | `500` | Base backoff in milliseconds for LLM retry delays; actual delay uses full-jitter exponential backoff |
+| `CLOUD_SQS_QUEUE_URL` | — | SQS queue URL for async planning (enables worker mode when set). Both cloud-api and worker containers must have this set. Leave unset for single-process in-memory mode. |
+| `CLOUD_SQS_REGION` | `us-east-1` | AWS region for SQS (used when `CLOUD_SQS_QUEUE_URL` is set) |
 
 ### Recommended production configuration
 
@@ -75,8 +80,8 @@ CLOUD_GROQ_API_KEY=<your-key>
 CLOUD_EMBEDDER_BACKEND=miniLM
 CLOUD_VECTOR_STORE_BACKEND=qdrant
 CLOUD_QDRANT_URL=http://qdrant:6333
-CLOUD_INCIDENT_STORE=sqlite
-CLOUD_DB_PATH=/data/cortexguard_cloud.db
+CLOUD_INCIDENT_STORE=postgres
+CLOUD_DB_URL=postgresql://user:pass@host:5432/cortexguard
 CLOUD_MIN_CONFIDENCE=0.5
 OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4318
 CLOUD_MAYDAY_RATE_LIMIT=10/minute
@@ -86,7 +91,22 @@ CLOUD_LLM_TIMEOUT_S=20
 CLOUD_LLM_MAX_CONCURRENCY=4
 CLOUD_LLM_MAX_RETRIES=2
 CLOUD_LLM_BASE_BACKOFF_MS=500
+# SQS worker mode (multi-task Fargate deployments)
+CLOUD_SQS_QUEUE_URL=https://sqs.<region>.amazonaws.com/<account>/<queue>
+CLOUD_SQS_REGION=eu-west-1
 ```
+
+### SQS Worker
+
+When `CLOUD_SQS_QUEUE_URL` is set, the cloud-api process no longer runs planning inline. Instead it writes a pending incident to Postgres and enqueues the packet to SQS. A separate worker process handles the planning:
+
+```bash
+python -m cortexguard.cloud.worker
+```
+
+The worker reads the same `CLOUD_*` environment variables as the cloud-api plus `CLOUD_SQS_QUEUE_URL`. Set `CLOUD_INCIDENT_STORE=postgres` and `CLOUD_DB_URL` — SQLite is not supported in worker mode (multiple processes, no shared disk).
+
+In the AWS ECS/Fargate deployment, the worker runs as a separate ECS service using the same Docker image. Scale `var.worker_count` to add parallelism.
 
 ### Cloud Health Endpoints
 
@@ -245,3 +265,138 @@ Alerts are defined in `docker/cortexguard_alerts.yml` and routed through Prometh
 - `"Blackboard initialized fresh"` — no snapshot found or persistence disabled
 
 **Mid-plan crash:** If the process dies while a plan is executing, the plan will not auto-resume on restart. Anomaly detection will re-evaluate the system state on the next tick and re-trigger a remediation plan if the anomaly condition still holds.
+
+---
+
+## AWS ECS/Fargate Deployment
+
+The cloud tier deploys to AWS ECS/Fargate. Terraform provisions everything: ECS cluster, ALB, RDS (Postgres), Qdrant on Fargate (EFS-backed), SQS queues, Secrets Manager, ECR, and CloudWatch.
+
+### Prerequisites
+
+- AWS CLI configured with IAM permissions for ECS, ECR, ALB, RDS, EFS, SQS, VPC, IAM, Secrets Manager, and CloudWatch
+- Terraform >= 1.6 installed
+- Docker with `linux/amd64` build support
+
+### Remote state
+
+State is stored in S3 with DynamoDB locking. Both are pre-configured in `terraform/main.tf`. Ensure the S3 bucket and DynamoDB table exist before running `terraform init`:
+
+```bash
+# Verify bucket exists
+aws s3 ls | grep terraform-state-bucket-00001
+
+# Verify or create the DynamoDB lock table (partition key: LockID, type String)
+aws dynamodb describe-table --table-name terraform-state-lock 2>/dev/null || \
+  aws dynamodb create-table \
+    --table-name terraform-state-lock \
+    --attribute-definitions AttributeName=LockID,AttributeType=S \
+    --key-schema AttributeName=LockID,KeyType=HASH \
+    --billing-mode PAY_PER_REQUEST
+```
+
+### First-time setup
+
+```bash
+cd terraform
+terraform init
+
+# Copy and populate the variables file
+cp terraform.tfvars.example terraform.tfvars
+```
+
+Key variables to set in `terraform/terraform.tfvars`:
+
+```hcl
+aws_region        = "eu-central-1"
+groq_api_key      = "<your-groq-api-key>"
+cloud_api_key     = "<random-secret-min-32-chars>"   # generate: openssl rand -hex 32
+qdrant_image_tag  = "v1.9.4"                         # required — must be a pinned semver
+llm_backend       = "groq"
+```
+
+RDS (Postgres) and Qdrant are provisioned automatically — no external database or vector store needed.
+
+### Deploy
+
+```bash
+# From the repo root
+./terraform/deploy.sh <aws-account-id> <region> <image-tag>
+```
+
+This builds and pushes the Docker image to ECR, then runs `terraform apply`.
+
+### Smoke test
+
+After `terraform apply` completes:
+```bash
+ALB_URL=$(terraform -chdir=terraform output -raw alb_base_url)
+
+# Liveness
+curl $ALB_URL/healthz/live
+
+# Submit a mayday (requires X-CortexGuard-Key if CLOUD_API_KEY is set)
+curl -X POST $ALB_URL/api/v1/mayday \
+  -H "Content-Type: application/json" \
+  -H "X-CortexGuard-Key: your-shared-secret" \
+  -d '{"trace_id":"test-001","device_id":"dev-1","anomalies":[]}'
+```
+
+### Tear down
+
+RDS has `deletion_protection = true`. Disable it first, then destroy:
+
+```bash
+# Step 1 — disable deletion protection
+cd terraform
+terraform apply -var="deletion_protection=false"
+```
+
+Wait — `deletion_protection` isn't a top-level variable; edit `terraform/rds.tf` and set `deletion_protection = false`, then apply:
+
+```bash
+terraform apply   # updates RDS only
+```
+
+Step 2 — clear ECR (must be empty before destroy succeeds):
+
+```bash
+aws ecr batch-delete-image \
+  --repository-name cortexguard-demo-cloud-api \
+  --region eu-central-1 \
+  --image-ids "$(aws ecr list-images \
+    --repository-name cortexguard-demo-cloud-api \
+    --region eu-central-1 \
+    --query 'imageIds[*]' --output json)"
+```
+
+Step 3 — destroy all resources:
+
+```bash
+terraform destroy
+```
+
+Verify nothing remains:
+
+```bash
+aws resourcegroupstaggingapi get-resources \
+  --region eu-central-1 \
+  --tag-filters Key=Project,Values=cortexguard \
+  --query 'ResourceTagMappingList[*].ResourceARN' \
+  --output json
+```
+
+CloudWatch log groups may linger but expire after 7 days per the retention policy.
+
+### Edge configuration for AWS
+
+Point the edge at the ALB using the `alb_base_url` output (includes correct scheme):
+```bash
+CLOUD_API_URL=$(terraform -chdir=terraform output -raw alb_base_url)
+MAYDAY_TIMEOUT_S=60   # allow for cold-start latency
+```
+
+Set the shared secret on the edge so requests to the cloud API are authenticated:
+```bash
+CLOUD_API_KEY=your-shared-secret
+```

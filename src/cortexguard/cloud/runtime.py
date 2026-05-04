@@ -18,8 +18,10 @@ from slowapi.util import get_remote_address
 from cortexguard.cloud.api.health import get_health_router
 from cortexguard.cloud.api.mayday import get_mayday_router
 from cortexguard.cloud.api.outcomes import get_outcomes_router
+from cortexguard.cloud.auth import ApiKeyMiddleware
 from cortexguard.cloud.config import CloudConfig
-from cortexguard.cloud.orchestrator import CloudOrchestrator
+from cortexguard.cloud.orchestrator import CloudOrchestrator, SQSCloudOrchestrator
+from cortexguard.cloud.persistence.postgres_repository import PostgresIncidentRepository
 from cortexguard.cloud.persistence.repository import (
     IncidentRepositoryProtocol,
     InMemoryIncidentRepository,
@@ -27,6 +29,7 @@ from cortexguard.cloud.persistence.repository import (
 )
 from cortexguard.cloud.planner.factory import get_llm_client
 from cortexguard.cloud.planner.llm_client import LLMClientProtocol
+from cortexguard.cloud.queue.sqs import SQSQueue
 from cortexguard.cloud.retrieval.embedder import get_embedder
 from cortexguard.cloud.retrieval.seeder import SeedLoader
 from cortexguard.cloud.retrieval.store import RetrievalStore
@@ -151,8 +154,14 @@ def create_cloud_app(
     """Assemble the FastAPI cloud planner application with all subsystems wired."""
     # --- Incident store ---
     _sqlite_repo: SQLiteIncidentRepository | None = None
+    _postgres_repo: PostgresIncidentRepository | None = None
     repo: IncidentRepositoryProtocol
-    if config.incident_store == "sqlite":
+    if config.incident_store == "postgres":
+        if not config.db_url:
+            raise ValueError("CLOUD_DB_URL must be set when CLOUD_INCIDENT_STORE=postgres")
+        _postgres_repo = PostgresIncidentRepository(config.db_url)
+        repo = _postgres_repo
+    elif config.incident_store == "sqlite":
         _sqlite_repo = SQLiteIncidentRepository(config.db_path)
         repo = _sqlite_repo
     else:
@@ -188,12 +197,19 @@ def create_cloud_app(
     validator = PlanValidator(
         CapabilityAdapter.load_default(), min_confidence=config.min_confidence
     )
-    orchestrator = CloudOrchestrator(
-        repo=repo,
-        retrieval_store=retrieval_store,
-        llm_client=llm_client,
-        validator=validator,
-    )
+    if config.sqs_queue_url:
+        sqs_queue = SQSQueue(config.sqs_queue_url, config.sqs_region)
+        orchestrator: CloudOrchestrator | SQSCloudOrchestrator = SQSCloudOrchestrator(
+            repo=repo,
+            sqs_queue=sqs_queue,
+        )
+    else:
+        orchestrator = CloudOrchestrator(
+            repo=repo,
+            retrieval_store=retrieval_store,
+            llm_client=llm_client,
+            validator=validator,
+        )
 
     async def _check_db() -> None:
         await repo.list_recent_incidents(limit=1)
@@ -209,6 +225,8 @@ def create_cloud_app(
         setup_logging()
         logger.info("CortexGuard cloud API starting up (config=%s)", config)
         _setup_cloud_tracing()
+        if _postgres_repo is not None:
+            await _postgres_repo.initialize()
         if _sqlite_repo is not None:
             await _sqlite_repo.initialize()
         if _qdrant_store is not None:
@@ -216,12 +234,16 @@ def create_cloud_app(
         await SeedLoader().seed_if_empty(retrieval_store, repo)
         yield
         logger.info("CortexGuard cloud API shutting down")
+        if _postgres_repo is not None:
+            await _postgres_repo.close()
 
     app = FastAPI(
         title="CortexGuard Cloud API",
         description="Cloud-tier deliberative planner for CortexGuard edge agents.",
         lifespan=lifespan,
     )
+
+    app.add_middleware(ApiKeyMiddleware, api_key=config.api_key)
 
     limiter = Limiter(key_func=get_remote_address)
     app.state.limiter = limiter

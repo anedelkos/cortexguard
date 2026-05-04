@@ -6,16 +6,20 @@ import asyncio
 import json
 import logging
 import time
+import uuid
 from dataclasses import dataclass
 from dataclasses import replace as _dc_replace
+from datetime import UTC, datetime
 from typing import Literal
 
 from opentelemetry import trace as _otel_trace
 
 from cortexguard.cloud.graph.state import CloudPlanningState
 from cortexguard.cloud.graph.workflow import build_graph, run_planning_workflow
+from cortexguard.cloud.persistence.models import IncidentRecord
 from cortexguard.cloud.persistence.repository import IncidentRepositoryProtocol
 from cortexguard.cloud.planner.llm_client import LLMClientProtocol
+from cortexguard.cloud.queue.sqs import SQSQueue
 from cortexguard.cloud.retrieval.store import RetrievalStoreProtocol
 from cortexguard.cloud.validation.plan_validator import PlanValidatorProtocol
 from cortexguard.edge.models.mayday_packet import MaydayPacket
@@ -77,7 +81,20 @@ class CloudOrchestrator:
         asyncio.create_task(self._run(trace_id, packet))
         return trace_id
 
+    async def run_once(self, packet: MaydayPacket) -> None:
+        """Run the planning workflow and persist the result without updating the in-process dict.
+
+        Used by the SQS worker — the final decision is written to the incident store
+        by :meth:`_finalise_incident`, making it visible to :class:`SQSCloudOrchestrator`.
+        """
+        await self._execute(packet.trace_id, packet)
+
     async def _run(self, trace_id: str, packet: MaydayPacket) -> None:
+        decision, plan = await self._execute(trace_id, packet)
+        async with self._lock:
+            self._results[trace_id] = PlanningResult(decision=decision, plan=plan)
+
+    async def _execute(self, trace_id: str, packet: MaydayPacket) -> tuple[str, Plan | None]:
         final_state: CloudPlanningState | None = None
         confidence: float = 0.0
         rationale: str = ""
@@ -100,7 +117,6 @@ class CloudOrchestrator:
                 decision = "no_safe_plan"
                 plan = None
         _observe_cloud_metric_seconds("cloud_planning_duration_seconds", time.monotonic() - t0)
-
         await self._finalise_incident(final_state, decision, plan)
         logger.info(
             "cloud_plan decision=%s confidence=%.2f steps=%d trace_id=%s | %s",
@@ -110,8 +126,7 @@ class CloudOrchestrator:
             trace_id,
             rationale[:200],
         )
-        async with self._lock:
-            self._results[trace_id] = PlanningResult(decision=decision, plan=plan)
+        return decision, plan
 
     async def _finalise_incident(
         self,
@@ -156,3 +171,66 @@ class CloudOrchestrator:
             if trace_id not in self._results:
                 return None
             return self._results[trace_id]
+
+
+def _pending_incident_record(packet: MaydayPacket) -> IncidentRecord:
+    anomaly_key = packet.anomalies[0].key if packet.anomalies else "UNKNOWN"
+    severity = packet.anomalies[0].severity.value if packet.anomalies else "unknown"
+    return IncidentRecord(
+        incident_id=str(uuid.uuid4()),
+        escalation_id=packet.trace_id,
+        trace_id=packet.trace_id,
+        device_id=packet.device_id,
+        anomaly_key=anomaly_key,
+        anomaly_type="detected",
+        severity=severity,
+        summary=f"device={packet.device_id} anomaly={anomaly_key} queued",
+        raw_packet_json=packet.model_dump_json(),
+        retrieved_incident_ids_json="[]",
+        candidate_plan_json=None,
+        validation_errors_json="[]",
+        decision="pending",
+        created_at=datetime.now(UTC),
+    )
+
+
+class SQSCloudOrchestrator:
+    """Orchestrator that enqueues packets to SQS and reads results from Postgres.
+
+    The API process writes a ``"pending"`` incident record to Postgres and
+    pushes the packet onto the SQS queue.  One or more worker processes
+    long-poll the queue, run the full planning workflow, and write the final
+    decision back to Postgres.  ``get_result()`` polls Postgres directly, so
+    it works correctly across multiple Fargate tasks.
+    """
+
+    def __init__(
+        self,
+        repo: IncidentRepositoryProtocol,
+        sqs_queue: SQSQueue,
+    ) -> None:
+        self._repo = repo
+        self._sqs = sqs_queue
+
+    async def submit(self, packet: MaydayPacket) -> str:
+        record = _pending_incident_record(packet)
+        await self._repo.save_incident(record)
+        await self._sqs.enqueue(
+            {"trace_id": packet.trace_id, "packet": packet.model_dump(mode="json")}
+        )
+        _increment_cloud_metric("cloud_planning_requests_total")
+        return packet.trace_id
+
+    async def get_result(self, trace_id: str) -> PlanningResult | Literal["pending"] | None:
+        record = await self._repo.get_incident_by_trace_id(trace_id)
+        if record is None:
+            return None
+        if record.decision == "pending":
+            return "pending"
+        plan: Plan | None = None
+        if record.candidate_plan_json:
+            try:
+                plan = Plan.model_validate_json(record.candidate_plan_json)
+            except Exception:
+                logger.warning("Failed to deserialise plan for trace_id=%s", trace_id)
+        return PlanningResult(decision=record.decision, plan=plan)

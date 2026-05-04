@@ -14,16 +14,26 @@ from cortexguard.edge.models.plan import Plan
 logger = logging.getLogger(__name__)
 
 
+_AUTH_HEADER = "X-CortexGuard-Key"
+
+
 class HttpCloudAgentClient:
     def __init__(
         self,
         cloud_base_url: str,
         poll_interval_s: float = 2.0,
         http_client: httpx.AsyncClient | None = None,
+        api_key: str | None = None,
     ) -> None:
         self._base_url = cloud_base_url.rstrip("/")
         self._poll_interval_s = poll_interval_s
         self._http_client = http_client
+        self._api_key = api_key
+
+    def _auth_headers(self) -> dict[str, str]:
+        if self._api_key is not None:
+            return {_AUTH_HEADER: self._api_key}
+        return {}
 
     async def send_escalation(self, packet: MaydayPacket) -> Plan | None:
         try:
@@ -32,7 +42,7 @@ class HttpCloudAgentClient:
                 post_resp = await client.post(
                     f"{self._base_url}/api/v1/mayday",
                     content=packet.model_dump_json(),
-                    headers={"Content-Type": "application/json"},
+                    headers={"Content-Type": "application/json", **self._auth_headers()},
                 )
                 if post_resp.status_code not in (200, 202):
                     logger.warning("Mayday POST returned %d", post_resp.status_code)
@@ -42,7 +52,10 @@ class HttpCloudAgentClient:
                 trace_id = accepted.trace_id
 
                 while True:
-                    get_resp = await client.get(f"{self._base_url}/api/v1/mayday/{trace_id}/result")
+                    get_resp = await client.get(
+                        f"{self._base_url}/api/v1/mayday/{trace_id}/result",
+                        headers=self._auth_headers(),
+                    )
                     if get_resp.status_code == 200:
                         body = get_resp.json()
                         if isinstance(body, dict) and "plan_id" in body:

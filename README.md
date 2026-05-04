@@ -95,7 +95,7 @@ flowchart TD
     subgraph CLOUD["Cloud Tier "]
         CDA["Cloud Planner\n(LangGraph + RAG + LLM)\nplan_ready | needs_human | no_safe_plan"]
         QDR[("Qdrant\n(vector store)")]
-        DB[("SQLite\n(incident store)")]
+        DB[("Postgres\n(incident store)\nSQLite locally")]
         MCPS["MCP Server\n(operator interface)"]
         CDA --> QDR
         CDA --> DB
@@ -142,7 +142,7 @@ deliberative planning via LLM and surfaces operator tooling via MCP.
 |Agentic AI                   |SafetyAgent, PolicyAgent, MaydayAgent, Cloud Planner|
 |LLM Policy Generation        |Mistral-7B-Instruct (on-device edge), pluggable cloud LLM (Groq/Anthropic/mock)|
 |Cloud Deliberative Planning  |LangGraph 5-node workflow, RAG over incident history (Qdrant + MiniLM), capability validation|
-|Model Lifecycle              |AWS SageMaker (future deployment target)|
+|Cloud Infrastructure         |AWS ECS (Fargate) — Terraform-managed: ECS, ALB, RDS (Postgres), EFS, SQS, Secrets Manager, ECR|
 |Observability                |Prometheus/Grafana metrics, OpenTelemetry traces|
 |Testing & Validation         |Unit, integration (chaos engine), e2e — 80% coverage enforced|
 
@@ -314,11 +314,74 @@ task test-e2e      # end-to-end
 |LLM (edge):         |Mistral-7B-Instruct-v0.2 (on-device inference)|
 |LLM (cloud):        |Pluggable — Groq (Llama 3.3 70B), Anthropic (Claude Haiku), mock|
 |Vector store:       |Qdrant + sentence-transformers MiniLM (384-dim)|
-|Infrastructure:     |Docker, Prometheus, Grafana, OpenTelemetry/Tempo|
+|Infrastructure:     |Docker (local/demo), AWS ECS Fargate + Terraform (production)|
 |Observability:      |OpenTelemetry|
 |Data Fusion:        |NumPy, Pandas, torchvision|
 |Testing:            |pytest, pytest-asyncio, pytest-cov|
 
+
+# ☁️ Production Deployment (AWS)
+
+The cloud tier deploys to AWS ECS Fargate via Terraform (see `terraform/`). Resources provisioned: ECS cluster, ALB, RDS (Postgres 16), EFS (Qdrant storage), SQS queues, Secrets Manager, ECR, CloudWatch, and service discovery.
+
+```bash
+cd terraform
+cp terraform.tfvars.example terraform.tfvars   # fill in secrets
+terraform init && terraform apply
+```
+
+Full deployment and teardown instructions: [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+
+
+# 🗺️ AWS Infrastructure
+
+```mermaid
+flowchart TD
+    subgraph EXT["External"]
+        EDGE["Edge Tier\n(MaydayAgent)"]
+        OP["Operator\n(Claude Code / MCP)"]
+    end
+
+    subgraph VPC["VPC"]
+        ALB["ALB\n(internet-facing)\nHTTP :80 → HTTPS :443"]
+
+        subgraph CLUSTER["ECS Cluster (Fargate)"]
+            API["cloud-api\n:8001"]
+            WORKER["worker\n(SQS consumer)"]
+            QDRANT["qdrant\n:6333\n(Cloud Map DNS)"]
+        end
+
+        RDS[("RDS\nPostgres 16\ndb.t3.micro\n(private)")]
+        EFS[("EFS\n(encrypted,\nIA after 30d)")]
+        SQS["SQS — mayday\n(5 min visibility,\n1d retention)"]
+        DLQ["SQS — mayday-dlq\n(after 3 failures,\n14d retention)"]
+    end
+
+    ECR["ECR\n(cloud-api image)"]
+    SM["Secrets Manager\n(Groq / Anthropic /\nAPI key / DB URL)"]
+    CW["CloudWatch Logs\n(api / worker / qdrant)"]
+
+    OP -->|HTTPS| ALB
+    EDGE -->|MaydayPacket| SQS
+    ALB -->|:8001| API
+    WORKER -->|polls| SQS
+    SQS -.->|3× failure| DLQ
+    API --> RDS
+    API --> QDRANT
+    WORKER --> RDS
+    WORKER --> QDRANT
+    QDRANT --> EFS
+
+    ECR -.->|image pull| API
+    ECR -.->|image pull| WORKER
+    SM -.->|secrets at startup| API
+    SM -.->|secrets at startup| WORKER
+    API -.->|logs| CW
+    WORKER -.->|logs| CW
+    QDRANT -.->|logs| CW
+```
+
+All resources are Terraform-managed. Solid lines = data flow; dashed lines = infrastructure provisioning / configuration at deploy/startup time.
 
 # 🧹 Code Quality
 CortexGuard enforces production-level quality with:
@@ -326,7 +389,6 @@ CortexGuard enforces production-level quality with:
 * mypy strict mode for static typing
 * pytest with 80% coverage minimum
 * Bandit for security scanning
-* pre-commit for local commit checks
 
 
 # 🧑‍💻 Author

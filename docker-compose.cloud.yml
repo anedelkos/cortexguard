@@ -1,4 +1,20 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: cortexguard
+      POSTGRES_PASSWORD: cortexguard
+      POSTGRES_DB: cortexguard_cloud
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cortexguard"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   cloud-api:
     build:
       context: .
@@ -12,16 +28,22 @@ services:
       - CLOUD_ANTHROPIC_API_KEY=${CLOUD_ANTHROPIC_API_KEY:-}
       - CLOUD_EMBEDDER_BACKEND=miniLM
       - CLOUD_VECTOR_STORE_BACKEND=qdrant
-      - CLOUD_INCIDENT_STORE=sqlite
+      - CLOUD_INCIDENT_STORE=${CLOUD_INCIDENT_STORE:-postgres}
+      - CLOUD_DB_URL=postgresql://cortexguard:cortexguard@postgres:5432/cortexguard_cloud
       - CLOUD_DB_PATH=/data/cortexguard_cloud.db
       - CLOUD_QDRANT_URL=http://qdrant:6333
+      - CLOUD_API_KEY=${CLOUD_API_KEY:-}
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4318
       - LOG_JSON=true
     volumes:
       - cloud-db:/data
     depends_on:
-      - qdrant
-      - tempo
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      tempo:
+        condition: service_started
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -83,6 +105,7 @@ services:
 
 volumes:
   cloud-db:
+  postgres-data:
   qdrant-storage:
   grafana-data:
   tempo-data:

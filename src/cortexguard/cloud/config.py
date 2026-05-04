@@ -60,3 +60,10 @@ class CloudConfig:
     cloud_retrieval_failure_penalty: float = field(
         default_factory=lambda: float(os.getenv("CLOUD_RETRIEVAL_FAILURE_PENALTY", "0.1"))
     )
+    # Postgres DSN — used when incident_store == "postgres"
+    db_url: str | None = field(default_factory=lambda: os.getenv("CLOUD_DB_URL"))
+    # Shared-secret auth — unset disables auth (local dev only)
+    api_key: str | None = field(default_factory=lambda: os.getenv("CLOUD_API_KEY"))
+    # SQS — unset keeps in-process async mode; set enables worker-based async mode
+    sqs_queue_url: str | None = field(default_factory=lambda: os.getenv("CLOUD_SQS_QUEUE_URL"))
+    sqs_region: str = field(default_factory=lambda: os.getenv("CLOUD_SQS_REGION", "us-east-1"))
