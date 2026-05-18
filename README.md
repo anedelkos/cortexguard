@@ -14,14 +14,14 @@ CortexGuard monitors autonomous systems in real time, detects faults across sens
 and drives recovery — locally when possible, via cloud deliberative AI when the fault is complex. Built for systems
 that execute physical tasks near humans: robot arms, autonomous vehicles, and similar edge-deployed actuators.
 
-The edge tier makes reflexive decisions in milliseconds (E-STOP, PAUSE, local remediation plan). When a fault exceeds
+The edge tier makes reflexive decisions in milliseconds (Safety HALT, PAUSE, local remediation plan). When a fault exceeds
 local reasoning capacity, it escalates to the cloud planner, which retrieves similar past incidents, generates a
 validated recovery plan via LLM, and returns it to the edge — all while the edge continues operating safely.
 
 
 # 🧩 Key Features
 * 🧠 Detects faults across sensor, vision, and task-intent streams — statistical, rule-based, and vision detectors run in parallel every tick
-* ⚡ Sub-millisecond edge decisions (E-STOP / PAUSE / NOMINAL) with LLM-generated remediation for non-trivial faults
+* ⚡ Sub-millisecond edge decisions (Safety HALT / PAUSE / NOMINAL) with LLM-generated remediation for non-trivial faults
 * ☁️ Cloud deliberative planner handles novel failures: RAG over incident history → LLM plan → capability validation → edge execution
 * 🔌 Human-in-the-loop via MCP: operators inspect incidents, approve or override plans, and feed resolutions back into the RAG store
 * 📊 Full observability: Prometheus/Grafana dashboards, OpenTelemetry distributed traces (edge → cloud), structured JSON logs
@@ -59,7 +59,7 @@ flowchart TD
         end
 
         subgraph S3["③ Safety"]
-            SA["SafetyAgent\n(E-STOP / PAUSE / NOMINAL)\n(evaluated every tick)"]
+            SA["SafetyAgent\n(Safety HALT / PAUSE / NOMINAL)\n(evaluated every tick)"]
         end
 
         subgraph S4["④ Policy & Remediation"]
@@ -125,7 +125,7 @@ deliberative planning via LLM and surfaces operator tooling via MCP.
 # Flow summary:
     1. Sensor readings, camera frames, and task intent are fused into a smoothed state snapshot every tick.
     2. Four detectors run in parallel: statistical impulse, hard-limit thresholds, logical rules, vision proximity.
-    3. SafetyAgent evaluates hard safety rules → E-STOP / PAUSE / NOMINAL command issued immediately.
+    3. SafetyAgent evaluates hard safety rules → Safety HALT / PAUSE / NOMINAL command issued immediately.
     4. PolicyAgent generates a RemediationPolicy (rules-based or local LLM) and schedules a recovery Plan.
     5. Orchestrator executes the Plan via StepExecutor → Arbiter (capability gating) → Controller.
     6. If local recovery fails after retries, MaydayAgent escalates to the cloud planner.
@@ -174,8 +174,8 @@ task demo:inject SCENARIO=S1.1   # repeated misgrasp → escalates to cloud plan
 
 Grafana is at `http://localhost:3000` (no login). Other scenarios:
 ```bash
-task demo:inject SCENARIO=S0.1   # human in safety radius → E-STOP
-task demo:inject SCENARIO=S0.2   # overheat + smoke → E-STOP
+task demo:inject SCENARIO=S0.1   # human in safety radius → Safety HALT
+task demo:inject SCENARIO=S0.2   # overheat + smoke → Safety HALT
 task demo:inject SCENARIO=S2.3   # sensor freeze → local recovery
 task demo:inject SCENARIO=S4.1   # compound fault → recovery or escalate
 ```
@@ -199,7 +199,11 @@ task demo:inject --list   # or: uv run python demo/chaos_stream.py --list
 
 # 🧑‍💻 MCP Operator Demo (Human-in-the-Loop)
 
+When local recovery fails, most systems either halt silently or require manual inspection with no context. CortexGuard escalates to a human operator with RAG-retrieved incident history — then stores the resolution back into memory so the next occurrence costs less.
+
 ![CortexGuard MCP demo](docs/cortexguard-mcp-demo.gif)
+
+A compound fault triggers a safety Halt → MaydayAgent escalates to the cloud LLM → low confidence on the response surfaces a human operator via MCP → past incident context is retrieved from Qdrant → the operator resolves it → resolution is written back to RAG.
 
 When the cloud planner returns `needs_human`, an operator connects via Claude Code and resolves the incident interactively — inspecting the plan, requesting alternatives, and feeding the outcome back into the RAG store.
 
@@ -277,7 +281,7 @@ task test-e2e      # end-to-end
 
 | Agent | Purpose | Location |
 |---|---|---|
-| `SafetyAgent` | Evaluates hard safety rules every tick → E-STOP / PAUSE / NOMINAL | Edge |
+| `SafetyAgent` | Evaluates hard safety rules every tick → Safety HALT / PAUSE / NOMINAL | Edge |
 | `PolicyAgent` | Generates RemediationPolicy via rules-based dispatch or local LLM | Edge |
 | `MaydayAgent` | Escalates to cloud when local recovery fails; handles retry/backoff | Edge |
 | Cloud Planner | 5-node LangGraph workflow: retrieval → LLM planning → validation → routing | Cloud |
@@ -291,7 +295,7 @@ task test-e2e      # end-to-end
 |Item dropped                 |Torque spike + occlusion   |Stop, identify drop, recover|
 |Smoke detected               |Smoke sensor rise          |Stop, human notification|
 |Item displaced by human      |Vision mismatch            |Pause, replan pick step|
-|Human in safety radius       |Vision proximity < 0.5m    |E-STOP immediate|
+|Human in safety radius       |Vision proximity < 0.5m    |Safety Halt immediate|
 |Sensor freeze                |Static readings detected   |Hold state, retry, warn|
 
 
