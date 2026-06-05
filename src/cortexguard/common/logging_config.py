@@ -4,7 +4,7 @@ import logging
 import os
 import sys
 
-from opentelemetry import trace
+import opentelemetry.trace as trace
 
 LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | trace_id=%(trace_id)s | %(message)s"
 JSON_LOG_FORMAT = (

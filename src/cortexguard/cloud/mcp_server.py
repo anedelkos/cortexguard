@@ -7,7 +7,7 @@ import json
 import logging
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import mcp.types as types
 from mcp.server import Server
@@ -392,13 +392,16 @@ async def _handle_create_remediation_plan(arguments: dict[str, Any]) -> dict[str
     state_summary: str | None = arguments.get("state_summary")
     proposed_local_attempts: list[str] = arguments.get("proposed_local_attempts", [])
 
-    # Incorporate optional operator context into the reasoning trace
+    # Incorporate optional operator context into the reasoning trace as structured dicts
     operator_context: list[str] = []
     if summary:
         operator_context.append(f"OPERATOR_SUMMARY: {summary}")
     if state_summary:
         operator_context.append(f"STATE_SUMMARY: {state_summary}")
-    reasoning_trace = operator_context + list(proposed_local_attempts)
+    reasoning_trace = cast(
+        list[dict[str, object]],
+        [{"text": s} for s in operator_context + list(proposed_local_attempts)],
+    )
 
     try:
         severity = AnomalySeverity[severity_str.upper()]
@@ -546,7 +549,15 @@ async def _handle_propose_alternative_plan(arguments: dict[str, Any]) -> dict[st
             "incident_id": incident_id,
         }
 
-    packet.reasoning_trace = list(packet.reasoning_trace) + [f"CONSTRAINT: {avoid}"]
+    # Normalize any existing string entries into dicts, then append constraint as a dict
+    normalized = []
+    for t in list(packet.reasoning_trace):
+        if isinstance(t, dict):
+            normalized.append(t)
+        else:
+            normalized.append({"text": str(t)})
+    normalized.append({"text": f"CONSTRAINT: {avoid}"})
+    packet.reasoning_trace = normalized
     new_trace_id = str(uuid.uuid4())
     packet.trace_id = new_trace_id
 

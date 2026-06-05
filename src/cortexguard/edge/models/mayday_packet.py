@@ -30,7 +30,7 @@ class MaydayPacket(BaseModel):
 
     state_estimate: dict[str, object] | None = None
     scene_graph_compact: dict[str, object] | None = None
-    reasoning_trace: list[str] = Field(default_factory=list)
+    reasoning_trace: list[dict[str, object]] = Field(default_factory=list)
 
     # Compact, not raw models (use model_dump())
     remediation_policy: dict[str, object] | None = None

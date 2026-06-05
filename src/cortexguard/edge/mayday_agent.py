@@ -163,9 +163,15 @@ class MaydayAgent:
             recent_actions = []
 
         try:
-            reasoning_trace = [
-                e.model_dump() for e in (await blackboard.get("reasoning_trace", []))
-            ]
+            # Prefer the dedicated reasoning_traces deque on the blackboard. Fall back
+            # to the custom-state key "reasoning_trace" for backwards compatibility.
+            traces_attr = getattr(blackboard, "reasoning_traces", None)
+            if traces_attr is not None:
+                reasoning_trace = [e.model_dump() for e in list(traces_attr)]
+            else:
+                reasoning_trace = [
+                    e.model_dump() for e in (await blackboard.get("reasoning_trace", []))
+                ]
         except Exception:
             reasoning_trace = []
 
