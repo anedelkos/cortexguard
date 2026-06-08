@@ -3,7 +3,7 @@ Runtime safety and recovery layer for autonomous systems
 
 
 ## Short Description
-Autonomous systems fail mid-task — dropped items, thermal spikes, sensor faults, vision anomalies. Recovery has to
+Autonomous systems fail mid-task: dropped items, thermal spikes, sensor faults, vision anomalies. Recovery has to
 happen in milliseconds, but deliberative AI is too slow for hard real-time and too rigid to handle novel failures.
 CortexGuard is the control layer between them: a two-tier safety and recovery system for autonomous systems executing
 tasks in proximity to humans and equipment.
@@ -11,21 +11,21 @@ tasks in proximity to humans and equipment.
 
 # 🧭 Overview
 CortexGuard monitors autonomous systems in real time, detects faults across sensor, vision, and task-intent streams,
-and drives recovery — locally when possible, via cloud deliberative AI when the fault is complex. Built for systems
+and drives recovery, locally when possible, via cloud deliberative AI when the fault is more complex. Built for systems
 that execute physical tasks near humans: robot arms, autonomous vehicles, and similar edge-deployed actuators.
 
 The edge tier makes reflexive decisions in milliseconds (Safety HALT, PAUSE, local remediation plan). When a fault exceeds
 local reasoning capacity, it escalates to the cloud planner, which retrieves similar past incidents, generates a
-validated recovery plan via LLM, and returns it to the edge — all while the edge continues operating safely.
+validated recovery plan via LLM, and returns it to the edge, all while the edge continues operating safely.
 
 
 # 🧩 Key Features
-* 🧠 Detects faults across sensor, vision, and task-intent streams — statistical, rule-based, and vision detectors run in parallel every tick
+* 🧠 Detects faults across sensor, vision, and task-intent streams: statistical, rule-based, and vision detectors run in parallel every tick
 * ⚡ Sub-millisecond edge decisions (Safety HALT / PAUSE / NOMINAL) with LLM-generated remediation for non-trivial faults
 * ☁️ Cloud deliberative planner handles novel failures: RAG over incident history → LLM plan → capability validation → edge execution
 * 🔌 Human-in-the-loop via MCP: operators inspect incidents, approve or override plans, and feed resolutions back into the RAG store
 * 📊 Full observability: Prometheus/Grafana dashboards, OpenTelemetry distributed traces (edge → cloud), structured JSON logs
-* 🧪 Chaos engine for anomaly injection — replay real datasets or inject fault scenarios against a live edge
+* 🧪 Chaos engine for anomaly injection: replay real datasets or inject fault scenarios against a live edge
 
 
 🏗️ Architecture
@@ -142,32 +142,32 @@ deliberative planning via LLM and surfaces operator tooling via MCP.
 |Agentic AI                   |SafetyAgent, PolicyAgent, MaydayAgent, Cloud Planner|
 |LLM Policy Generation        |Mistral-7B-Instruct (on-device edge), pluggable cloud LLM (Groq/Anthropic/mock)|
 |Cloud Deliberative Planning  |LangGraph 5-node workflow, RAG over incident history (Qdrant + MiniLM), capability validation|
-|Cloud Infrastructure         |AWS ECS (Fargate) — Terraform-managed: ECS, ALB, RDS (Postgres), EFS, SQS, Secrets Manager, ECR|
+|Cloud Infrastructure         |AWS ECS (Fargate), ECS, ALB, RDS (Postgres), EFS, SQS, Secrets Manager, ECR|
 |Observability                |Prometheus/Grafana metrics, OpenTelemetry traces|
-|Testing & Validation         |Unit, integration (chaos engine), e2e — 80% coverage enforced|
+|Testing & Validation         |Unit, integration (chaos engine), e2e. 80% coverage enforced|
 
 
 # ⚡ Quick Demo
 
 ![CortexGuard demo](docs/cortexguard-demo.gif)
 
-See anomaly detection and cloud deliberative planning in action — no Python install required. Copy your Groq API key to `.env` first (free tier at console.groq.com):
+See anomaly detection and cloud deliberative planning in action, no Python install required. Copy your Groq API key to `.env` first (free tier at console.groq.com):
 
 ```
 CLOUD_GROQ_API_KEY=gsk_...
 ```
 
-**Terminal 1** — start the full stack (normal baseline, S0.0):
+**Terminal 1** - start the full stack (normal baseline, S0.0):
 ```bash
 task demo:up          # or: task demo:up-rebuild on first run
 ```
 
-**Terminal 2** — seed the RAG store with resolved historical incidents (once per fresh volume):
+**Terminal 2** - seed the RAG store with resolved historical incidents (once per fresh volume):
 ```bash
 task demo:seed-rag
 ```
 
-**Terminal 2** — inject an anomaly scenario to trigger cloud escalation:
+**Terminal 2** - inject an anomaly scenario to trigger cloud escalation:
 ```bash
 task demo:inject SCENARIO=S1.1   # repeated misgrasp → escalates to cloud planner
 ```
@@ -187,9 +187,9 @@ task demo:inject SCENARIO=S4.1   # compound fault → recovery or escalate
 - Recent Cloud Plans panel: live log of LLM-generated recovery plan rationales (Loki)
 - Tempo: full distributed traces linking edge MaydayAgent spans to cloud planning nodes
 
-> **No API key?** The cloud planner falls back to mock mode automatically — canned recovery plans are generated and the full observability stack (Prometheus, Loki, Tempo) still runs.
+> **No API key?** The cloud planner falls back to mock mode automatically, canned recovery plans are generated and the full observability stack (Prometheus, Loki, Tempo) still runs.
 
-> **Edge LLM (Mistral-7B):** The Docker demo runs edge policy in mock mode — no model weights downloaded. Set `POLICY_USE_MOCK=false` outside Docker with `task venv` + `task edge:run` to enable real on-device inference. Requires ~4GB download on first run; CUDA GPU recommended (RTX 3060 or better, ~10–15s per inference).
+> **Edge LLM (Mistral-7B):** The Docker demo runs edge policy in mock mode, no model weights downloaded. Set `POLICY_USE_MOCK=false` outside Docker with `task venv` + `task edge:run` to enable real on-device inference. Requires ~4GB download on first run; CUDA GPU recommended (RTX 3060 or better, ~10–15s per inference).
 
 To list all available scenarios:
 ```bash
@@ -199,13 +199,13 @@ task demo:inject --list   # or: uv run python demo/chaos_stream.py --list
 
 # 🧑‍💻 MCP Operator Demo (Human-in-the-Loop)
 
-When local recovery fails, most systems either halt silently or require manual inspection with no context. CortexGuard escalates to a human operator with RAG-retrieved incident history — then stores the resolution back into memory so the next occurrence costs less.
+When local recovery fails, most systems either halt silently or require manual inspection with no context. CortexGuard escalates to a human operator with RAG-retrieved incident history, then stores the resolution back into memory so the next occurrence costs less.
 
 ![CortexGuard MCP demo](docs/cortexguard-mcp-demo.gif)
 
 A compound fault triggers a safety Halt → MaydayAgent escalates to the cloud LLM → low confidence on the response surfaces a human operator via MCP → past incident context is retrieved from Qdrant → the operator resolves it → resolution is written back to RAG.
 
-When the cloud planner returns `needs_human`, an operator connects via Claude Code and resolves the incident interactively — inspecting the plan, requesting alternatives, and feeding the outcome back into the RAG store.
+When the cloud planner returns `needs_human`, an operator connects via Claude Code and resolves the incident interactively: inspecting the plan, requesting alternatives, and feeding the outcome back into the RAG store.
 
 The demo stack (`task demo:up`) forces `needs_human` on every cloud escalation (`CLOUD_MIN_CONFIDENCE=1.1`), so every injected anomaly reaches the operator queue.
 
@@ -225,16 +225,16 @@ claude mcp add cortexguard -- docker exec -i cortexguard-cloud-api python -m cor
 
 ```
 > A CortexGuard needs_human alert just fired. Use get_latest_incident to see what happened.
-> Explain the proposed plan in plain English — I'm a hardware operator, not an engineer.
+> Explain the proposed plan in plain English. I'm a hardware operator, not an engineer.
 > The plan looks good. Record that I resolved this by re-seating the gripper. Outcome: resolved.
 ```
 
 ```
-> I can't do the force-retry step — it's not safe given current device state. Generate an alternative plan that avoids it.
+> I can't do the force-retry step. It's not safe given current device state. Generate an alternative plan that avoids it.
 > Record that I intervened manually and brought the device back to nominal. Outcome: resolved.
 ```
 
-Claude calls the MCP tools automatically. Each resolution is re-embedded in Qdrant — the next similar escalation retrieves it as a prior example, and Groq generates a more informed plan.
+Claude calls the MCP tools automatically. Each resolution is re-embedded in Qdrant, the next similar escalation retrieves it as a prior example, and Groq generates a more informed plan.
 
 > **With a real LLM:** Set `CLOUD_GROQ_API_KEY=<your-key>` in `.env` for Groq (free tier). The explain step uses the same backend unless `CLOUD_EXPLAIN_BACKEND` is set separately (e.g. a local Ollama model).
 
@@ -244,7 +244,7 @@ Claude calls the MCP tools automatically. Each resolution is re-embedded in Qdra
 1️⃣ Setup
 ```bash
 task venv          # full install (includes torch/transformers)
-task venv-slim     # slim install — no torch/transformers, sufficient for demo
+task venv-slim     # slim install no torch/transformers, sufficient for demo
 ```
 
 2️⃣ Run the Edge API (host)
@@ -285,7 +285,7 @@ task test-e2e      # end-to-end
 | `PolicyAgent` | Generates RemediationPolicy via rules-based dispatch or local LLM | Edge |
 | `MaydayAgent` | Escalates to cloud when local recovery fails; handles retry/backoff | Edge |
 | Cloud Planner | 5-node LangGraph workflow: retrieval → LLM planning → validation → routing | Cloud |
-| MCP Server | Operator inspection interface — incident history, on-demand planning, plan explanation, and resolution capture via Claude Code | Cloud |
+| MCP Server | Operator inspection interface: incident history, on-demand planning, plan explanation, and resolution capture via Claude Code | Cloud |
 
 
 # 🛠️ Testing Scenarios
@@ -316,7 +316,7 @@ task test-e2e      # end-to-end
 |---|---|
 |Frameworks:         |FastAPI, LangGraph, PyTorch, HuggingFace Transformers, River|
 |LLM (edge):         |Mistral-7B-Instruct-v0.2 (on-device inference)|
-|LLM (cloud):        |Pluggable — Groq (Llama 3.3 70B), Anthropic (Claude Haiku), mock|
+|LLM (cloud):        |Pluggable Groq (Llama 3.3 70B), Anthropic (Claude Haiku), mock|
 |Vector store:       |Qdrant + sentence-transformers MiniLM (384-dim)|
 |Infrastructure:     |Docker (local/demo), AWS ECS Fargate + Terraform (production)|
 |Observability:      |OpenTelemetry|
