@@ -11,7 +11,7 @@ The edge tier is designed to run on an NVIDIA Jetson Orin (target deployment pla
 | Jetson Orin NX 16GB | 16 TOPS, 10W–25W TDP | ~$500 |
 | Jetson AGX Orin 64GB | 275 TOPS, up to 60W TDP | ~$999 |
 
-The AGX Orin is recommended for running the full stack including `MistralPolicyEngine` (7B model) locally. The NX is sufficient in mock/rules-only policy mode.
+The AGX Orin is recommended for running the full stack including the LLM policy engine (7B model) locally. The NX is sufficient in mock/rules-only policy mode.
 
 ---
 
@@ -35,12 +35,12 @@ Based on runtime configuration in `RuntimeConfig`:
 
 ## LLM Policy Engine
 
-The `MistralPolicyEngine` runs `mistralai/Mistral-7B-Instruct-v0.2` locally on the edge device.
+The LLM policy engine runs `Qwen/Qwen2.5-7B-Instruct` locally on the edge device.
 
 | Mode | Hardware | Inference Time (est.) |
 |---|---|---|
 | GPU (Jetson AGX Orin) | ~60W | ~200–500 ms per policy call |
-| CPU fallback | high power draw | several seconds — not suitable for production |
+| CPU fallback | high power draw | several seconds: not suitable for production |
 
 **Cost**: Once the model is downloaded, inference is free (on-device). No per-call API cost.
 
@@ -60,7 +60,7 @@ The cloud tier is implemented as a FastAPI service running a LangGraph planning 
 | Anthropic | `claude-haiku-4-5-20251001` | ~$0.00025/1K input tokens |
 | OpenRouter | configurable | varies by model |
 
-Escalations are rare by design — the edge handles the majority of cases locally. Expected volume: < 10 escalations/device/day in normal operation.
+Escalations are rare by design, the edge handles the majority of cases locally. Expected volume: < 10 escalations/device/day in normal operation.
 
 ### Infrastructure
 
@@ -87,7 +87,7 @@ Training runs are expected to be periodic (nightly or on-demand), not continuous
 | Mode | Latency | Cost | Capability |
 |---|---|---|---|
 | Edge only (rules-based) | < 100 ms | Hardware only | Handles known anomaly patterns |
-| Edge + local LLM (Mistral) | 100–500 ms | Hardware only | Handles novel anomalies locally |
+| Edge + local LLM (Qwen2.5-7B) | 100–500 ms | Hardware only | Handles novel anomalies locally |
 | Edge + cloud escalation (MaydayAgent) | 1–5 s | LLM API cost per escalation | Handles complex / unknown failures |
 | Fleet-level coordination (future) | 1–10 s | Cloud compute + LLM API | Cross-device reasoning, retraining, XAI |
 

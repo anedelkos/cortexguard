@@ -18,7 +18,7 @@
     * Kubernetes optional for scaling sensor data processing
     * Decision: GitHub demo uses Docker Compose; optional K8s for reliability in fleet-wide anomaly detection
 
-4. Cloud LLM Backend — Pluggable via Factory
+4. Cloud LLM Backend. Pluggable via Factory
     * Cloud deliberative planner uses a factory pattern (`get_llm_client(backend)`) to select between Groq, Anthropic, OpenRouter, and mock backends at startup via `CLOUD_LLM_BACKEND` env var.
     * Groq (Llama 3.3 70B) is the default: free tier available, OpenAI-compatible API, no local GPU required.
     * AWS SageMaker is a future deployment target for model lifecycle management (fine-tuning, periodic retraining).
@@ -53,11 +53,11 @@
 1. Apply a single EMA per sensor signal (α = 0.1)
 
     🔍 What it means
-    * EMA = Exponential Moving Average — a weighted moving average that gives more importance to recent samples.
+    * EMA = Exponential Moving Average: a weighted moving average that gives more importance to recent samples.
     * A single EMA with `alpha=0.1` (heavy smoothing) is applied per sensor key across windows.
 
     💡 Why this is useful
-    When we’re streaming sensor data (force, torque, temperature, vision embeddings, etc.), values fluctuate constantly — some spikes are real anomalies, others just noise.
+    When we’re streaming sensor data (force, torque, temperature, vision embeddings, etc.), values fluctuate constantly, some spikes are real anomalies, others just noise.
     The low alpha suppresses transient noise while tracking the signal’s sustained trend.
 
     ⚙️ How it works
@@ -73,7 +73,7 @@
 2. Optimistic fallback / Partial connection: Edge acts immediately, cloud later reconciles
 
     🔍 What it means
-    This is a network resilience pattern — how your edge device behaves when connectivity to AWS cloud is slow or temporarily lost.
+    This is a network resilience pattern, how your edge device behaves when connectivity to AWS cloud is slow or temporarily lost.
         * Optimistic fallback = The edge assumes it can make the right decision locally if the cloud isn’t responsive.
         * Partial connection = The system continues operating in “degraded mode,” caching events and syncing later.
 
@@ -83,7 +83,7 @@
     So instead:
     1. Edge makes the immediate safety or recovery decision locally.
     2. It logs the decision and event.
-    3. When the cloud reconnects, it sends logs for reconciliation — cloud replays what happened and updates its models or policies.
+    3. When the cloud reconnects, it sends logs for reconciliatio, cloud replays what happened and updates its models or policies.
 
     ⚙️ Example
     A processing step fails and the cloud link lags.
@@ -117,7 +117,7 @@
 
 
 
-# 🧠 System Overview — Edge–Cloud Cooperative Architecture
+# 🧠 System Overview: Edge–Cloud Cooperative Architecture
 1. Mission
 
     The system executes complex task plans broken into ordered steps received from a cloud orchestration system.
@@ -161,7 +161,7 @@
     * Updates the edge’s policies or parameters during low-urgency periods.
     * Maintains fleet-level analytics and retraining datasets.
 
-    Cloud decisions are integrated asynchronously — the edge acts immediately, while the cloud reconciles or improves policies later (optimistic fallback).
+    Cloud decisions are integrated asynchronously, the edge acts immediately, while the cloud reconciles or improves policies later (optimistic fallback).
 
 5. Edge–Cloud Cooperation Rules
     Case	                                Decision Location	                    Reason
@@ -209,11 +209,11 @@
 
 
 10. Key Advantages
-    * **Low latency, high safety** — local reflexes for human and environmental risks.
-    * **Scalable intelligence** — cloud learns from fleet data and updates edge logic.
-    * **Resilient operation** — optimistic fallback ensures continued service under network loss.
-    * **Adaptive planning** — `PolicyAgent` generates remediation plans; `MaydayAgent` escalates to cloud for complex scenarios.
-    * **Explainable decisions** — every anomaly and action is logged with cause, context, and source detector.
+    * **Low latency, high safety**: local reflexes for human and environmental risks.
+    * **Scalable intelligence**: cloud learns from fleet data and updates edge logic.
+    * **Resilient operation**: optimistic fallback ensures continued service under network loss.
+    * **Adaptive planning**: `PolicyAgent` generates remediation plans; `MaydayAgent` escalates to cloud for complex scenarios.
+    * **Explainable decisions**: every anomaly and action is logged with cause, context, and source detector.
 
 
 

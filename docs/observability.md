@@ -24,7 +24,7 @@ Metrics are scraped by Prometheus every 5 seconds from `http://edge:8080/metrics
 
 All metrics follow a low-cardinality design: no labels contain dynamic values like anomaly IDs, plan IDs, or trace IDs. This keeps Prometheus memory usage bounded and queries fast.
 
-### Latency — `cortexguard_component_duration_ms`
+### Latency: `cortexguard_component_duration_ms`
 
 A single histogram with a `component` label covering every major subsystem:
 
@@ -42,7 +42,7 @@ A single histogram with a `component` label covering every major subsystem:
 
 Use `histogram_quantile(0.95, ...)` to get p95 latency — the mean hides tail behavior that matters in a safety system.
 
-### HTTP Ingestion — Rate, Errors, Duration
+### HTTP Ingestion: Rate, Errors, Duration
 
 | Metric | Type | What it measures |
 |--------|------|-----------------|
@@ -51,7 +51,7 @@ Use `histogram_quantile(0.95, ...)` to get p95 latency — the mean hides tail b
 
 Use `rate(cortexguard_http_requests_total{status_code=~"4..|5.."}[5m])` for error rate and `histogram_quantile(0.95, rate(cortexguard_http_request_duration_ms_bucket[5m]))` for p95 latency.
 
-### Safety State — Gauges
+### Safety State, Gauges
 
 | Metric | What it shows | Alert threshold |
 |--------|--------------|-----------------|
@@ -64,7 +64,7 @@ Use `rate(cortexguard_http_requests_total{status_code=~"4..|5.."}[5m])` for erro
 
 The system health row of the Grafana dashboard includes all six gauges. They answer the question: *is the system currently in a normal state?*
 
-### Event Counts — Counters
+### Event Counts, Counters
 
 Counters only go up. Use `rate(...)` in Prometheus to see events per second over a window.
 

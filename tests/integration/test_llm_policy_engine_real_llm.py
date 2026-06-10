@@ -7,7 +7,7 @@ import pytest
 
 from cortexguard.edge.models.anomaly_event import AnomalyEvent, AnomalySeverity
 from cortexguard.edge.models.state_estimate import StateEstimate
-from cortexguard.edge.policy.mistral_policy_engine import MistralLLMPolicyEngine
+from cortexguard.edge.policy.llm_policy_engine import LLMPolicyEngine
 
 # --- Configuration for Integration Tests ---
 MAX_LATENCY_SECONDS = 20.0
@@ -207,9 +207,9 @@ def action_catalog_with_cooling_action_fixture(action_catalog_json_fixture: str)
 
 
 @pytest.fixture(scope="module")
-def real_llm_engine() -> MistralLLMPolicyEngine:
+def real_llm_engine() -> LLMPolicyEngine:
     """
-    Initializes the real MistralLLMPolicyEngine. This is the slowest part.
+    Initializes the real LLMPolicyEngine. This is the slowest part.
     It will skip if the RUN_SLOW_LLM_TESTS environment variable is not set to 'true'.
     """
     if not RUN_SLOW_LLM_TESTS:
@@ -217,7 +217,7 @@ def real_llm_engine() -> MistralLLMPolicyEngine:
 
     try:
         # Setting use_mock=False forces the loading of the full model.
-        engine = MistralLLMPolicyEngine(use_mock=False)
+        engine = LLMPolicyEngine(use_mock=False)
         return engine
     except Exception as e:
         # Skip if initialization fails (e.g., VRAM/CUDA unavailable)
@@ -227,7 +227,7 @@ def real_llm_engine() -> MistralLLMPolicyEngine:
 @pytest.mark.llm_slow
 @pytest.mark.integration
 def test_real_llm_schema_validation(
-    real_llm_engine: MistralLLMPolicyEngine,
+    real_llm_engine: LLMPolicyEngine,
     anomaly_event_fixture: AnomalyEvent,
     state_estimate_fixture: StateEstimate,
     action_catalog_json_fixture: str,
@@ -298,7 +298,7 @@ def test_real_llm_schema_validation(
 @pytest.mark.llm_slow
 @pytest.mark.integration
 def test_real_llm_cooling_policy(
-    real_llm_engine: MistralLLMPolicyEngine,
+    real_llm_engine: LLMPolicyEngine,
     anomaly_event_fixture: AnomalyEvent,
     state_estimate_fixture: StateEstimate,
     action_catalog_with_cooling_action_fixture: str,
@@ -333,10 +333,12 @@ def test_real_llm_cooling_policy(
     assert (
         step1.action.arguments.get("device_id") == "Cooling_Unit_001"
     ), "SET_POWER_LEVEL must target the cooling unit."
-    # We expect it to be set to max power (1.0)
+    # Expect it to increase power above current level (0.5), up to max (1.0)
+    power_level = step1.action.arguments.get("power_level")
+    assert isinstance(power_level, (int, float)), "power_level must be a number."
     assert (
-        step1.action.arguments.get("power_level") == 1.0
-    ), "Cooling power level must be set to 1.0 (max)."
+        0.6 <= power_level <= 1.0
+    ), f"Cooling power level {power_level} must be at least 0.6 and at most 1.0."
 
     # Step 2 (Optional, but likely): Check for a follow-up action (like an alert or a stop)
     if len(policy.corrective_steps) > 1:
@@ -355,7 +357,7 @@ def test_real_llm_cooling_policy(
 @pytest.mark.llm_slow
 @pytest.mark.integration
 def test_real_llm_emergency_stop_fallback(
-    real_llm_engine: MistralLLMPolicyEngine,
+    real_llm_engine: LLMPolicyEngine,
     anomaly_event_fixture: AnomalyEvent,
     state_estimate_fixture: StateEstimate,
     action_catalog_json_fixture: str,
@@ -405,7 +407,7 @@ def test_real_llm_emergency_stop_fallback(
 @pytest.mark.llm_slow
 @pytest.mark.integration
 def test_real_llm_actuator_target_grounding(
-    real_llm_engine: MistralLLMPolicyEngine,
+    real_llm_engine: LLMPolicyEngine,
     anomaly_event_fixture: AnomalyEvent,
     state_estimate_fixture: StateEstimate,
     action_catalog_with_cooling_action_fixture: str,

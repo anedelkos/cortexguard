@@ -34,7 +34,7 @@ flowchart TD
 
         subgraph S4["④ Policy & Remediation"]
             PA["PolicyAgent\n(rules-based + LLM dispatch)"]
-            MPE["MistralPolicyEngine\n(local 7B LLM)"]
+            MPE["LLMPolicyEngine\n(local 7B LLM)"]
             MA["MaydayAgent\n(escalation, retry/backoff)"]
             PA --> MPE
         end

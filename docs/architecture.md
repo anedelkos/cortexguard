@@ -7,7 +7,7 @@ Edge performs low-latency sensing + many lightweight detectors → a fusion/scor
 
 
 
-1. — High-level components
+1. High-level components
 
     * **Sensors (Edge)**: joint encoders, F/T, IMU, camera(s), depth, tactile, mic (audio), temperature, smoke/gas, weight/scale, magnetic/pressure where available.
     * **Intent / Context**: current BT node, expected subtask, expected durations, required resources.
@@ -20,35 +20,35 @@ Edge performs low-latency sensing + many lightweight detectors → a fusion/scor
 
 
 
-2. — Fusion & ensemble design principles
+2. Fusion & ensemble design principles
 
-    1. **Modality-specific detectors** — train or use detectors specialized for each sensor stream. Example detectors:
+    1. **Modality-specific detectors**: train or use detectors specialized for each sensor stream. Example detectors:
         - Vision: step-classifier CNN, object pose estimator, occlusion detector, visual drift detector (embedding distance).
         - Torque/F/T: windowed reconstruction AE or streaming Mahalanobis distance.
         - IMU / encoders: sudden velocity/accel spikes, no-motion detection.
         - Audio: contact/clatter classifier (mic picks up drop).
         - Thermal/smoke: threshold + trend detector.
         - Logs/intent: mismatch detector (e.g., expected pose vs observed).
-    2. **Normalize outputs** — map each detector’s raw output to a standardized score in [0,1] where 0 = normal, 1 = highly anomalous. Also produce categorical tags (e.g., drop, collision, occlusion, smoke).
-    3. **Temporal smoothing** — apply a single EMA (α = 0.1) per sensor key across windows to suppress transient noise while tracking sustained trends.
-    4. **Correlation matrix** — keep a time window matrix of detectors firing to learn common co-occurrences (e.g., torque spike + visual occlusion + audio thud => high-confidence drop).
+    2. **Normalize outputs**: map each detector’s raw output to a standardized score in [0,1] where 0 = normal, 1 = highly anomalous. Also produce categorical tags (e.g., drop, collision, occlusion, smoke).
+    3. **Temporal smoothing**: apply a single EMA (α = 0.1) per sensor key across windows to suppress transient noise while tracking sustained trends.
+    4. **Correlation matrix**: keep a time window matrix of detectors firing to learn common co-occurrences (e.g., torque spike + visual occlusion + audio thud => high-confidence drop).
     5. **Ensemble fusion**: combine via weighted sum + learned logistic meta-model (small classifier that consumes per-detector normalized scores, co-occurrence features, current intent, and outputs: risk_score ∈ [0,1] + likely_cause and confidence). The meta-model can be trained offline on labeled episodes (supervised) and used as a calibrator for unsupervised detectors.
-    6. **Explainability** — always include top-3 contributing detectors and their raw evidence with the fused event.
+    6. **Explainability**: always include top-3 contributing detectors and their raw evidence with the fused event.
 
 
-3. — Decision logic: mapping risk → action
+3. Decision logic: mapping risk → action
 
     > **Note:** The tier model below is used by the chaos engine / scenario loader (`tests/integration/scenario_loader.py`) to classify injected anomaly scenarios. The edge runtime itself uses `SafetyCommand` (E-STOP / PAUSE / NOMINAL) driven by per-detector rules rather than a unified risk score.
 
     Define action tiers and safety invariants:
 
-    * **Tier 0 (Immediate Safety — hard constraints)**
+    * **Tier 0 (Immediate Safety, hard constraints)**
         - Conditions: catastrophic sensor thresholds (force > hardware limit, smoke sensor above emergency threshold, joint limit exceed).
-        - Action: E-STOP (hardware e-stop if available), cut power to actuators, trigger alarm. No ML decision in the loop — deterministic.
-    * **Tier 1 (High risk — automatic edge response)**
+        - Action: E-STOP (hardware e-stop if available), cut power to actuators, trigger alarm. No ML decision in the loop, deterministic.
+    * **Tier 1 (High risk, automatic edge response)**
         - Conditions: risk_score ≥ R_high (e.g., 0.85) OR pattern-matched high-confidence dangerous cause like knife_drop_near_human, fire_detected.
         - Action: Stop motion immediately, set brakes, stream last N seconds of buffered video/telemetry to cloud, notify agents + humans with “urgent” tag.
-    * **Tier 2 (Medium risk — adaptive action)**
+    * **Tier 2 (Medium risk, adaptive action)**
         - Conditions: R_medium ≤ risk_score < R_high (e.g., 0.5–0.85), or multiple detectors weakly positive.
         - Action: Slow down / pause non-critical tasks (e.g., reduce arm speed by X%, lower torque limits), initiate targeted local recovery (e.g., re-grip attempt), or park non-involved arms. Also emit event to cloud for richer analysis.
     * **Tier 3 (Low risk / monitoring)**
@@ -63,7 +63,7 @@ Edge performs low-latency sensing + many lightweight detectors → a fusion/scor
     Important: the control arbiter must be the only component able to effect motion-level commands; agents request actions and the arbiter enforces safety invariants.
 
 
-4. — Agents & handoffs
+4. Agents & handoffs
 
     * **Edge Safety Agent (reflex)**: on Tier 0/1 events, performs immediate actions locally (stop, retract, apply park pose). No cloud dependency.
     * **Policy Agent (fast)**: generates `RemediationPolicy` with corrective steps (retry grip, re-align tool, small reposition) executed as a high-priority plan if time budget < cloud_latency_threshold.
@@ -75,17 +75,17 @@ Edge performs low-latency sensing + many lightweight detectors → a fusion/scor
 
 
 
-5. — Real-time constraints & latency budget
+5. Real-time constraints & latency budget
 
     * Hard control loop: < 50 ms (local low-level control). Must never depend on cloud.
     * Edge detection loop: 50–200 ms for lightweight detectors (River, ONNX models, quantized CNNs).
     * Fusion + decision (edge): 100–300 ms. This is where ensemble produces risk_score and arbiter acts.
-    * Cloud-assisted decisions: acceptable at 500 ms — several seconds. But never used for immediate emergency response. Use cloud for richer multi-device coordination or recovery that can wait.
+    * Cloud-assisted decisions: acceptable at 500 ms - several seconds. But never used for immediate emergency response. Use cloud for richer multi-device coordination or recovery that can wait.
     * Network planning: measure round-trip time (RTT) and set cloud_latency_threshold (e.g., 1.5s). If a decision must complete before deadline < cloud_latency_threshold, edge must proceed locally.
 
 
 
-6. — Data model & event format (JSON)
+6. Data model & event format (JSON)
     ```
     {
     "event_id": "uuid",
@@ -115,7 +115,7 @@ Edge performs low-latency sensing + many lightweight detectors → a fusion/scor
 
 
 
-7. — Fusion / ensemble code sketch pseudocode
+7. Fusion / ensemble code sketch pseudocode
 
     This is a compact example showing detector normalization, fusion via logistic meta-model, and decision actions.
 
@@ -211,7 +211,7 @@ Edge performs low-latency sensing + many lightweight detectors → a fusion/scor
 
 
 
-8. — Agent API sketch (edge ↔ cloud)
+8. Agent API sketch (edge ↔ cloud)
 
     Edge posts fused events to cloud, cloud replies with recommended structured plan. Always include action_id and require arbiter confirmation.
 
@@ -226,25 +226,25 @@ Edge performs low-latency sensing + many lightweight detectors → a fusion/scor
 
 
 
-9. — Human-in-the-loop & UI
+9. Human-in-the-loop & UI
 
     * Provide real-time dashboard with video + highlighted evidence + recommended action (accept / modify / manual control).
     * For hazardous events (smoke/fire), send immediate push/phone alerts and log.
     * Provide “operator override” via secure API that arbiter respects.
 
 
-10. — Testing & validation plan
+10. Testing & validation plan
 
     * **Unit tests**: detectors, normalizers, meta-model predictions.
     * **Integration tests**: replay labeled episodes (use NAB-like sensor streams + recorded video) to measure precision/recall for hazardous classes.
-    * **Scenario tests (simulated)**: multi-task operations with timed anomalies — measure task completion rate, false stop rate.
+    * **Scenario tests (simulated)**: multi-task operations with timed anomalies, measure task completion rate, false stop rate.
     * **Latency tests**: measure end-to-end time from sensor acquisition → decision → actuator command under different network conditions.
     * **Safety tests**: force hard-stop condition triggers, interlock validation.
 
     Metrics to report on README: detection latency, P/R for hazardous classes, false positive rate per hour, successful automatic recovery rate, MTTR.
 
 
-11. — Deployment notes & model lifecycle
+11. Deployment notes & model lifecycle
 
     * Run detectors as separate lightweight processes / containers on edge; orchestrator subscribes to their outputs.
     * Model updates: cloud trains meta-models/classifiers, signs artifacts, publishes to model registry, edge fetches with version check and atomic swap.

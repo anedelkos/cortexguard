@@ -44,22 +44,22 @@ validate_candidate_plan      ← capability + confidence checks
 route_decision               → plan_ready | needs_human | no_safe_plan
 ```
 
-### Node 1 — `persist_incident`
+### Node 1: `persist_incident`
 
 Writes an `IncidentRecord` to SQLite immediately on receiving the `MaydayPacket`. This ensures every escalation is durably
 recorded even if subsequent nodes fail. Fields: `device_id`, `anomaly_key`, `severity`, `summary`, `raw_packet_json`, `decision=pending`.
 
-### Node 2 — `retrieve_similar_incidents`
+### Node 2: `retrieve_similar_incidents`
 
 Embeds a summary of the incoming `MaydayPacket` (`device_id + anomaly_keys + plan_id`) using `MiniLMEmbedder` (`all-MiniLM-L6-v2`, 384-dim, CPU)
 and performs an approximate nearest-neighbour search in Qdrant.
 
 - **Filter**: if the packet has a single anomaly key, the search is pre-filtered to only return incidents with the same `anomaly_key`. This prevents cross-anomaly noise.
 - **Learning-to-rank re-ranking**: after Qdrant retrieval, results are re-scored by a composite function (`src/cortexguard/cloud/retrieval/ranker.py`): `composite = similarity + outcome_boost - failure_penalty`. `resolved` operator resolutions add `CLOUD_RETRIEVAL_OUTCOME_BOOST` (default `0.2`); high-confidence `plan_ready` adds half that; unresolved `needs_human`/`no_safe_plan` decisions subtract `CLOUD_RETRIEVAL_FAILURE_PENALTY` (default `0.1`). Results are re-sorted by composite score before being passed to the LLM.
-- **Similarity scores surfaced**: the node stores `retrieved_incidents` as `[{incident_id, similarity_score}]` on the persisted record and in graph state — visible via the MCP `get_latest_incident` tool and `latest_planner_decision` resource.
+- **Similarity scores surfaced**: the node stores `retrieved_incidents` as `[{incident_id, similarity_score}]` on the persisted record and in graph state, visible via the MCP `get_latest_incident` tool and `latest_planner_decision` resource.
 - Returns up to 5 similar `IncidentRecord`s. Their summaries are injected into the LLM prompt as context.
 
-### Node 3 — `generate_candidate_plan`
+### Node 3: `generate_candidate_plan`
 
 Calls the configured `LLMClientProtocol` implementation with a `PlannerRequest` containing:
 
@@ -71,25 +71,25 @@ Calls the configured `LLMClientProtocol` implementation with a `PlannerRequest` 
 
 The LLM is instructed (via `instructor` structured output extraction) to return a `PlannerResponse` Pydantic model with:
 
-- `candidate_plan: Plan | None` — a full `Plan` with `PlanStep`s using only capabilities from the catalog
-- `confidence: float` — the model's self-assessed confidence [0.0–1.0]
-- `rationale: str` — plain-language explanation of the plan
-- `needs_human_review: bool` — whether the model flagged operator review
-- `raw_provider_metadata: dict` — pass-through for any LLM-specific metadata
+- `candidate_plan: Plan | None`. A full `Plan` with `PlanStep`s using only capabilities from the catalog
+- `confidence: float`. Rhe model's self-assessed confidence [0.0–1.0]
+- `rationale: str`. Plain-language explanation of the plan
+- `needs_human_review: bool`. Whether the model flagged operator review
+- `raw_provider_metadata: dict`. Pass-through for any LLM-specific metadata
 
-**Post-generation normalisation**: After the LLM returns, `_normalise_plan()` forces correct provenance — `source=PlanSource.CLOUD_AGENT`, `trace_id` set to the packet's trace_id, and any non-UUID `plan_id` / step `id` values regenerated. This ensures the edge can always deserialise the plan regardless of what the LLM chose to emit.
+**Post-generation normalisation**: After the LLM returns, `_normalise_plan()` forces correct provenance, `source=PlanSource.CLOUD_AGENT`, `trace_id` set to the packet's trace_id, and any non-UUID `plan_id` / step `id` values regenerated. This ensures the edge can always deserialise the plan regardless of what the LLM chose to emit.
 
-### Node 4 — `validate_candidate_plan`
+### Node 4: `validate_candidate_plan`
 
 `PlanValidator` checks the candidate plan against two criteria:
 
 1. **Capability validation** (`CapabilityAdapter`): every `PlanStep.action` must exist in the `CapabilityRegistry` loaded from `src/cortexguard/common/capability_registry.yaml`. Steps referencing unknown actions fail validation.
-2. **Confidence threshold**: if `confidence < CLOUD_MIN_CONFIDENCE` (default `0.5`), the plan is rejected — a low-confidence plan is riskier than `needs_human`.
+2. **Confidence threshold**: if `confidence < CLOUD_MIN_CONFIDENCE` (default `0.5`), the plan is rejected, a low-confidence plan is riskier than `needs_human`.
 3. **Human review flag**: if `needs_human_review=True` was returned by the LLM, the plan is rejected regardless of confidence.
 
 Failed validation increments `cloud_validation_failures_total`. The `ValidationResult` carries `passed`, `errors`, and `risk_level`.
 
-### Node 5 — `route_decision`
+### Node 5: `route_decision`
 
 Determines the final decision string based on state:
 
@@ -132,10 +132,10 @@ The backend is selected at startup by `CLOUD_LLM_BACKEND` via `get_llm_client(ba
 
 | Backend | Class | API |
 |---------|-------|-----|
-| `groq` (default) | `GroqLLMClient` | `https://api.groq.com/openai/v1` — OpenAI-compatible |
+| `groq` (default) | `GroqLLMClient` | `https://api.groq.com/openai/v1` - OpenAI-compatible |
 | `anthropic` | `AnthropicLLMClient` | Anthropic SDK + `instructor` |
-| `openrouter` | `OpenRouterLLMClient` | `https://openrouter.ai/api/v1` — OpenAI-compatible |
-| `grok` | `GrokLLMClient` | `https://api.x.ai/v1` — OpenAI-compatible |
+| `openrouter` | `OpenRouterLLMClient` | `https://openrouter.ai/api/v1` - OpenAI-compatible |
+| `grok` | `GrokLLMClient` | `https://api.x.ai/v1` - OpenAI-compatible |
 | `mock` | `MockLLMClient` | Deterministic canned response (no API key needed) |
 
 Groq and the OpenAI-compatible backends use `instructor.from_openai(AsyncOpenAI(...))` for structured output extraction. The Anthropic backend uses `instructor.from_anthropic(AsyncAnthropic(...))`.
@@ -189,8 +189,8 @@ Interactive API docs are served at `http://localhost:8001/docs` (Swagger UI).
 
 The cloud service is available in two compose files:
 
-- `docker-compose.cloud.yml` — standalone cloud stack (cloud-api + Qdrant)
-- `docker-compose.demo.yaml` — full demo stack (edge + simulator + cloud-api + Qdrant + Prometheus + Grafana + Tempo)
+- `docker-compose.cloud.yml`: standalone cloud stack (cloud-api + Qdrant)
+- `docker-compose.demo.yaml`: full demo stack (edge + simulator + cloud-api + Qdrant + Prometheus + Grafana + Tempo)
 
 ```bash
 # Standalone cloud stack
@@ -204,11 +204,11 @@ CLOUD_GROQ_API_KEY=<key> docker compose -f docker-compose.demo.yaml up --build
 
 ## See Also
 
-- `docs/agents_overview.md` — agent roles and responsibilities
-- `docs/observability.md` — cloud metrics and traces
-- `docs/OPERATIONS.md` — environment variable reference
-- `src/cortexguard/cloud/graph/workflow.py` — LangGraph graph construction
-- `src/cortexguard/cloud/graph/nodes.py` — individual node implementations
-- `src/cortexguard/cloud/planner/factory.py` — LLM backend factory
-- `src/cortexguard/cloud/retrieval/store.py` — RAG retrieval with outcome boosting
-- `src/cortexguard/cloud/validation/plan_validator.py` — capability and confidence validation
+- `docs/agents_overview.md`: agent roles and responsibilities
+- `docs/observability.md`: cloud metrics and traces
+- `docs/OPERATIONS.md`: environment variable reference
+- `src/cortexguard/cloud/graph/workflow.py`: LangGraph graph construction
+- `src/cortexguard/cloud/graph/nodes.py`: individual node implementations
+- `src/cortexguard/cloud/planner/factory.py`: LLM backend factory
+- `src/cortexguard/cloud/retrieval/store.py`: RAG retrieval with outcome boosting
+- `src/cortexguard/cloud/validation/plan_validator.py`: capability and confidence validation

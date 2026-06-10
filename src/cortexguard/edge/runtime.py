@@ -60,7 +60,7 @@ from cortexguard.edge.observability.opentelemetry_tracing import setup_opentelem
 from cortexguard.edge.online_learner_state_estimator import OnlineLearnerStateEstimator
 from cortexguard.edge.orchestrator import Orchestrator
 from cortexguard.edge.persistence.persistence_manager import PersistenceManager
-from cortexguard.edge.policy.mistral_policy_engine import MistralLLMPolicyEngine
+from cortexguard.edge.policy.llm_policy_engine import LLMPolicyEngine
 from cortexguard.edge.policy.policy_agent import PolicyAgent
 from cortexguard.edge.river_online_learner import RiverOnlineLearner
 from cortexguard.edge.safety_agent import SafetyAgent
@@ -109,7 +109,7 @@ class RuntimeConfig:
 
     # Policy engine
     policy_model_id: str = field(
-        default_factory=lambda: os.getenv("POLICY_MODEL_ID", "mistralai/Mistral-7B-Instruct-v0.2")
+        default_factory=lambda: os.getenv("POLICY_MODEL_ID", "Qwen/Qwen2.5-7B-Instruct")
     )
     policy_use_mock: bool = field(
         default_factory=lambda: os.getenv("POLICY_USE_MOCK", "true").lower() == "true"
@@ -313,7 +313,7 @@ class EdgeRuntime:
 
         # --- REASONING SUBSYSTEM (Policy Agent) ---
         # 1. Instantiate the Policy Engine (LLM)
-        self.policy_engine: BasePolicyEngine = MistralLLMPolicyEngine(
+        self.policy_engine: BasePolicyEngine = LLMPolicyEngine(
             use_mock=self.config.policy_use_mock,
             model_id=self.config.policy_model_id,
         )

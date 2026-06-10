@@ -64,7 +64,7 @@ flowchart TD
 
         subgraph S4["④ Policy & Remediation"]
             PA["PolicyAgent\n(rules-based + LLM dispatch)"]
-            MPE["MistralPolicyEngine\n(local 7B LLM)"]
+            MPE["LLMPolicyEngine\n(local 7B LLM)"]
             MA["MaydayAgent\n(escalation, retry/backoff)"]
             PA --> MPE
         end
@@ -140,7 +140,7 @@ deliberative planning via LLM and surfaces operator tooling via MCP.
 |Multimodal Fusion            |Sensor + Vision + Intent (EMA smoothing, torchvision embeddings)|
 |Edge-Cloud Partitioning      |Local reflex vs cloud deliberation (optimistic fallback)|
 |Agentic AI                   |SafetyAgent, PolicyAgent, MaydayAgent, Cloud Planner|
-|LLM Policy Generation        |Mistral-7B-Instruct (on-device edge), pluggable cloud LLM (Groq/Anthropic/mock)|
+|LLM Policy Generation        |Qwen/Qwen2.5-7B-Instruct (on-device edge), pluggable cloud LLM (Groq/Anthropic/mock)|
 |Cloud Deliberative Planning  |LangGraph 5-node workflow, RAG over incident history (Qdrant + MiniLM), capability validation|
 |Cloud Infrastructure         |AWS ECS (Fargate), ECS, ALB, RDS (Postgres), EFS, SQS, Secrets Manager, ECR|
 |Observability                |Prometheus/Grafana metrics, OpenTelemetry traces|
@@ -189,7 +189,7 @@ task demo:inject SCENARIO=S4.1   # compound fault → recovery or escalate
 
 > **No API key?** The cloud planner falls back to mock mode automatically, canned recovery plans are generated and the full observability stack (Prometheus, Loki, Tempo) still runs.
 
-> **Edge LLM (Mistral-7B):** The Docker demo runs edge policy in mock mode, no model weights downloaded. Set `POLICY_USE_MOCK=false` outside Docker with `task venv` + `task edge:run` to enable real on-device inference. Requires ~4GB download on first run; CUDA GPU recommended (RTX 3060 or better, ~10–15s per inference).
+> **Edge LLM (Qwen2.5-7B):** The Docker demo runs edge policy in mock mode, no model weights downloaded. Set `POLICY_USE_MOCK=false` outside Docker with `task venv` + `task edge:run` to enable real on-device inference. Requires ~4GB download on first run; CUDA GPU recommended (RTX 3060 or better, ~10–15s per inference).
 
 To list all available scenarios:
 ```bash
@@ -315,7 +315,7 @@ task test-e2e      # end-to-end
 |Languages:          |Python 3.12|
 |---|---|
 |Frameworks:         |FastAPI, LangGraph, PyTorch, HuggingFace Transformers, River|
-|LLM (edge):         |Mistral-7B-Instruct-v0.2 (on-device inference)|
+|LLM (edge):         |Qwen/Qwen2.5-7B-Instruct (on-device inference)|
 |LLM (cloud):        |Pluggable Groq (Llama 3.3 70B), Anthropic (Claude Haiku), mock|
 |Vector store:       |Qdrant + sentence-transformers MiniLM (384-dim)|
 |Infrastructure:     |Docker (local/demo), AWS ECS Fargate + Terraform (production)|
