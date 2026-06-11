@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 import pytest_asyncio
 
-from cortexguard.edge.policy.mistral_policy_engine import MistralLLMPolicyEngine
+from cortexguard.edge.policy.llm_policy_engine import LLMPolicyEngine
 from cortexguard.edge.runtime import EdgeRuntime, RuntimeConfig, create_runtime
 
 
@@ -201,7 +201,7 @@ async def test_runtime_policy_agent_composition(runtime: EdgeRuntime) -> None:
     assert runtime.policy_agent is not None
 
     # 2. Check Policy Engine instantiation (and mock mode)
-    assert isinstance(runtime.policy_agent._policy_engine, MistralLLMPolicyEngine)
+    assert isinstance(runtime.policy_agent._policy_engine, LLMPolicyEngine)
     assert runtime.policy_agent._policy_engine._use_mock is True
 
     # 3. Check wiring to Action Registry and Blackboard

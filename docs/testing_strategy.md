@@ -31,7 +31,7 @@ Key areas covered:
 | MaydayAgent (escalation, retry/backoff) | `test_mayday_agent.py` |
 | Arbiter (capability validation, motion gating) | `test_arbiter.py` |
 | Online learner / state estimator | `test_online_learner_state_estimator.py`, `test_river_online_learner.py` |
-| Mistral policy engine (mocked LLM) | `test_mistral_policy_engine.py` |
+| LLM policy engine (mocked LLM) | `test_llm_policy_engine.py` |
 | Runtime wiring | `test_runtime.py` |
 | Simulation models and streamers | `simulation/test_*.py` |
 
@@ -51,7 +51,7 @@ Moderate speed (< 30s). Test subsystems working together with real async loops a
 | `test_mayday_agent.py` | MaydayAgent escalation with mock cloud client |
 | `test_modalities_fuser.py` | Simulation fusion pipeline with real sensor data |
 | `test_manifest_lookup.py` | Manifest loading and trial resolution |
-| `test_mistral_policy_engine_real_llm.py` | Real LLM call — marked `@pytest.mark.llm_slow`, excluded from default runs |
+| `test_llm_policy_engine_real_llm.py` | Real LLM call, marked `@pytest.mark.llm_slow`, excluded from default runs |
 
 #### Chaos Engine
 
@@ -82,9 +82,9 @@ Slow, realistic. Spin up the full runtime or simulate a stream end-to-end.
 | Marker | Meaning | Included in `task test` |
 |---|---|---|
 | _(none)_ | Standard unit/integration test | Yes |
-| `@pytest.mark.asyncio` | Async test — requires `pytest-asyncio` | Yes |
+| `@pytest.mark.asyncio` | Async test, requires `pytest-asyncio` | Yes |
 | `@pytest.mark.integration` | Requires external resources | Yes (unless also `llm_slow`) |
-| `@pytest.mark.llm_slow` | Real LLM / hardware call, slow | No — use `task test-llm-slow` |
+| `@pytest.mark.llm_slow` | Real LLM / hardware call, slow | No, use `task test-llm-slow` |
 
 ---
 
@@ -94,7 +94,7 @@ Configured in `pyproject.toml`:
 
 - **Branch coverage** enabled
 - **Minimum**: 80% (`fail_under = 80`)
-- **Excluded from coverage**: `models/`, `core/mocks/`, `core/interfaces/`, `logging_config.py` — these are data containers, mock stubs, or protocols unlikely to benefit from line coverage
+- **Excluded from coverage**: `models/`, `core/mocks/`, `core/interfaces/`, `logging_config.py`. These are data containers, mock stubs, or protocols unlikely to benefit from line coverage
 
 ---
 
@@ -105,7 +105,7 @@ Configured in `pyproject.toml`:
 | `task test` | Unit + integration, excludes `llm_slow`, with coverage |
 | `task test-unit` | Unit tests only |
 | `task test-integration` | Integration tests only, excludes `llm_slow` |
-| `task test-llm-slow` | Real LLM tests only — for CI/nightly |
+| `task test-llm-slow` | Real LLM tests only, for CI/nightly |
 | `task test-e2e` | E2E tests only |
 
 Set `PYTHONPATH=src` when running `pytest` directly (tasks do this automatically).
@@ -129,6 +129,6 @@ PYTHONPATH=src pytest tests/integration/test_anomaly_scenarios.py -v
 
 ## What Is Not Tested
 
-- **Real hardware** — actuator commands use `MockController`; no hardware-in-the-loop tests
-- **Real vision inference** — vision detectors use injected `SceneGraph` data; no camera/model integration tests
-- **LLM policy in CI** — `MistralPolicyEngine` runs in mock mode by default; real LLM tests are gated behind `llm_slow`
+- **Real hardware**: actuator commands use `MockController`; no hardware-in-the-loop tests
+- **Real vision inference**: vision detectors use injected `SceneGraph` data; no camera/model integration tests
+- **LLM policy in CI**: `LLMPolicyEngine` runs in mock mode by default; real LLM tests are gated behind `llm_slow`

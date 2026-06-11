@@ -42,7 +42,7 @@ Each capability entry in the YAML has the following fields:
 | Level | Meaning |
 |---|---|
 | `LOW` | Safe to execute autonomously |
-| `MEDIUM` | Involves heat, motion, or brief unavailability — use with care |
+| `MEDIUM` | Involves heat, motion, or brief unavailability, use with care |
 | `HIGH` | Reserved for dangerous or destructive operations |
 | `E-STOP` | Last resort; cuts power and halts all operations immediately |
 
@@ -92,4 +92,4 @@ MY_NEW_ACTION:
     - "Some resulting state change"
 ```
 
-No code changes required — the registry is loaded from YAML at startup.
+No code changes required, the registry is loaded from YAML at startup.

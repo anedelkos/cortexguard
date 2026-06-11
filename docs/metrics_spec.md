@@ -1,4 +1,4 @@
-# CortexGuard Edge — Metrics Specification
+# CortexGuard Edge Metrics Specification
 
 ## Overview
 
@@ -212,7 +212,7 @@ Count HTTP ingestion requests by method and outcome status code.
 **Cardinality constraints:**
 
 - `method` is always `POST` for the ingest endpoint.
-- `status_code` is one of a fixed set of HTTP status strings — never dynamic.
+- `status_code` is one of a fixed set of HTTP status strings, never dynamic.
 
 **Emitted by:**
 

@@ -57,8 +57,8 @@ SCENARIO=S0.1 docker compose -f docker-compose.demo.yaml up --build
 | `--endpoint` | `http://localhost:8080/api/v1/ingest` | Edge ingest endpoint |
 | `--rate` | `1.0` | Records per second |
 | `--repeat` | `1` | Times to repeat the stream (`0` = infinite loop) |
-| `--list` | — | Print all scenarios and exit |
+| `--list` | - | Print all scenarios and exit |
 
-> **Slim mode:** The demo Docker image does not install torch or transformers. All 6 scenarios work without them — vision detections and occlusion metadata are serialised directly into the `WindowedFusedRecord` payload and processed by the edge without requiring the vision embedder.
+> **Slim mode:** The demo Docker image does not install torch or transformers. All 6 scenarios work without them, vision detections and occlusion metadata are serialised directly into the `WindowedFusedRecord` payload and processed by the edge without requiring the vision embedder.
 
 > **Docker demo loop:** The Docker demo stack runs with `--repeat 0` by default so Grafana receives a continuous stream of data. The default scenario is `S0.2` (Overheat + Smoke → E-STOP), not `S0.1`. Override with e.g. `SCENARIO=S0.0 task demo:up`.

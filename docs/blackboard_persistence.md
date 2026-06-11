@@ -2,7 +2,7 @@
 
 ## Problem
 
-The `Blackboard` is the shared in-memory state bus for all edge subsystems. It holds active anomalies, running plans, remediation policies, safety flags, and recovery state. A process restart loses all of this — the system starts blind, unaware of any anomaly it was in the middle of handling.
+The `Blackboard` is the shared in-memory state bus for all edge subsystems. It holds active anomalies, running plans, remediation policies, safety flags, and recovery state. A process restart loses all of this, the system starts blind, unaware of any anomaly it was in the middle of handling.
 
 ## Goal
 
@@ -14,17 +14,17 @@ A background `PersistenceManager` task snapshots the Blackboard to a JSON file o
 
 ### Why not write-through (persist on every Blackboard write)?
 
-The Orchestrator writes `current_plan` and `current_step` at ~10Hz (every 100ms). Synchronous disk I/O on that path, even at 2ms per write, would interfere with the safety evaluation loop — the tight loop that checks sensor state and issues E-STOP / PAUSE commands. On an embedded edge device this is unacceptable.
+The Orchestrator writes `current_plan` and `current_step` at ~10Hz (every 100ms). Synchronous disk I/O on that path, even at 2ms per write, would interfere with the safety evaluation loop, the tight loop that checks sensor state and issues E-STOP / PAUSE commands. On an embedded edge device this is unacceptable.
 
 ### Why JSON and not SQLite?
 
-The requirement is simple: restore the latest state on restart. There is no need for a history of snapshots, querying across time, or concurrent readers. A single JSON file written atomically (`os.replace()`) is crash-safe on Linux, adds no new dependencies, and is human-readable — an operator can inspect or edit it directly with a text editor. SQLite would be appropriate if we needed a rolling audit trail or multi-process access; neither applies here.
+The requirement is simple: restore the latest state on restart. There is no need for a history of snapshots, querying across time, or concurrent readers. A single JSON file written atomically (`os.replace()`) is crash-safe on Linux, adds no new dependencies, and is human-readable, an operator can inspect or edit it directly with a text editor. SQLite would be appropriate if we needed a rolling audit trail or multi-process access; neither applies here.
 
 ### Acceptable data loss
 
 Up to 5 seconds of state can be lost on a hard crash (unclean shutdown). This is acceptable because:
 
-- Anomaly detectors re-run within 1 second of restart — active anomalies self-heal quickly.
+- Anomaly detectors re-run within 1 second of restart, active anomalies self-heal quickly.
 - The snapshot interval is configurable down to 1 second for environments where faster recovery matters.
 - For clean shutdowns (the common case), the final snapshot captures the exact terminal state.
 
@@ -32,7 +32,7 @@ Up to 5 seconds of state can be lost on a hard crash (unclean shutdown). This is
 
 | Field | Reason |
 |---|---|
-| `active_anomalies` | Critical — in-flight anomaly handling must survive restarts |
+| `active_anomalies` | Critical: in-flight anomaly handling must survive restarts |
 | `current_plan` / `paused_plan` | Allows the Orchestrator to resume or re-queue interrupted plans |
 | `plan_step_indices` | Tracks resume position within a preempted plan |
 | `active_remediation_policy` | Avoids re-running LLM policy generation after restart |
@@ -52,7 +52,7 @@ Up to 5 seconds of state can be lost on a hard crash (unclean shutdown). This is
 
 ## Crash safety
 
-Snapshots are written to `<path>.tmp` first, then renamed to `<path>` via `os.replace()`. On Linux, `os.replace()` is atomic at the filesystem level — a crash mid-write leaves the previous snapshot intact. The system never reads a partially-written file.
+Snapshots are written to `<path>.tmp` first, then renamed to `<path>` via `os.replace()`. On Linux, `os.replace()` is atomic at the filesystem level, a crash mid-write leaves the previous snapshot intact. The system never reads a partially-written file.
 
 ## Schema versioning
 

@@ -1,4 +1,4 @@
-# CortexGuard Edge — Operations Reference
+# CortexGuard Edge Operations Reference
 
 Audience: deploying, configuring, or debugging the edge service.
 
@@ -12,8 +12,8 @@ All variables are optional with the defaults shown. Set them in your shell, `.en
 |----------|---------|----------------------------------------------------------------------------------------------------------------------|
 | `DEVICE_ID` | `mock_01` | Device identity tag in logs and traces                                                                               |
 | `RUNTIME_PROFILE` | `default` | Runtime profile selector                                                                                             |
-| `POLICY_MODEL_ID` | `mistralai/Mistral-7B-Instruct-v0.2` | HuggingFace model ID for LLM policy engine                                                                           |
-| `POLICY_USE_MOCK` | `true` | `false` to enable real Mistral-7B inference (requires full deps + GPU recommended)                                   |
+| `POLICY_MODEL_ID` | `Qwen/Qwen2.5-7B-Instruct` | HuggingFace model ID for LLM policy engine                                                                           |
+| `POLICY_USE_MOCK` | `true` | `false` to enable real Qwen inference (requires full deps + GPU recommended)                                        |
 | `POLICY_REMEDIATION_COOLDOWN_S` | `30.0` | Minimum seconds between remediation policy generations for the same anomaly                                          |
 | `LLM_TIMEOUT_S` | `30.0` | Per-call timeout in seconds for the LLM policy engine                                                                |
 | `LLM_FAILURE_THRESHOLD` | `3` | Consecutive LLM failures before the circuit breaker opens                                                            |
@@ -38,30 +38,30 @@ All variables are optional with the defaults shown. Set them in your shell, `.en
 | `ESTIMATOR_SIGMA_THRESHOLD` | `3.0` | Standard deviation threshold used by the online state estimator for anomaly classification                           |
 | `MAYDAY_TIMEOUT_S` | `30.0` | Per-call timeout in seconds for cloud escalation via `MaydayAgent` (increase if using a hosted LLM with higher latency) |
 | `CLOUD_API_URL` | `http://localhost:8001` | URL of the cloud deliberative planner. Set on the **edge** service so `MaydayAgent` knows where to escalate.         |
-| `CLOUD_API_KEY` | — | Shared-secret sent in `X-CortexGuard-Key` header on every cloud request. Must match `CLOUD_API_KEY` set on the cloud service. Leave unset for local development. |
+| `CLOUD_API_KEY` | - | Shared-secret sent in `X-CortexGuard-Key` header on every cloud request. Must match `CLOUD_API_KEY` set on the cloud service. Leave unset for local development. |
 
 ---
 
-## Cloud Service — Environment Variables
+## Cloud Service Environment Variables
 
 Set these on the **cloud-api** container (or process). All are optional; defaults shown.
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `CLOUD_LLM_BACKEND` | `mock` | LLM backend: `groq`, `anthropic`, `openrouter`, `grok`, or `mock` |
-| `CLOUD_GROQ_API_KEY` | — | API key for Groq (required when `CLOUD_LLM_BACKEND=groq`) |
-| `CLOUD_ANTHROPIC_API_KEY` | — | API key for Anthropic (required when `CLOUD_LLM_BACKEND=anthropic`) |
-| `CLOUD_OPENROUTER_API_KEY` | — | API key for OpenRouter (required when `CLOUD_LLM_BACKEND=openrouter`) |
-| `CLOUD_XAI_API_KEY` | — | API key for xAI/Grok (required when `CLOUD_LLM_BACKEND=grok`) |
+| `CLOUD_GROQ_API_KEY` | - | API key for Groq (required when `CLOUD_LLM_BACKEND=groq`) |
+| `CLOUD_ANTHROPIC_API_KEY` | - | API key for Anthropic (required when `CLOUD_LLM_BACKEND=anthropic`) |
+| `CLOUD_OPENROUTER_API_KEY` | - | API key for OpenRouter (required when `CLOUD_LLM_BACKEND=openrouter`) |
+| `CLOUD_XAI_API_KEY` | - | API key for xAI/Grok (required when `CLOUD_LLM_BACKEND=grok`) |
 | `CLOUD_EMBEDDER_BACKEND` | `mock` | Embedder for RAG: `miniLM` (sentence-transformers) or `mock` (zeros) |
 | `CLOUD_VECTOR_STORE_BACKEND` | `in_memory` | Vector store: `qdrant` or `in_memory` |
 | `CLOUD_QDRANT_URL` | `http://localhost:6333` | Qdrant service URL (used when `CLOUD_VECTOR_STORE_BACKEND=qdrant`) |
 | `CLOUD_INCIDENT_STORE` | `sqlite` | Incident persistence: `sqlite`, `postgres`, or `in_memory` |
 | `CLOUD_DB_PATH` | `cortexguard_cloud.db` | SQLite database file path (used when `CLOUD_INCIDENT_STORE=sqlite`) |
-| `CLOUD_DB_URL` | — | Postgres DSN (required when `CLOUD_INCIDENT_STORE=postgres`), e.g. `postgresql://user:pass@host:5432/db` |
-| `CLOUD_API_KEY` | — | Shared-secret key the edge must send in `X-CortexGuard-Key` header. Unset disables auth (local dev only). |
+| `CLOUD_DB_URL` | - | Postgres DSN (required when `CLOUD_INCIDENT_STORE=postgres`), e.g. `postgresql://user:pass@host:5432/db` |
+| `CLOUD_API_KEY` | - | Shared-secret key the edge must send in `X-CortexGuard-Key` header. Unset disables auth (local dev only). |
 | `CLOUD_MIN_CONFIDENCE` | `0.5` | Minimum LLM confidence score to accept a candidate plan; plans below this threshold are rejected as `needs_human` |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | — | OpenTelemetry OTLP HTTP endpoint (e.g. `http://tempo:4318`). Unset disables tracing. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | - | OpenTelemetry OTLP HTTP endpoint (e.g. `http://tempo:4318`). Unset disables tracing. |
 | `CLOUD_MAYDAY_RATE_LIMIT` | `10/minute` | Rate limit for `POST /api/v1/mayday` per client IP (slowapi format) |
 | `CLOUD_RESULT_RATE_LIMIT` | `60/minute` | Rate limit for `GET /api/v1/mayday/{trace_id}/result` per client IP |
 | `CLOUD_OUTCOME_RATE_LIMIT` | `30/minute` | Rate limit for `POST /api/v1/outcomes` per client IP |
@@ -69,7 +69,7 @@ Set these on the **cloud-api** container (or process). All are optional; default
 | `CLOUD_LLM_MAX_CONCURRENCY` | `4` | Maximum number of concurrent in-flight LLM calls; additional calls queue behind the semaphore |
 | `CLOUD_LLM_MAX_RETRIES` | `2` | Maximum retry attempts for retryable LLM errors (HTTP 429, 5xx) before routing to `needs_human` |
 | `CLOUD_LLM_BASE_BACKOFF_MS` | `500` | Base backoff in milliseconds for LLM retry delays; actual delay uses full-jitter exponential backoff |
-| `CLOUD_SQS_QUEUE_URL` | — | SQS queue URL for async planning (enables worker mode when set). Both cloud-api and worker containers must have this set. Leave unset for single-process in-memory mode. |
+| `CLOUD_SQS_QUEUE_URL` | - | SQS queue URL for async planning (enables worker mode when set). Both cloud-api and worker containers must have this set. Leave unset for single-process in-memory mode. |
 | `CLOUD_SQS_REGION` | `us-east-1` | AWS region for SQS (used when `CLOUD_SQS_QUEUE_URL` is set) |
 
 ### Recommended production configuration
@@ -104,7 +104,7 @@ When `CLOUD_SQS_QUEUE_URL` is set, the cloud-api process no longer runs planning
 python -m cortexguard.cloud.worker
 ```
 
-The worker reads the same `CLOUD_*` environment variables as the cloud-api plus `CLOUD_SQS_QUEUE_URL`. Set `CLOUD_INCIDENT_STORE=postgres` and `CLOUD_DB_URL` — SQLite is not supported in worker mode (multiple processes, no shared disk).
+The worker reads the same `CLOUD_*` environment variables as the cloud-api plus `CLOUD_SQS_QUEUE_URL`. Set `CLOUD_INCIDENT_STORE=postgres` and `CLOUD_DB_URL`, SQLite is not supported in worker mode (multiple processes, no shared disk).
 
 In the AWS ECS/Fargate deployment, the worker runs as a separate ECS service using the same Docker image. Scale `var.worker_count` to add parallelism.
 
@@ -123,7 +123,7 @@ The readiness check verifies the SQLite database and Qdrant connection (if confi
 ## MCP Operator Interface
 
 The MCP server gives an operator or AI assistant access to incident history,
-on-demand planning, plan explanation, and resolution capture — without
+on-demand planning, plan explanation, and resolution capture, without
 affecting the operational edge-to-cloud path.
 
 ### Prerequisites
@@ -155,10 +155,10 @@ Verify the connection is working by asking:
 
 When the cloud planner returns `needs_human`, connect via Claude Code and ask naturally:
 
-1. *"A needs_human alert fired — use get_latest_incident to see what happened"* — calls `get_latest_incident`, returns decision, plan, rationale, and retrieved similar incidents with similarity scores
-2. *"Explain the plan it was going to run"* — calls `explain_plan`
-3. *"Try without the recalibration step"* — calls `propose_alternative_plan`
-4. After resolving manually: *"I intervened manually and the device is back to nominal — record outcome: resolved"* — calls `record_operator_resolution`, re-embeds the enriched incident in Qdrant for future RAG retrieval
+1. *"A needs_human alert fired, use get_latest_incident to see what happened"*: calls `get_latest_incident`, returns decision, plan, rationale, and retrieved similar incidents with similarity scores
+2. *"Explain the plan it was going to run"*: calls `explain_plan`
+3. *"Try without the recalibration step"*: calls `propose_alternative_plan`
+4. After resolving manually: *"I intervened manually and the device is back to nominal, record outcome: resolved"*: calls `record_operator_resolution`, re-embeds the enriched incident in Qdrant for future RAG retrieval
 
 Valid `outcome` values: `resolved`, `escalated_further`, `hardware_replaced`, `aborted`.
 
@@ -221,7 +221,7 @@ Interactive API docs are served by the edge service at runtime:
 Open `http://localhost:3000` (no login required in the demo stack).
 
 ### System Health row
-Live counters for active anomalies, plan queue depth, estimator confidence, and LLM circuit breaker state. These are the first things to check during an incident — a non-zero plan queue or open circuit breaker indicates the system is under load or degraded.
+Live counters for active anomalies, plan queue depth, estimator confidence, and LLM circuit breaker state. These are the first things to check during an incident, a non-zero plan queue or open circuit breaker indicates the system is under load or degraded.
 
 ### HTTP RED row
 Ingestion request rate, error percentage, p95 and p99 latency, and rate-limited (429) requests/s. High error % combined with high latency suggests the edge is overloaded or a sensor is sending malformed data. A non-zero 429 rate means a client is exceeding the `INGEST_RATE_LIMIT`.
@@ -261,8 +261,8 @@ Alerts are defined in `docker/cortexguard_alerts.yml` and routed through Prometh
 **Graceful shutdown:** The edge service handles SIGTERM by draining the orchestrator queue and persisting the blackboard before exit. Avoid sending SIGKILL unless the process is unresponsive.
 
 **Restart:** Start normally with `task edge:run` or `docker compose up`. If `PERSISTENCE_ENABLED=true`, the blackboard re-hydrates from the last snapshot on startup. The startup log will confirm:
-- `"Blackboard state restored from snapshot"` — prior state recovered
-- `"Blackboard initialized fresh"` — no snapshot found or persistence disabled
+- `"Blackboard state restored from snapshot"`: prior state recovered
+- `"Blackboard initialized fresh"`: no snapshot found or persistence disabled
 
 **Mid-plan crash:** If the process dies while a plan is executing, the plan will not auto-resume on restart. Anomaly detection will re-evaluate the system state on the next tick and re-trigger a remediation plan if the anomaly condition still holds.
 
@@ -311,11 +311,11 @@ Key variables to set in `terraform/terraform.tfvars`:
 aws_region        = "eu-central-1"
 groq_api_key      = "<your-groq-api-key>"
 cloud_api_key     = "<random-secret-min-32-chars>"   # generate: openssl rand -hex 32
-qdrant_image_tag  = "v1.9.4"                         # required — must be a pinned semver
+qdrant_image_tag  = "v1.9.4"                         # required, must be a pinned semver
 llm_backend       = "groq"
 ```
 
-RDS (Postgres) and Qdrant are provisioned automatically — no external database or vector store needed.
+RDS (Postgres) and Qdrant are provisioned automatically, no external database or vector store needed.
 
 ### Deploy
 
@@ -347,18 +347,18 @@ curl -X POST $ALB_URL/api/v1/mayday \
 RDS has `deletion_protection = true`. Disable it first, then destroy:
 
 ```bash
-# Step 1 — disable deletion protection
+# Step 1: disable deletion protection
 cd terraform
 terraform apply -var="deletion_protection=false"
 ```
 
-Wait — `deletion_protection` isn't a top-level variable; edit `terraform/rds.tf` and set `deletion_protection = false`, then apply:
+Wait, `deletion_protection` isn't a top-level variable; edit `terraform/rds.tf` and set `deletion_protection = false`, then apply:
 
 ```bash
 terraform apply   # updates RDS only
 ```
 
-Step 2 — clear ECR (must be empty before destroy succeeds):
+Step 2: clear ECR (must be empty before destroy succeeds):
 
 ```bash
 aws ecr batch-delete-image \
@@ -370,7 +370,7 @@ aws ecr batch-delete-image \
     --query 'imageIds[*]' --output json)"
 ```
 
-Step 3 — destroy all resources:
+Step 3: destroy all resources:
 
 ```bash
 terraform destroy
