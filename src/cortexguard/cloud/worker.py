@@ -1,4 +1,4 @@
-"""SQS planning worker — long-polls SQS and runs the cloud planning workflow.
+"""SQS planning worker, long-polls SQS and runs the cloud planning workflow.
 
 Start with:
     python -m cortexguard.cloud.worker
@@ -17,6 +17,7 @@ import signal
 from pydantic import ValidationError as PydanticValidationError
 
 from cortexguard.cloud.config import CloudConfig
+from cortexguard.cloud.graph.workflow import create_checkpointer
 from cortexguard.cloud.orchestrator import CloudOrchestrator
 from cortexguard.cloud.persistence.postgres_repository import PostgresIncidentRepository
 from cortexguard.cloud.planner.factory import get_llm_client
@@ -41,33 +42,59 @@ _VISIBILITY_TIMEOUT = 300  # must be >= worst-case planning duration
 _HEARTBEAT_FILE = pathlib.Path(
     "/tmp/worker-heartbeat"
 )  # nosec B108 — fixed path for ECS container health check
+_TTL_CHECK_INTERVAL = 300  # 5 min between stale checkpoint checks
+_TTL_MAX_HOURS = 1  # max time to wait for operator before auto-resolving to no_safe_plan
 
 
-async def _process(
+async def _process_message(
     msg_body: dict[str, object],
     orchestrator: CloudOrchestrator,
     sqs: SQSQueue,
     receipt_handle: str,
 ) -> None:
+    action = str(msg_body.get("action", "process"))
+    if action == "resume":
+        trace_id = str(msg_body.get("trace_id", ""))
+        incident_id = str(msg_body.get("incident_id", ""))
+        operator_response = msg_body.get("operator_response", {})
+        if not isinstance(operator_response, dict):
+            logger.error(
+                "worker: invalid resume message, missing operator_response dict trace_id=%s",
+                trace_id,
+            )
+            await sqs.delete(receipt_handle)
+            return
+        logger.info("worker: resuming graph trace_id=%s incident_id=%s", trace_id, incident_id)
+        await orchestrator.resume(trace_id, operator_response)
+        await sqs.delete(receipt_handle)
+        logger.info("worker: resume complete and deleted trace_id=%s", trace_id)
+        return
+
     trace_id = str(msg_body.get("trace_id", ""))
     raw_packet = msg_body.get("packet")
     if not isinstance(raw_packet, dict):
-        logger.error("worker: invalid SQS message — missing packet dict trace_id=%s", trace_id)
-        # Unprocessable message — delete immediately rather than cycling through
-        # the full visibility timeout before reaching the DLQ.
+        logger.error("worker: invalid SQS message, missing packet dict trace_id=%s", trace_id)
         await sqs.delete(receipt_handle)
         return
 
     try:
         packet = MaydayPacket.model_validate(raw_packet)
     except PydanticValidationError:
-        logger.error("worker: packet failed validation trace_id=%s — deleting", trace_id)
+        logger.error("worker: packet failed validation trace_id=%s, deleting", trace_id)
         await sqs.delete(receipt_handle)
         return
 
-    await orchestrator.run_once(packet)
+    interrupted = await orchestrator.run_once(packet)
+    # Message deleted regardless of interrupt, the checkpoint is the
+    # source of truth for paused graph state.
     await sqs.delete(receipt_handle)
-    logger.info("worker: processed and deleted trace_id=%s", trace_id)
+    if interrupted:
+        logger.info(
+            "worker: graph interrupted (needs_human) trace_id=%s, checkpoint saved, message deleted",
+            trace_id,
+        )
+    else:
+        logger.info("worker: processed and deleted trace_id=%s", trace_id)
 
 
 async def main() -> None:
@@ -108,11 +135,13 @@ async def main() -> None:
     validator = PlanValidator(
         CapabilityAdapter.load_default(), min_confidence=config.min_confidence
     )
+    checkpointer = await create_checkpointer(config.checkpoint_store, config.checkpoint_db_path)
     orchestrator = CloudOrchestrator(
         repo=repo,
         retrieval_store=retrieval_store,
         llm_client=llm_client,
         validator=validator,
+        checkpointer=checkpointer,
     )
 
     sqs = SQSQueue(config.sqs_queue_url, config.sqs_region)
@@ -122,7 +151,25 @@ async def main() -> None:
     loop.add_signal_handler(signal.SIGTERM, stop.set)
     loop.add_signal_handler(signal.SIGINT, stop.set)
 
-    logger.info("worker: started — queue=%s region=%s", config.sqs_queue_url, config.sqs_region)
+    async def _ttl_cleanup() -> None:
+        """Periodically resolve stale checkpoints to no_safe_plan."""
+        while not stop.is_set():
+            try:
+                await asyncio.sleep(_TTL_CHECK_INTERVAL)
+                resolved = await orchestrator.resolve_stale_checkpoints(max_hours=_TTL_MAX_HOURS)
+                if resolved:
+                    logger.info(
+                        "worker: TTL cleanup resolved %d stale checkpoint(s)",
+                        resolved,
+                    )
+            except asyncio.CancelledError:
+                break
+            except Exception as ex:
+                logger.exception(f"worker: TTL cleanup error: {ex}")
+
+    ttl_task = asyncio.create_task(_ttl_cleanup())
+
+    logger.info("worker: started, queue=%s region=%s", config.sqs_queue_url, config.sqs_region)
 
     try:
         while not stop.is_set():
@@ -134,7 +181,7 @@ async def main() -> None:
                 )
                 _HEARTBEAT_FILE.touch()
             except Exception:
-                logger.exception("worker: SQS receive error — retrying in 5s")
+                logger.exception("worker: SQS receive error, retrying in 5s")
                 await asyncio.sleep(5)
                 continue
 
@@ -142,13 +189,18 @@ async def main() -> None:
                 if stop.is_set():
                     break
                 try:
-                    await _process(msg.body, orchestrator, sqs, msg.receipt_handle)
+                    await _process_message(msg.body, orchestrator, sqs, msg.receipt_handle)
                 except Exception:
                     logger.exception(
-                        "worker: unhandled error for message_id=%s — message will reappear",
+                        "worker: unhandled error for message_id=%s, message will reappear",
                         msg.message_id,
                     )
     finally:
+        ttl_task.cancel()
+        try:
+            await ttl_task
+        except asyncio.CancelledError:
+            pass
         await repo.close()
         logger.info("worker: shutdown complete")
 

@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from cortexguard.cloud.worker import _process, main
+from cortexguard.cloud.worker import _process_message, main
 from cortexguard.edge.models.mayday_packet import MaydayPacket, SystemHealth
 
 
@@ -43,7 +43,7 @@ async def test_process_valid_message(mock_orchestrator: MagicMock, mock_sqs: Mag
     trace_id = str(uuid.uuid4())
     body: dict[str, object] = {"trace_id": trace_id, "packet": _make_raw_packet(trace_id)}
 
-    await _process(body, mock_orchestrator, mock_sqs, "rh-1")
+    await _process_message(body, mock_orchestrator, mock_sqs, "rh-1")
 
     mock_orchestrator.run_once.assert_awaited_once()
     called_packet: MaydayPacket = mock_orchestrator.run_once.call_args[0][0]
@@ -57,7 +57,7 @@ async def test_process_missing_packet_deletes_immediately(
 ) -> None:
     body: dict[str, object] = {"trace_id": "bad-msg"}  # no "packet" key
 
-    await _process(body, mock_orchestrator, mock_sqs, "rh-bad")
+    await _process_message(body, mock_orchestrator, mock_sqs, "rh-bad")
 
     mock_orchestrator.run_once.assert_not_awaited()
     mock_sqs.delete.assert_awaited_once_with("rh-bad")
@@ -69,7 +69,7 @@ async def test_process_packet_not_dict_deletes_immediately(
 ) -> None:
     body: dict[str, object] = {"trace_id": "bad-msg", "packet": "not-a-dict"}
 
-    await _process(body, mock_orchestrator, mock_sqs, "rh-bad2")
+    await _process_message(body, mock_orchestrator, mock_sqs, "rh-bad2")
 
     mock_orchestrator.run_once.assert_not_awaited()
     mock_sqs.delete.assert_awaited_once_with("rh-bad2")
@@ -83,7 +83,7 @@ async def test_process_orchestrator_exception_propagates(
     body: dict[str, object] = {"trace_id": "t1", "packet": _make_raw_packet()}
 
     with pytest.raises(RuntimeError, match="planning failed"):
-        await _process(body, mock_orchestrator, mock_sqs, "rh-3")
+        await _process_message(body, mock_orchestrator, mock_sqs, "rh-3")
 
     mock_sqs.delete.assert_not_awaited()
 
@@ -95,7 +95,7 @@ async def test_process_invalid_packet_fields_deletes_immediately(
     # dict but missing required MaydayPacket fields → ValidationError
     body: dict[str, object] = {"trace_id": "t2", "packet": {"not": "a valid packet"}}
 
-    await _process(body, mock_orchestrator, mock_sqs, "rh-4")
+    await _process_message(body, mock_orchestrator, mock_sqs, "rh-4")
 
     mock_orchestrator.run_once.assert_not_awaited()
     mock_sqs.delete.assert_awaited_once_with("rh-4")
@@ -135,6 +135,7 @@ def _infra_patches() -> list[Any]:
         patch("cortexguard.cloud.worker.get_llm_client", return_value=None),
         patch("cortexguard.cloud.worker.CapabilityAdapter"),
         patch("cortexguard.cloud.worker.PlanValidator"),
+        patch("cortexguard.cloud.worker.create_checkpointer"),
         patch("cortexguard.cloud.worker.CloudOrchestrator"),
         patch("cortexguard.cloud.worker.SQSQueue"),
         patch("cortexguard.cloud.worker.CloudConfig"),
@@ -195,7 +196,7 @@ async def test_main_processes_one_message() -> None:
         mocks = {p.attribute: stack.enter_context(p) for p in patches}
         stack.enter_context(patch("asyncio.Event", return_value=mock_stop))
         mock_process = stack.enter_context(
-            patch("cortexguard.cloud.worker._process", new_callable=AsyncMock)
+            patch("cortexguard.cloud.worker._process_message", new_callable=AsyncMock)
         )
 
         mocks["CloudConfig"].return_value = _make_cfg()
@@ -209,7 +210,7 @@ async def test_main_processes_one_message() -> None:
 
 @pytest.mark.asyncio
 async def test_main_process_exception_is_logged_not_fatal() -> None:
-    """main() logs _process errors but keeps running (message will reappear after visibility timeout)."""
+    """main() logs _process_message errors but keeps running (message will reappear after visibility timeout)."""
     from cortexguard.cloud.queue.sqs import SQSMessage
 
     mock_stop = MagicMock()
@@ -226,7 +227,7 @@ async def test_main_process_exception_is_logged_not_fatal() -> None:
         stack.enter_context(patch("asyncio.Event", return_value=mock_stop))
         stack.enter_context(
             patch(
-                "cortexguard.cloud.worker._process",
+                "cortexguard.cloud.worker._process_message",
                 new_callable=AsyncMock,
                 side_effect=RuntimeError("boom"),
             )
@@ -295,3 +296,46 @@ async def test_main_retries_after_receive_error() -> None:
 
     mock_sleep.assert_awaited_once_with(5)
     assert mock_sqs_instance.receive.await_count == 2
+
+
+# ---------------------------------------------------------------------------
+# Resume action handling
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_process_resume_message(mock_orchestrator: MagicMock, mock_sqs: MagicMock) -> None:
+    """_process_message with action=resume calls orchestrator.resume and deletes."""
+    mock_orchestrator.resume = AsyncMock()
+    body: dict[str, object] = {
+        "action": "resume",
+        "trace_id": "t1",
+        "incident_id": "inc-1",
+        "operator_response": {"approved": True},
+    }
+
+    await _process_message(body, mock_orchestrator, mock_sqs, "rh-resume")
+
+    mock_orchestrator.resume.assert_awaited_once_with("t1", {"approved": True})
+    mock_sqs.delete.assert_awaited_once_with("rh-resume")
+    mock_orchestrator.run_once.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_process_resume_message_invalid_operator_response(
+    mock_orchestrator: MagicMock,
+    mock_sqs: MagicMock,
+) -> None:
+    """_process_message with action=resume but non-dict operator_response deletes immediately."""
+    mock_orchestrator.resume = AsyncMock()
+    body: dict[str, object] = {
+        "action": "resume",
+        "trace_id": "t2",
+        "incident_id": "inc-2",
+        "operator_response": "not-a-dict",
+    }
+
+    await _process_message(body, mock_orchestrator, mock_sqs, "rh-bad-resume")
+
+    mock_orchestrator.resume.assert_not_awaited()
+    mock_sqs.delete.assert_awaited_once_with("rh-bad-resume")
