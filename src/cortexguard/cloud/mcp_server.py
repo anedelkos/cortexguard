@@ -16,6 +16,7 @@ from mcp.server.stdio import stdio_server
 from pydantic import AnyUrl
 
 from cortexguard.cloud.config import CloudConfig
+from cortexguard.cloud.graph.workflow import create_checkpointer
 from cortexguard.cloud.orchestrator import CloudOrchestrator, PlanningResult
 from cortexguard.cloud.persistence.repository import (
     IncidentRepositoryProtocol,
@@ -25,6 +26,7 @@ from cortexguard.cloud.persistence.repository import (
 from cortexguard.cloud.planner.explain_client import ExplainClientProtocol
 from cortexguard.cloud.planner.factory import get_explain_client, get_llm_client
 from cortexguard.cloud.planner.throttler import LLMThrottler
+from cortexguard.cloud.queue.sqs import SQSQueue
 from cortexguard.cloud.retrieval.embedder import get_embedder
 from cortexguard.cloud.retrieval.store import RetrievalStore
 from cortexguard.cloud.retrieval.vector_store import InMemoryVectorStore, QdrantVectorStore
@@ -48,6 +50,7 @@ _explain_client: ExplainClientProtocol | None = None
 _validator: PlanValidator | None = None
 _retrieval_store: RetrievalStore | None = None
 _config: CloudConfig = CloudConfig()
+_sqs_queue: SQSQueue | None = None
 
 
 def _post_mcp_event(payload: dict[str, str]) -> None:
@@ -213,7 +216,7 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="get_latest_incident",
             description=(
-                "Get the most recent CortexGuard planning incident — use this first "
+                "Get the most recent CortexGuard planning incident, use this first "
                 "when an alert fires to see the decision, plan, rationale, and retrieved "
                 "similar past incidents with similarity scores."
             ),
@@ -510,7 +513,7 @@ async def _handle_explain_plan(arguments: dict[str, Any]) -> dict[str, Any]:
     prompt = (
         "You are a safety system analyst. Explain the following recovery plan in plain English.\n"
         "Describe what each step does, why it was chosen, and what the expected outcome is.\n"
-        "Be concise and clear — the audience is a hardware operator, not a software engineer.\n\n"
+        "Be concise and clear, the audience is a hardware operator, not a software engineer.\n\n"
         f"Anomaly: {anomaly_key} (severity: {severity})\n"
         f"Rationale: {rationale}\n"
         f"Plan steps:\n{steps_text}"
@@ -651,6 +654,26 @@ async def _handle_record_operator_resolution(arguments: dict[str, Any]) -> dict[
 
     _get_resolution_counter(outcome)
 
+    # Push resume message to SQS so the worker unblocks the graph
+    if _sqs_queue is not None and record is not None:
+        try:
+            await _sqs_queue.enqueue(
+                {
+                    "action": "resume",
+                    "incident_id": incident_id,
+                    "trace_id": record.trace_id,
+                    "operator_response": {
+                        "approved": outcome in ("resolved", "escalated_further"),
+                        "action": "reject" if outcome == "aborted" else "approve",
+                        "outcome": outcome,
+                        "notes": notes,
+                    },
+                }
+            )
+            logger.info("Pushed resume SQS message for incident %s", incident_id)
+        except Exception:
+            logger.exception("Failed to push resume SQS message for incident %s", incident_id)
+
     return {
         "incident_id": incident_id,
         "recorded": True,
@@ -665,7 +688,7 @@ async def _handle_record_operator_resolution(arguments: dict[str, Any]) -> dict[
 
 async def main() -> None:
     """Initialise all dependencies and start the MCP stdio server."""
-    global _repo, _orchestrator, _explain_client, _validator, _retrieval_store, _config
+    global _repo, _orchestrator, _explain_client, _validator, _retrieval_store, _config, _sqs_queue
 
     _config = CloudConfig()
 
@@ -702,11 +725,17 @@ async def main() -> None:
     adapter = CapabilityAdapter.load_default()
     _validator = PlanValidator(adapter, min_confidence=_config.min_confidence)
 
+    _checkpointer = await create_checkpointer(_config.checkpoint_store, _config.checkpoint_db_path)
     _orchestrator = CloudOrchestrator(
         repo=_repo,
         retrieval_store=_retrieval_store,
         llm_client=throttled_llm,
         validator=_validator,
+        checkpointer=_checkpointer,
+    )
+
+    _sqs_queue = (
+        SQSQueue(_config.sqs_queue_url, _config.sqs_region) if _config.sqs_queue_url else None
     )
 
     _explain_client = get_explain_client(_config)

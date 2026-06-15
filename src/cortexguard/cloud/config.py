@@ -60,10 +60,19 @@ class CloudConfig:
     cloud_retrieval_failure_penalty: float = field(
         default_factory=lambda: float(os.getenv("CLOUD_RETRIEVAL_FAILURE_PENALTY", "0.1"))
     )
-    # Postgres DSN — used when incident_store == "postgres"
+    # Postgres DSN, used when incident_store == "postgres"
     db_url: str | None = field(default_factory=lambda: os.getenv("CLOUD_DB_URL"))
-    # Shared-secret auth — unset disables auth (local dev only)
+    # Shared-secret auth, unset disables auth (local dev only)
     api_key: str | None = field(default_factory=lambda: os.getenv("CLOUD_API_KEY"))
-    # SQS — unset keeps in-process async mode; set enables worker-based async mode
+    # SQS: unset keeps in-process async mode; set enables worker-based async mode
     sqs_queue_url: str | None = field(default_factory=lambda: os.getenv("CLOUD_SQS_QUEUE_URL"))
     sqs_region: str = field(default_factory=lambda: os.getenv("CLOUD_SQS_REGION", "us-east-1"))
+    # LangGraph checkpointer backend: "memory" (dev), "sqlite" (single-process), "postgres" (production)
+    checkpoint_store: str = field(
+        default_factory=lambda: os.getenv("CLOUD_CHECKPOINT_STORE", "memory")
+    )
+    # Absolute path for sqlite checkpoint file; defaults to "checkpoints.db" (CWD).
+    # In production ECS, set CLOUD_CHECKPOINT_DB_PATH to a persistent volume path.
+    checkpoint_db_path: str | None = field(
+        default_factory=lambda: os.getenv("CLOUD_CHECKPOINT_DB_PATH")
+    )

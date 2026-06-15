@@ -6,37 +6,73 @@ never block on cloud availability.
 
 ---
 
+## Deployment Architecture
+
+Three processes share the cloud tier:
+
+| Process | Entry point | Runs in | Responsibilities |
+|---------|-------------|---------|------------------|
+| **cloud-api** | `uvicorn cortexguard.cloud.runtime:app` | Fargate service | REST API (`/mayday`, `/outcomes`, `/healthz`), serves metrics |
+| **worker** | `python -m cortexguard.cloud.worker` | Fargate service | Long-polls SQS, runs LangGraph planning workflow, handles resume, TTL cleanup |
+| **mcp-server** | `python -m cortexguard.cloud.mcp_server` | Launched per-operator via `docker exec` into the API container, or run locally by the MCP host | MCP stdio tools for incident lookup, plan override, operator resolution |
+
+All three share the same Postgres incident store, Qdrant vector store, and SQS queue.
+
 ## Overview
+
+Two deployment modes:
+
+**In-process (dev)** no SQS, no worker. The cloud-api runs the graph directly in a background task:
 
 ```
 MaydayAgent (edge)
     │  POST /api/v1/mayday  (MaydayPacket)
     ▼
 cloud-api FastAPI
-    │  202 Accepted  →  background task
+    │  202 Accepted  →  asyncio.create_task
     ▼
-CloudOrchestrator
+CloudOrchestrator.run()
     │  runs LangGraph planning workflow
     ▼
 GET /api/v1/mayday/{trace_id}/result  (polling)
     │  plan_ready | needs_human | no_safe_plan
     ▼
-MaydayAgent receives Plan, submits to edge Orchestrator
+Edge receives Plan
 ```
 
-The edge polls the result endpoint until a decision is available or `MAYDAY_TIMEOUT_S` expires.
+**SQS worker (production)**  the API enqueues to SQS and a separate Fargate worker runs the graph:
 
-When `CLOUD_SQS_QUEUE_URL` is set, the `SQSCloudOrchestrator` is used instead. The API service enqueues the packet to SQS and returns immediately; a separate worker service (`python -m cortexguard.cloud.worker`) consumes the queue, runs the same LangGraph workflow, and persists the result. This decouples ingestion throughput from LLM latency and allows independent scaling of API and worker tasks.
+```
+MaydayAgent (edge)
+    │  POST /api/v1/mayday
+    ▼
+cloud-api FastAPI
+    │  202 Accepted  →  SQSCloudOrchestrator.submit()
+    │                      writes "pending" IncidentRecord + enqueue to SQS
+    ▼
+SQS Queue
+    │  long-poll
+    ▼
+Worker (Fargate task, python -m cortexguard.cloud.worker)
+    │  CloudOrchestrator.run_once(packet)
+    ▼
+LangGraph workflow (see below)
+    │
+    ├── plan_ready / no_safe_plan  →  finalise IncidentRecord in Postgres
+    └── interrupted (needs_human)  →  checkpoint saved, await operator via MCP
+```
+
+The edge polls `GET /mayday/{trace_id}/result` until the decision is persisted. The SQS mode decouples ingestion throughput from LLM latency and allows independent scaling of API and worker tasks.
 
 ---
 
 ## LangGraph Planning Workflow
 
-The planner is a compiled LangGraph `StateGraph` with five sequential nodes. All nodes operate on a shared `CloudPlanningState` typed dict. Each node receives the full state and returns a partial dict of the fields it changed; LangGraph merges the returned dict into the shared state before passing it to the next node.
+The planner is a compiled LangGraph `StateGraph` with six nodes. All nodes operate on a shared `CloudPlanningState` typed dict. Each node receives the full state and returns a partial dict of the fields it changed; LangGraph merges the returned dict into the shared state before passing to the next node.
 
 ```python
 class CloudPlanningState(TypedDict):
-    request: MaydayPacket
+    request: NotRequired[MaydayPacket]
     incident_id: str | None
     retrieved_incidents: list[dict]
     retrieved_incident_records: list[IncidentRecord]
@@ -47,6 +83,14 @@ class CloudPlanningState(TypedDict):
     confidence: float | None
     needs_human_review: bool
     errors: list[str]
+    operator_response: NotRequired[dict[str, Any] | None]
+
+
+class ResumeInput(TypedDict, total=False):
+    """Partial state passed on resume,  only operator_response is set.
+    LangGraph merges this with the checkpointed state."""
+
+    operator_response: dict[str, Any] | None
 ```
 
 ```
@@ -58,57 +102,51 @@ generate_candidate_plan      ← LLM structured output
     │
 validate_candidate_plan      ← capability + confidence checks
     │
-route_decision               → plan_ready | needs_human | no_safe_plan
+route_decision
+    │  ─ conditional ──┬── END  (plan_ready / no_safe_plan / needs_human w/o review flag)
+    │                  │
+    │                  └── pause_for_operator  (needs_human + needs_human_review=True)
+    │                                          └─ interrupt() → checkpoint → await operator
 ```
 
 ### Node 1: `persist_incident`
 
-Writes an `IncidentRecord` to SQLite immediately on receiving the `MaydayPacket`. This ensures every escalation is durably
-recorded even if subsequent nodes fail. Fields: `device_id`, `anomaly_key`, `severity`, `summary`, `raw_packet_json`, `decision=pending`.
+Writes an `IncidentRecord` to the configured incident store (Postgres in production, SQLite in dev) immediately on receiving the `MaydayPacket`. This ensures every escalation is durably recorded even if subsequent nodes fail. Fields: `device_id`, `anomaly_key`, `severity`, `summary`, `raw_packet_json`, `decision=pending`.
 
 ### Node 2: `retrieve_similar_incidents`
 
-Embeds a summary of the incoming `MaydayPacket` (`device_id + anomaly_keys + plan_id`) using `MiniLMEmbedder` (`all-MiniLM-L6-v2`, 384-dim, CPU)
-and performs an approximate nearest-neighbour search in Qdrant.
+Embeds a summary of the incoming `MaydayPacket` using `MiniLMEmbedder` (`all-MiniLM-L6-v2`, 384-dim, CPU) and performs an approximate nearest-neighbour search in Qdrant.
 
-- **Filter**: if the packet has a single anomaly key, the search is pre-filtered to only return incidents with the same `anomaly_key`. This prevents cross-anomaly noise.
-- **Learning-to-rank re-ranking**: after Qdrant retrieval, results are re-scored by a composite function (`src/cortexguard/cloud/retrieval/ranker.py`): `composite = similarity + outcome_boost - failure_penalty`. `resolved` operator resolutions add `CLOUD_RETRIEVAL_OUTCOME_BOOST` (default `0.2`); high-confidence `plan_ready` adds half that; unresolved `needs_human`/`no_safe_plan` decisions subtract `CLOUD_RETRIEVAL_FAILURE_PENALTY` (default `0.1`). Results are re-sorted by composite score before being passed to the LLM.
-- **Similarity scores surfaced**: the node stores `retrieved_incidents` as `[{incident_id, similarity_score}]` on the persisted record and in graph state, visible via the MCP `get_latest_incident` tool and `latest_planner_decision` resource.
-- Returns up to 5 similar `IncidentRecord`s. Their summaries are injected into the LLM prompt as context.
+- **Filter**: if the packet has a single anomaly key, the search is pre-filtered to only return incidents with the same `anomaly_key`.
+- **Learning-to-rank re-ranking**: results are re-scored by a composite function (`ranker.py`): `composite = similarity + outcome_boost - failure_penalty`. `resolved` outcomes add `CLOUD_RETRIEVAL_OUTCOME_BOOST` (default `0.2`); high-confidence `plan_ready` adds half that; unresolved `needs_human`/`no_safe_plan` subtract `CLOUD_RETRIEVAL_FAILURE_PENALTY` (default `0.1`).
+- Returns up to 5 similar `IncidentRecord`s, injected into the LLM prompt as context. Similarity scores are persisted on the incident record.
 
 ### Node 3: `generate_candidate_plan`
 
-Calls the configured `LLMClientProtocol` implementation with a `PlannerRequest` containing:
+Calls the configured `LLMClientProtocol` with a `PlannerRequest` containing the escalation summary, sensor state, retrieved incident summaries, device capability catalog, and anomaly details. Uses `instructor` for structured output extraction.
 
-- `escalation_summary`: device ID and anomaly key
-- `state_summary`: JSON-encoded state estimate from the edge
-- `retrieved_summaries`: summaries of the top similar past incidents
-- `capability_catalog_json`: the device's registered capabilities (loaded from `capability_registry.yaml`)
-- `anomaly_key` and `severity`
+Returns a `PlannerResponse` with:
+- `candidate_plan: Plan | None`:  multi-step plan using only registered capabilities
+- `confidence: float`:  self-assessed confidence [0.0-1.0]
+- `rationale: str`:  plain-language explanation
+- `needs_human_review: bool`:  LLM's flag that operator review is needed
+- `raw_provider_metadata: dict`:  LLM-specific metadata
 
-The LLM is instructed (via `instructor` structured output extraction) to return a `PlannerResponse` Pydantic model with:
-
-- `candidate_plan: Plan | None`. A full `Plan` with `PlanStep`s using only capabilities from the catalog
-- `confidence: float`. Rhe model's self-assessed confidence [0.0–1.0]
-- `rationale: str`. Plain-language explanation of the plan
-- `needs_human_review: bool`. Whether the model flagged operator review
-- `raw_provider_metadata: dict`. Pass-through for any LLM-specific metadata
-
-**Post-generation normalisation**: After the LLM returns, `_normalise_plan()` forces correct provenance, `source=PlanSource.CLOUD_AGENT`, `trace_id` set to the packet's trace_id, and any non-UUID `plan_id` / step `id` values regenerated. This ensures the edge can always deserialise the plan regardless of what the LLM chose to emit.
+After the LLM returns, `_normalise_plan()` forces correct provenance: `source=PlanSource.CLOUD_AGENT`, `trace_id` set to the packet's trace_id, and any non-UUID IDs regenerated.
 
 ### Node 4: `validate_candidate_plan`
 
-`PlanValidator` checks the candidate plan against two criteria:
+`PlanValidator` checks the candidate plan against three criteria:
 
-1. **Capability validation** (`CapabilityAdapter`): every `PlanStep.action` must exist in the `CapabilityRegistry` loaded from `src/cortexguard/common/capability_registry.yaml`. Steps referencing unknown actions fail validation.
-2. **Confidence threshold**: if `confidence < CLOUD_MIN_CONFIDENCE` (default `0.5`), the plan is rejected, a low-confidence plan is riskier than `needs_human`.
-3. **Human review flag**: if `needs_human_review=True` was returned by the LLM, the plan is rejected regardless of confidence.
+1. **Capability validation**: every `PlanStep.action` must exist in the `CapabilityRegistry`.
+2. **Confidence threshold**: if `confidence < CLOUD_MIN_CONFIDENCE` (default `0.5`), the plan is rejected.
+3. **Human review flag**: if `needs_human_review=True`, the plan is rejected regardless of confidence.
 
-Failed validation increments `cloud_validation_failures_total`. The `ValidationResult` carries `passed`, `errors`, and `risk_level`.
+Failed validation increments `cloud_validation_failures_total`. Returns a `ValidationResult` with `passed`, `errors`, and `risk_level`.
 
 ### Node 5: `route_decision`
 
-Determines the final decision string based on state:
+Determines the final decision string:
 
 | Condition | Decision |
 |-----------|----------|
@@ -117,7 +155,64 @@ Determines the final decision string based on state:
 | `validation_result.passed is False` | `needs_human` |
 | Otherwise | `plan_ready` |
 
-Increments `cloud_decisions_total{decision=...}` and `cloud_needs_human_total` (when applicable).
+Increments `cloud_decisions_total{decision=...}`.
+
+A conditional edge (`route_after_decision`) then decides the next node:
+
+- If `decision == "needs_human"` **and** `needs_human_review == True` → `"pause_for_operator"`
+- Otherwise → `END` (graph finishes)
+
+This distinguishes between **LLM-requested human review** (pause for operator) and **validation failures / errors** (graph finishes, operator inspects via MCP).
+
+### Node 6: `pause_for_operator`
+
+Only reached when the LLM explicitly requested human review. On **first entry** (no `operator_response` yet):
+
+1. Logs the event and increments `cloud_needs_human_total`
+2. Calls `interrupt({...})`: LangGraph's checkpoint primitive that saves the full graph state to the checkpointer and yields control back to the caller
+
+On **resume** (when `operator_response` is present from a previous checkpoint):
+
+| `operator_response` | Result |
+|---------------------|--------|
+| `{"timeout": True}` | `no_safe_plan` (auto-resolve) |
+| `{"approved": True}` | `plan_ready` (optionally with `plan_override`) |
+| `{"action": "reject"}` | `no_safe_plan` |
+| otherwise | re-enters `interrupt()` |
+
+---
+
+## Checkpointer (LangGraph Persistence)
+
+The checkpointer is a `BaseCheckpointSaver[Any]` instance that saves interrupted graph state for later resumption. Created by `create_checkpointer()`:
+
+| Config | Class | Where |
+|--------|-------|-------|
+| `"memory"` (default) | `MemorySaver` | in-process RAM only |
+| `"sqlite"` | `AsyncSqliteSaver` | local `checkpoints.db` file |
+| `"postgres"` (production) | `PostgresSaver` | `checkpoints` table in Postgres |
+
+Set via `CLOUD_CHECKPOINT_STORE` and optionally `CLOUD_CHECKPOINT_DB_PATH`. In production ECS, the worker passes a `PostgresSaver` to `CloudOrchestrator`, which passes it to `graph.compile(checkpointer=...)`.
+
+---
+
+## Operator Resolution Flow
+
+When the graph is paused at `pause_for_operator`:
+
+1. The worker detects `interrupted=True` after `run_once()`, deletes the SQS message, and returns
+2. The operator interacts via **MCP** tools (the `cortexguard` MCP server running alongside the API)
+3. The operator calls `record_operator_resolution` with `incident_id`, `actions_taken`, `outcome`, and optional `notes`
+4. The MCP handler:
+   - Persists the resolution to the incident record
+   - Re-embeds the enriched summary into Qdrant (feedback loop for RAG)
+   - **Pushes an SQS message** with `action="resume"` and the `operator_response` dict
+5. The worker picks up the resume message, calls `orchestrator.resume(thread_id, operator_response)`, which reads the checkpoint from Postgres and calls `graph.ainvoke` with the operator input
+6. The graph wakes up in `pause_for_operator`, processes the response, and finalises the incident
+
+### Stale Checkpoint Cleanup
+
+The worker runs a background TTL task (`_ttl_cleanup`, every 5 min) that auto-resolves any checkpoints older than 1 hour with `{"timeout": True}`, producing a `no_safe_plan` decision. This prevents interrupted graphs from hanging indefinitely if the operator never responds.
 
 ---
 
@@ -133,35 +228,35 @@ MiniLMEmbedder  →  384-dim float vector
 Qdrant.search(vector, top_k=5, filter={anomaly_key})
     │  SearchResult list with scores
     ▼
-outcome-boost: plan_ready incidents × 1.1
+Composite re-ranker: similarity + outcome_boost - failure_penalty
     │
     ▼
 top-5 IncidentRecords  →  summaries injected into LLM prompt
 ```
 
-Qdrant is pre-seeded on startup from `src/cortexguard/cloud/data/seeds/*.json` via `SeedLoader`. Each seed file contains one past incident with a worked example plan. The seeder skips seeding if the collection already contains data.
+Qdrant is pre-seeded on startup from `src/cortexguard/cloud/data/seeds/*.json` via `SeedLoader`. The seeder skips if the collection already contains data.
 
 ---
 
 ## LLM Backend Factory
 
-The backend is selected at startup by `CLOUD_LLM_BACKEND` via `get_llm_client(backend)` in `src/cortexguard/cloud/planner/factory.py`.
+Selected at startup by `CLOUD_LLM_BACKEND` via `get_llm_client(backend)` in `factory.py`.
 
-| Backend | Class | API |
-|---------|-------|-----|
-| `groq` (default) | `GroqLLMClient` | `https://api.groq.com/openai/v1` - OpenAI-compatible |
-| `anthropic` | `AnthropicLLMClient` | Anthropic SDK + `instructor` |
-| `openrouter` | `OpenRouterLLMClient` | `https://openrouter.ai/api/v1` - OpenAI-compatible |
-| `grok` | `GrokLLMClient` | `https://api.x.ai/v1` - OpenAI-compatible |
-| `mock` | `MockLLMClient` | Deterministic canned response (no API key needed) |
+| Backend | Class | API                                                   |
+|---------|-------|-------------------------------------------------------|
+| `groq` (default) | `GroqLLMClient` | `https://api.groq.com/openai/v1`  (OpenAI-compatible) |
+| `anthropic` | `AnthropicLLMClient` | Anthropic SDK + `instructor`                          |
+| `openrouter` | `OpenRouterLLMClient` | `https://openrouter.ai/api/v1`  (OpenAI-compatible)   |
+| `grok` | `GrokLLMClient` | `https://api.x.ai/v1`  (OpenAI-compatible)            |
+| `mock` | `MockLLMClient` | Deterministic canned response (no API key needed)     |
 
-Groq and the OpenAI-compatible backends use `instructor.from_openai(AsyncOpenAI(...))` for structured output extraction. The Anthropic backend uses `instructor.from_anthropic(AsyncAnthropic(...))`.
+All backends use `instructor` for structured output extraction to a `PlannerResponse` Pydantic model. Rate limiting is handled by `LLMThrottler` (configurable concurrency, timeout, retries with backoff).
 
 ---
 
 ## Incident Persistence
 
-Every escalation is written to the configured incident store (SQLite by default, or Postgres when `CLOUD_INCIDENT_STORE=postgres`). The schema is:
+Every escalation is written to the configured incident store (SQLite by default, or Postgres when `CLOUD_INCIDENT_STORE=postgres`). The schema:
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -175,12 +270,12 @@ Every escalation is written to the configured incident store (SQLite by default,
 | `summary` | TEXT | Human-readable summary (also used for RAG embedding) |
 | `raw_packet_json` | TEXT | Full `MaydayPacket` JSON |
 | `retrieved_incident_ids_json` | TEXT | JSON list of Qdrant neighbour IDs used |
-| `retrieved_incidents_json` | TEXT | `[{incident_id, similarity_score}]` from RAG retrieval with outcome re-ranking |
+| `retrieved_incidents_json` | TEXT | `[{incident_id, similarity_score}]` from RAG with re-ranking |
 | `candidate_plan_json` | TEXT | Serialised `Plan` (null if not generated) |
 | `validation_errors_json` | TEXT | JSON list of validation error strings |
 | `decision` | TEXT | `plan_ready`, `needs_human`, `no_safe_plan`, or `pending` |
 | `rationale` | TEXT | LLM rationale string |
-| `confidence` | REAL | LLM confidence score [0.0–1.0] |
+| `confidence` | REAL | LLM confidence score [0.0-1.0] |
 | `created_at` | TEXT | ISO 8601 UTC timestamp |
 
 Outcomes can be reported back by the edge via `POST /api/v1/outcomes` and queried via `GET /api/v1/outcomes/recent`.
@@ -191,7 +286,7 @@ Outcomes can be reported back by the edge via `POST /api/v1/outcomes` and querie
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/v1/mayday` | Receive a `MaydayPacket`, start planning workflow, return `trace_id` |
+| `POST` | `/api/v1/mayday` | Receive a `MaydayPacket`, enqueue for planning, return `trace_id` |
 | `GET` | `/api/v1/mayday/{trace_id}/result` | Poll for planning result (`pending`, `plan_ready`, `needs_human`, `no_safe_plan`) |
 | `POST` | `/api/v1/outcomes` | Report execution outcome (edge → cloud feedback loop) |
 | `GET` | `/api/v1/outcomes/recent` | List recent outcomes |
@@ -203,15 +298,44 @@ Interactive API docs are served at `http://localhost:8001/docs` (Swagger UI).
 
 ---
 
-## Docker Compose
+## MCP Tools (Operator Interface)
 
-The cloud service is available in two compose files:
+The MCP server (`python -m cortexguard.cloud.mcp_server`) exposes tools for operator interaction:
+
+| Tool | Purpose |
+|------|---------|
+| `lookup_incident` | Get incident details by trace_id or incident_id |
+| `lookup_outcome` | Get operator resolution for an incident |
+| `get_latest_planner_decision` | View the most recent planning result |
+| `replan_incident` | Force re-planning for an incident with a new prompt |
+| `update_incident_candidate_plan` | Manually override the candidate plan |
+| `record_operator_resolution` | Record operator decision and resume a paused graph |
+
+The operator connects via `claude mcp add cortexguard -- <command>` or any MCP-compatible client.
+
+---
+
+## Worker Process
+
+The worker (`python -m cortexguard.cloud.worker`) is a long-running Fargate task that:
+
+1. Long-polls SQS for planning requests and resume messages
+2. Runs `CloudOrchestrator.run_once(packet)` for new planning requests
+3. Detects graph interruptions (needs_human) and deletes the message, the checkpoint is the source of truth
+4. Handles `action="resume"` messages by calling `CloudOrchestrator.resume()` with the operator response
+5. Runs a background TTL cleanup task that auto-resolves stale checkpoints after 1 hour
+
+The worker requires `CLOUD_INCIDENT_STORE=postgres` and `CLOUD_SQS_QUEUE_URL` to be set.
+
+---
+
+## Docker Compose
 
 - `docker-compose.cloud.yml`: standalone cloud stack (cloud-api + Qdrant)
 - `docker-compose.demo.yaml`: full demo stack (edge + simulator + cloud-api + Qdrant + Prometheus + Grafana + Tempo)
 
 ```bash
-# Standalone cloud stack
+# Standalone cloud stack (in-process mode)
 CLOUD_GROQ_API_KEY=<key> docker compose -f docker-compose.cloud.yml up --build
 
 # Full demo (edge + cloud)
@@ -227,6 +351,9 @@ CLOUD_GROQ_API_KEY=<key> docker compose -f docker-compose.demo.yaml up --build
 - `docs/OPERATIONS.md`: environment variable reference
 - `src/cortexguard/cloud/graph/workflow.py`: LangGraph graph construction
 - `src/cortexguard/cloud/graph/nodes.py`: individual node implementations
+- `src/cortexguard/cloud/orchestrator.py`: CloudOrchestrator, SQSCloudOrchestrator, resume flow
+- `src/cortexguard/cloud/worker.py`: SQS worker with resume and TTL cleanup
+- `src/cortexguard/cloud/mcp_server.py`: MCP tools for operator resolution
 - `src/cortexguard/cloud/planner/factory.py`: LLM backend factory
 - `src/cortexguard/cloud/retrieval/store.py`: RAG retrieval with outcome boosting
 - `src/cortexguard/cloud/validation/plan_validator.py`: capability and confidence validation

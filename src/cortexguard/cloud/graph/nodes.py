@@ -11,6 +11,8 @@ from dataclasses import replace as _dc_replace
 from datetime import UTC, datetime
 from typing import Any
 
+from langgraph.graph import END
+from langgraph.types import interrupt
 from opentelemetry import trace as _otel_trace
 
 from cortexguard.cloud.graph.state import CloudPlanningState, ValidationResult
@@ -85,7 +87,7 @@ def _normalise_plan(plan: Plan | None, trace_id: str) -> Plan | None:
             "trace_id": trace_id,
             "steps": steps,
         }
-    )
+    )  # type: ignore[no-any-return]
 
 
 def _is_uuid(value: str) -> bool:
@@ -182,7 +184,7 @@ def make_retrieve_similar_incidents_node(
                 ]
                 # Records are already loaded by the store (for re-ranking). The store handles
                 # re-ranking; the node handles hydration into state for the LLM prompt. Both
-                # use the same loaded records — no second repo fetch needed.
+                # use the same loaded records, no second repo fetch needed.
                 records: list[IncidentRecord] = [rec for _, _, rec in results if rec is not None]
                 if repo is not None:
                     incident_id = state.get("incident_id")
@@ -321,19 +323,54 @@ async def route_decision(state: CloudPlanningState) -> CloudPlanningState:
             else:
                 decision = "plan_ready"
 
-            if decision == "needs_human":
-                packet = state["request"]
-                anomaly_key = packet.anomalies[0].key if packet.anomalies else "UNKNOWN"
-                logger.warning(
-                    "Cloud planner decision=needs_human escalation_id=%s anomaly_key=%s",
-                    packet.trace_id,
-                    anomaly_key,
-                )
-                _increment_cloud_metric("cloud_needs_human_total")
-
             _increment_cloud_labeled_metric("cloud_decisions_total", decision=decision)
-
             return {**state, "decision": decision}
         except Exception as exc:
             errors = list(state["errors"]) + [str(exc)]
             return {**state, "errors": errors, "decision": "needs_human", "candidate_plan": None}
+
+
+async def pause_for_operator(state: CloudPlanningState) -> CloudPlanningState:
+    with _tracer.start_as_current_span("pause_for_operator"):
+        op = state.get("operator_response") or {}
+        if op.get("timeout"):
+            return {**state, "decision": "no_safe_plan"}
+        if op.get("approved") is True:
+            return {
+                **state,
+                "candidate_plan": op.get("plan_override", state.get("candidate_plan")),
+                "decision": "plan_ready",
+            }
+        if op.get("action") == "reject":
+            return {**state, "decision": "no_safe_plan"}
+
+        packet = state["request"]
+        anomaly_key = packet.anomalies[0].key if packet.anomalies else "UNKNOWN"
+        logger.warning(
+            "Cloud planner decision=needs_human escalation_id=%s anomaly_key=%s",
+            packet.trace_id,
+            anomaly_key,
+        )
+        _increment_cloud_metric("cloud_needs_human_total")
+        await interrupt(
+            {
+                "incident_id": state.get("incident_id"),
+                "reason": "needs_human_review",
+                "request": state["request"],
+                "candidate_plan": state.get("candidate_plan"),
+            }
+        )
+        return {**state, "decision": "no_safe_plan"}
+
+
+def route_after_decision(state: CloudPlanningState) -> str:
+    """Return next node name after route_decision.
+
+    Only pause for operator when needs_human_review was requested by the LLM.
+    Validation failures and node errors just return ``needs_human`` without
+    pausing, the operator can see those via MCP directly.
+    """
+    decision = state.get("decision")
+    if decision == "needs_human" and state.get("needs_human_review"):
+        return "pause_for_operator"
+    return END  # type: ignore[no-any-return]
