@@ -350,8 +350,8 @@ flowchart TD
         ALB["ALB\n(internet-facing)\nHTTP :80 → HTTPS :443"]
 
         subgraph CLUSTER["ECS Cluster (Fargate)"]
-            API["cloud-api\n:8001"]
-            WORKER["worker\n(SQS consumer)"]
+            API["cloud-api\n(enqueue + result polling)"]
+            WORKER["worker\n(LangGraph nodes)"]
             QDRANT["qdrant\n:6333\n(Cloud Map DNS)"]
         end
 
@@ -366,7 +366,7 @@ flowchart TD
     CW["CloudWatch Logs\n(api / worker / qdrant)"]
 
     OP -->|HTTPS| ALB
-    EDGE -->|MaydayPacket| SQS
+    EDGE -->|MaydayPacket| ALB
     ALB -->|:8001| API
     WORKER -->|polls| SQS
     SQS -.->|3× failure| DLQ
@@ -386,6 +386,7 @@ flowchart TD
 ```
 
 All resources are Terraform-managed. Solid lines = data flow; dashed lines = infrastructure provisioning / configuration at deploy/startup time.
+IA = Infrequent Access, a cheaper EFS storage class
 
 # 🧹 Code Quality
 CortexGuard enforces production-level quality with:

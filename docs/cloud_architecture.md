@@ -26,11 +26,28 @@ MaydayAgent receives Plan, submits to edge Orchestrator
 
 The edge polls the result endpoint until a decision is available or `MAYDAY_TIMEOUT_S` expires.
 
+When `CLOUD_SQS_QUEUE_URL` is set, the `SQSCloudOrchestrator` is used instead. The API service enqueues the packet to SQS and returns immediately; a separate worker service (`python -m cortexguard.cloud.worker`) consumes the queue, runs the same LangGraph workflow, and persists the result. This decouples ingestion throughput from LLM latency and allows independent scaling of API and worker tasks.
+
 ---
 
 ## LangGraph Planning Workflow
 
-The planner is a compiled LangGraph `StateGraph` with five sequential nodes. All nodes operate on a shared `CloudPlanningState` typed dict.
+The planner is a compiled LangGraph `StateGraph` with five sequential nodes. All nodes operate on a shared `CloudPlanningState` typed dict. Each node receives the full state and returns a partial dict of the fields it changed; LangGraph merges the returned dict into the shared state before passing it to the next node.
+
+```python
+class CloudPlanningState(TypedDict):
+    request: MaydayPacket
+    incident_id: str | None
+    retrieved_incidents: list[dict]
+    retrieved_incident_records: list[IncidentRecord]
+    candidate_plan: Plan | None
+    validation_result: ValidationResult | None
+    decision: str | None
+    rationale: str | None
+    confidence: float | None
+    needs_human_review: bool
+    errors: list[str]
+```
 
 ```
 persist_incident
@@ -144,7 +161,7 @@ Groq and the OpenAI-compatible backends use `instructor.from_openai(AsyncOpenAI(
 
 ## Incident Persistence
 
-Every escalation is written to SQLite (`CLOUD_DB_PATH`). The schema is:
+Every escalation is written to the configured incident store (SQLite by default, or Postgres when `CLOUD_INCIDENT_STORE=postgres`). The schema is:
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -158,6 +175,7 @@ Every escalation is written to SQLite (`CLOUD_DB_PATH`). The schema is:
 | `summary` | TEXT | Human-readable summary (also used for RAG embedding) |
 | `raw_packet_json` | TEXT | Full `MaydayPacket` JSON |
 | `retrieved_incident_ids_json` | TEXT | JSON list of Qdrant neighbour IDs used |
+| `retrieved_incidents_json` | TEXT | `[{incident_id, similarity_score}]` from RAG retrieval with outcome re-ranking |
 | `candidate_plan_json` | TEXT | Serialised `Plan` (null if not generated) |
 | `validation_errors_json` | TEXT | JSON list of validation error strings |
 | `decision` | TEXT | `plan_ready`, `needs_human`, `no_safe_plan`, or `pending` |
