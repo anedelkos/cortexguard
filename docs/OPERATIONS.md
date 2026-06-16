@@ -147,16 +147,13 @@ Verify the connection is working by asking:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `CLOUD_EXPLAIN_BACKEND` | (uses `CLOUD_LLM_BACKEND`) | LLM backend for `explain_plan`: `mock`, `ollama`, `groq`, `anthropic`, `openrouter` |
-| `CLOUD_EXPLAIN_MODEL` | (provider default) | Model name when using `ollama` or `openrouter` |
-| `CLOUD_EXPLAIN_BASE_URL` | `http://localhost:11434/v1` | Base URL for `ollama` or other OpenAI-compatible backends |
 
 ### Operator workflow for `needs_human`
 
 When the cloud planner returns `needs_human`, connect via Claude Code and ask naturally:
 
 1. *"A needs_human alert fired, use get_latest_incident to see what happened"*: calls `get_latest_incident`, returns decision, plan, rationale, and retrieved similar incidents with similarity scores
-2. *"Explain the plan it was going to run"*: calls `explain_plan`
+2. *"Explain the plan it was going to run"*: the client's own LLM explains the plan from the resource data
 3. *"Try without the recalibration step"*: calls `propose_alternative_plan`
 4. After resolving manually: *"I intervened manually and the device is back to nominal, record outcome: resolved"*: calls `record_operator_resolution`, re-embeds the enriched incident in Qdrant for future RAG retrieval
 

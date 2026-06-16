@@ -58,7 +58,7 @@ async def create_checkpointer(store: str, db_path: str | None = None) -> BaseChe
             conn = await aiosqlite.connect(db_path or "checkpoints.db")
             saver = AsyncSqliteSaver(conn)
             await saver.setup()
-            return saver
+            return saver  # type: ignore[no-any-return]
         except ImportError:
             logger.warning("AsyncSqliteSaver not available, falling back to MemorySaver")
             return MemorySaver()
@@ -68,7 +68,7 @@ async def create_checkpointer(store: str, db_path: str | None = None) -> BaseChe
             from langgraph.checkpoint.postgres import PostgresSaver
 
             pool = await asyncpg.create_pool(db_path or "postgresql:///cortexguard")
-            return PostgresSaver(pool)
+            return PostgresSaver(pool)  # type: ignore[no-any-return]
         except ImportError:
             logger.warning("PostgresSaver not available, falling back to MemorySaver")
             return MemorySaver()
