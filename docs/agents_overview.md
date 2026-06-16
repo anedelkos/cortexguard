@@ -60,7 +60,6 @@ See `docs/cloud_architecture.md` for a full breakdown of the LangGraph workflow 
 | `get_latest_incident` | Fetch the most recent planning incident, decision, plan, rationale, and retrieved similar incidents with similarity scores. Use this first when an alert fires. |
 | `create_remediation_plan` | Run the full LangGraph planning workflow for a given anomaly context |
 | `validate_plan` | Run the validation layer against a provided Plan: returns pass/fail and errors |
-| `explain_plan` | LLM-generated plain-English explanation of a Plan's steps and rationale |
 | `propose_alternative_plan` | Rerun planning with a constraint to avoid a prior approach |
 | `record_operator_resolution` | Capture what the operator did and whether it worked; re-embeds in Qdrant for future RAG retrieval |
 
@@ -69,6 +68,6 @@ See `docs/cloud_architecture.md` for a full breakdown of the LangGraph workflow 
 When the cloud planner returns `needs_human`, the operator connects via Claude Code and asks questions naturally. Claude calls the MCP tools automatically:
 
 1. *"A needs_human alert fired, use get_latest_incident to see what happened"* → calls `get_latest_incident`, returns full incident detail including RAG-retrieved similar incidents with similarity scores
-2. *"Explain the plan it was going to run"* → calls `explain_plan`
+2. *"Explain the plan it was going to run"* → the client's own LLM explains from the resource data
 3. *"Try without the recalibration step"* → calls `propose_alternative_plan`
 4. After resolving manually → calls `record_operator_resolution` to feed the outcome back into the RAG store

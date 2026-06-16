@@ -236,7 +236,6 @@ claude mcp add cortexguard -- docker exec -i cortexguard-cloud-api python -m cor
 
 Claude calls the MCP tools automatically. Each resolution is re-embedded in Qdrant, the next similar escalation retrieves it as a prior example, and Groq generates a more informed plan.
 
-> **With a real LLM:** Set `CLOUD_GROQ_API_KEY=<your-key>` in `.env` for Groq (free tier). The explain step uses the same backend unless `CLOUD_EXPLAIN_BACKEND` is set separately (e.g. a local Ollama model).
 
 
 # ⚙️ Getting Started

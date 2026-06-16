@@ -6,7 +6,7 @@ import json
 import uuid
 from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -128,15 +128,15 @@ async def test_incident_record_persists_retrieved_incidents_json() -> None:
 async def test_mcp_latest_planner_decision_returns_scores() -> None:
     from pydantic import AnyUrl
 
-    import cortexguard.cloud.mcp_server as srv
+    from cortexguard.cloud.mcp_server import ResourceHandler
 
     sample_retrieved = json.dumps([{"incident_id": "inc-abc", "similarity_score": 0.87}])
     incident = make_incident(retrieved_incidents_json=sample_retrieved)
     mock_repo = AsyncMock()
     mock_repo.list_recent_incidents = AsyncMock(return_value=[incident])
 
-    with patch.object(srv, "_repo", mock_repo):
-        results = await srv.read_resource(AnyUrl("cortexguard://latest_planner_decision"))
+    handler = ResourceHandler(repo=mock_repo, capability_registry_json='{"capabilities": {}}')
+    results = await handler.handle(AnyUrl("cortexguard://latest_planner_decision"))
 
     data = json.loads(results[0].content)
     assert "retrieved_incidents" in data
