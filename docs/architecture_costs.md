@@ -70,15 +70,15 @@ Escalations are rare by design, the edge handles the majority of cases locally. 
 | Vector store | Qdrant (self-hosted) | 384-dim MiniLM embeddings |
 | Embedder | `all-MiniLM-L6-v2` (CPU) | ~50ms per embed on CPU |
 
-### Future: Model Lifecycle (AWS SageMaker)
+### Model Lifecycle (AWS SageMaker)
 
 | Resource | Instance | Estimated Cost |
 |---|---|---|
-| Detector fine-tuning | `ml.g4dn.xlarge` (T4 GPU) | ~$0.74/hr |
-| Meta-model retraining | `ml.m5.large` (CPU) | ~$0.10/hr |
-| Storage (S3 episodes) | per GB/month | ~$0.023/GB |
+| Step classifier endpoint | `ml.t2.medium` (CPU) | ~$0.05/hr |
+| Retraining pipeline | `ml.m5.large` (CPU) | ~$0.10/hr per run |
+| Model registry (artifacts) | S3 per GB/month | ~$0.023/GB |
 
-Training runs are expected to be periodic (nightly or on-demand), not continuous.
+The retraining pipeline runs weekly on a schedule. The `StepClassifierClient` on the edge calls the SageMaker endpoint via the cloud API (`POST /api/v1/classify`). Data drift monitoring and champion/challenger Lambda functions automate model rollback and promotion.
 
 ---
 

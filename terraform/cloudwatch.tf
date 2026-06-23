@@ -29,7 +29,7 @@ resource "aws_sns_topic_subscription" "dlq_alarm_email" {
 
 resource "aws_cloudwatch_metric_alarm" "dlq_not_empty" {
   alarm_name          = "${local.name_prefix}-dlq-not-empty"
-  alarm_description   = "Mayday messages in the DLQ indicate repeated planning failures — investigate immediately."
+  alarm_description   = "Mayday messages in the DLQ indicate repeated planning failures: investigate immediately."
   namespace           = "AWS/SQS"
   metric_name         = "ApproximateNumberOfMessagesVisible"
   dimensions          = { QueueName = aws_sqs_queue.mayday_dlq.name }

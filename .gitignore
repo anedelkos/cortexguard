@@ -65,6 +65,9 @@ data/processed/
 data/fused/
 data/*.tar.gz
 data/*.zip
+terraform/*_payload.zip
+terraform/.sm-local-test/
+tmp_test/
 data/*.npy
 data/*.jsonl
 data/*.pkl

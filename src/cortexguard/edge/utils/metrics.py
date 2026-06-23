@@ -112,6 +112,12 @@ steps_total = Counter(
     ["outcome"],  # completed | retry_exhausted | aborted
 )
 
+# Telemetry
+telemetry_flush_failures_total = Counter(
+    "cortexguard_telemetry_flush_failures_total",
+    "Total telemetry flush failures (network errors, timeouts, etc.)",
+)
+
 
 # -----------------------------
 # Timing helper

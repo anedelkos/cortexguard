@@ -398,7 +398,28 @@ Expose the current emergency stop state. Value is `1` when an E-STOP is active, 
 
 ---
 
-## 16. `cortexguard_steps_total`
+## 16. `cortexguard_telemetry_flush_failures_total`
+
+**Type:** Counter
+
+**Labels:**
+None
+
+**Purpose:**
+Count telemetry flush failures (network errors, timeouts) when the `TelemetryClient` sends step outcome records to the cloud API.
+
+**Cardinality constraints:**
+
+- No labels.
+- No per-device or per-outcome identifiers.
+
+**Emitted by:**
+
+- `TelemetryClient._flush` (when the POST request to `/api/v1/telemetry` fails)
+
+---
+
+## 17. `cortexguard_steps_total`
 
 **Type:** Counter
 

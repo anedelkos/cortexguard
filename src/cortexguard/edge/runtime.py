@@ -65,6 +65,7 @@ from cortexguard.edge.policy.policy_agent import PolicyAgent
 from cortexguard.edge.river_online_learner import RiverOnlineLearner
 from cortexguard.edge.safety_agent import SafetyAgent
 from cortexguard.edge.step_executor import StepExecutor
+from cortexguard.edge.telemetry import TelemetryClient
 from cortexguard.edge.utils.metrics import http_requests_total
 from cortexguard.edge.utils.tracing import TraceSink
 
@@ -178,7 +179,7 @@ class RuntimeConfig:
         default_factory=lambda: float(os.getenv("MAYDAY_TIMEOUT_S", "60.0"))
     )
 
-    # Cloud API URL — when set, use HttpCloudAgentClient instead of MockCloudAgentClient
+    # Cloud API URL. When set, use HttpCloudAgentClient instead of MockCloudAgentClient
     cloud_api_url: str | None = field(default_factory=lambda: os.getenv("CLOUD_API_URL"))
     # Shared-secret sent in X-CortexGuard-Key header; required when cloud enforces auth
     cloud_api_key: str | None = field(default_factory=lambda: os.getenv("CLOUD_API_KEY"))
@@ -220,7 +221,26 @@ class EdgeRuntime:
         else:
             self.cloud_agent = MockCloudAgentClient()
         self.capability_registry = CapabilityRegistry()
-        self.step_classifier = MockStepClassifier()
+        if self.config.cloud_api_url:
+            from cortexguard.edge.step_classifier_client import StepClassifierClient
+
+            self.step_classifier: MockStepClassifier | StepClassifierClient = StepClassifierClient(
+                cloud_api_url=self.config.cloud_api_url,
+                api_key=self.config.cloud_api_key,
+            )
+            logger.info("Using cloud-backed StepClassifierClient")
+        else:
+            self.step_classifier = MockStepClassifier()
+
+        # Telemetry client, sends step outcome data to cloud API
+        self.telemetry_client: TelemetryClient | None
+        if self.config.cloud_api_url:
+            self.telemetry_client = TelemetryClient(
+                cloud_api_url=self.config.cloud_api_url,
+                cloud_api_key=self.config.cloud_api_key,
+            )
+        else:
+            self.telemetry_client = None
 
         self.arbiter = Arbiter(
             blackboard=self.blackboard,
@@ -247,10 +267,12 @@ class EdgeRuntime:
             default_poll_interval=self.config.executor_poll_interval,
             default_idle_interval=self.config.executor_idle_interval,
             controller=self.controller,
+            telemetry_client=self.telemetry_client,
+            device_id=self.config.device_id,
         )
 
         # --- PERCEPTION SUBSYSTEM (Fusion and Learning) ---
-        # 1. Instantiate Vision Embedder (requires torch/torchvision — skipped in slim mode)
+        # 1. Instantiate Vision Embedder (requires torch/torchvision, skipped in slim mode)
         self.vision_embedder = VisionEmbedder() if _VISION_AVAILABLE else None
 
         # 2. Instantiate the learning dependency
@@ -402,6 +424,8 @@ class EdgeRuntime:
             start_tasks.append(self.anomaly_detector.start())
         if self.policy_agent:
             start_tasks.append(self.policy_agent.start())
+        if self.telemetry_client:
+            start_tasks.append(self.telemetry_client.start())
 
         # Start all subsystems concurrently and check for failures
         results = await asyncio.gather(*start_tasks, return_exceptions=True)
@@ -435,6 +459,8 @@ class EdgeRuntime:
                 stop_tasks.append(self.anomaly_detector.stop())
             if self.policy_agent:
                 stop_tasks.append(self.policy_agent.stop())
+            if self.telemetry_client:
+                stop_tasks.append(self.telemetry_client.stop())
 
             await asyncio.wait_for(
                 asyncio.gather(*stop_tasks, return_exceptions=True),
@@ -669,7 +695,7 @@ def get_api_app(profile: str = "default") -> FastAPI:
     # 3. Rate limiting
     app.state.limiter = limiter
 
-    # 4. OTEL FastAPI instrumentation — creates spans for every HTTP request
+    # 4. OTEL FastAPI instrumentation, creates spans for every HTTP request
     FastAPIInstrumentor.instrument_app(app)
 
     @app.get("/runtime-metrics")

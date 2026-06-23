@@ -17,7 +17,11 @@ resource "aws_security_group" "rds" {
     from_port       = 5432
     to_port         = 5432
     protocol        = "tcp"
-    security_groups = [aws_security_group.ecs_tasks.id, aws_security_group.worker.id]
+    security_groups = [
+      aws_security_group.ecs_tasks.id,
+      aws_security_group.worker.id,
+      aws_security_group.sagemaker.id,
+    ]
   }
 
   egress {
@@ -43,11 +47,11 @@ resource "aws_db_instance" "main" {
   vpc_security_group_ids    = [aws_security_group.rds.id]
   publicly_accessible       = false
   multi_az                  = false
-  skip_final_snapshot       = false
-  final_snapshot_identifier = "${local.name_prefix}-final-snapshot"
+  skip_final_snapshot       = true
+  final_snapshot_identifier = null
   storage_type              = "gp3"
   backup_retention_period   = 7
-  deletion_protection       = true
+  deletion_protection       = false
 }
 
 locals {

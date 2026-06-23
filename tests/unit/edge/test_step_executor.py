@@ -1,4 +1,5 @@
 import asyncio
+from datetime import UTC, datetime
 from typing import Any, Protocol
 from unittest.mock import AsyncMock, MagicMock
 
@@ -7,8 +8,10 @@ import pytest
 from cortexguard.edge.models.agent_tool_call import AgentToolCall
 from cortexguard.edge.models.blackboard import Blackboard
 from cortexguard.edge.models.capability_registry import RiskLevel
+from cortexguard.edge.models.fusion_snapshot import FusionSnapshot
 from cortexguard.edge.models.plan import PlanStep, StepStatus
 from cortexguard.edge.step_executor import StepExecutor
+from cortexguard.edge.telemetry import TelemetryClient
 
 
 class ControllerProtocol(Protocol):
@@ -458,3 +461,219 @@ async def test_preemption_mid_step_does_not_overwrite_urgent_plan_step() -> None
         "execute_step must check step identity before writing back."
     )
     assert current.status == StepStatus.PENDING
+
+
+# ---------------------------------------------------------------------------
+# Telemetry integration
+# ---------------------------------------------------------------------------
+
+
+class _RecordingTransport:
+    """TelemetryTransport test double that records sent records."""
+
+    def __init__(self) -> None:
+        self.records: list[dict[str, Any]] = []
+
+    async def post(self, url: str, **kwargs: Any) -> None:
+        body = kwargs.get("json")
+        if isinstance(body, dict):
+            self.records = body.get("records", [])
+
+    async def aclose(self) -> None:
+        return
+
+
+@pytest.fixture
+def snapshot() -> FusionSnapshot:
+    return FusionSnapshot(
+        id="snap_1",
+        timestamp=datetime.now(UTC),
+        sensors={"force_N": 10.0},
+        derived={},
+    )
+
+
+def _make_executor(
+    blackboard: AsyncMock,
+    classifier: MockStepClassifier,
+    controller: AsyncMock,
+    registry: MagicMock,
+    telemetry_client: TelemetryClient | None = None,
+    device_id: str = "",
+) -> StepExecutor:
+    return StepExecutor(
+        blackboard=blackboard,
+        step_classifier=classifier,
+        capability_registry=registry,
+        controller=controller,
+        default_max_retries=1,
+        default_retry_delay=0.0,
+        default_poll_interval=0.0,
+        default_idle_interval=0.0,
+        telemetry_client=telemetry_client,
+        device_id=device_id,
+    )
+
+
+@pytest.mark.asyncio
+async def test_telemetry_sent_on_completed(
+    mock_blackboard: AsyncMock,
+    mock_controller: AsyncMock,
+    mock_capability_registry: MagicMock,
+    snapshot: FusionSnapshot,
+) -> None:
+    transport = _RecordingTransport()
+    telemetry = TelemetryClient("http://localhost:8001", http_client=transport)  # type: ignore[arg-type]
+    mock_blackboard.get_fusion_snapshot = AsyncMock(return_value=snapshot)
+
+    executor = _make_executor(
+        mock_blackboard,
+        MockStepClassifier(outcome=StepStatus.COMPLETED),
+        mock_controller,
+        mock_capability_registry,
+        telemetry_client=telemetry,
+        device_id="dev-1",
+    )
+
+    step = make_plan_step(id="step-completed")
+    await executor.execute_step(step)
+    await telemetry.stop()
+
+    assert len(transport.records) == 1
+    assert transport.records[0]["device_id"] == "dev-1"
+    assert transport.records[0]["key"] == "step-completed"
+    assert transport.records[0]["outcome"] == "completed"
+    assert transport.records[0]["sensor_snapshot"]["id"] == "snap_1"
+
+
+@pytest.mark.asyncio
+async def test_telemetry_sent_on_failed(
+    mock_blackboard: AsyncMock,
+    mock_controller: AsyncMock,
+    mock_capability_registry: MagicMock,
+    snapshot: FusionSnapshot,
+) -> None:
+    transport = _RecordingTransport()
+    telemetry = TelemetryClient("http://localhost:8001", http_client=transport)  # type: ignore[arg-type]
+    mock_blackboard.get_fusion_snapshot = AsyncMock(return_value=snapshot)
+
+    executor = _make_executor(
+        mock_blackboard,
+        MockStepClassifier(outcome=StepStatus.FAILED),
+        mock_controller,
+        mock_capability_registry,
+        telemetry_client=telemetry,
+        device_id="dev-1",
+    )
+
+    step = make_plan_step(id="step-failed")
+    await executor.execute_step(step)
+    await telemetry.stop()
+
+    assert len(transport.records) == 1
+    assert transport.records[0]["outcome"] == "retry_exhausted"
+
+
+@pytest.mark.asyncio
+async def test_telemetry_sent_on_emergency_stop_start(
+    mock_blackboard: AsyncMock,
+    mock_controller: AsyncMock,
+    mock_capability_registry: MagicMock,
+    snapshot: FusionSnapshot,
+) -> None:
+    transport = _RecordingTransport()
+    telemetry = TelemetryClient("http://localhost:8001", http_client=transport)  # type: ignore[arg-type]
+    mock_blackboard.get_safety_flag = AsyncMock(return_value=True)
+    mock_blackboard.get_fusion_snapshot = AsyncMock(return_value=snapshot)
+
+    executor = _make_executor(
+        mock_blackboard,
+        MockStepClassifier(outcome=StepStatus.COMPLETED),
+        mock_controller,
+        mock_capability_registry,
+        telemetry_client=telemetry,
+        device_id="dev-1",
+    )
+
+    step = make_plan_step(id="step-aborted")
+    await executor.execute_step(step)
+    await telemetry.stop()
+
+    assert len(transport.records) == 1
+    assert transport.records[0]["outcome"] == "aborted"
+
+
+@pytest.mark.asyncio
+async def test_telemetry_sent_on_emergency_stop_mid_step(
+    mock_blackboard: AsyncMock,
+    mock_controller: AsyncMock,
+    mock_capability_registry: MagicMock,
+    snapshot: FusionSnapshot,
+) -> None:
+    transport = _RecordingTransport()
+    telemetry = TelemetryClient("http://localhost:8001", http_client=transport)  # type: ignore[arg-type]
+    mock_blackboard.get_safety_flag = AsyncMock(side_effect=[False, True])
+    mock_blackboard.get_fusion_snapshot = AsyncMock(return_value=snapshot)
+
+    executor = _make_executor(
+        mock_blackboard,
+        MockStepClassifier(outcome=StepStatus.COMPLETED),
+        mock_controller,
+        mock_capability_registry,
+        telemetry_client=telemetry,
+        device_id="dev-1",
+    )
+
+    step = make_plan_step(id="step-aborted-mid")
+    await executor.execute_step(step)
+    await telemetry.stop()
+
+    assert len(transport.records) == 1
+    assert transport.records[0]["outcome"] == "aborted"
+
+
+@pytest.mark.asyncio
+async def test_telemetry_not_sent_on_preempted(
+    mock_blackboard: AsyncMock,
+    mock_controller: AsyncMock,
+    mock_capability_registry: MagicMock,
+    snapshot: FusionSnapshot,
+) -> None:
+    transport = _RecordingTransport()
+    telemetry = TelemetryClient("http://localhost:8001", http_client=transport)  # type: ignore[arg-type]
+    mock_blackboard.get_fusion_snapshot = AsyncMock(return_value=snapshot)
+    mock_blackboard.set_current_step_if_matches = AsyncMock(return_value=False)
+
+    executor = _make_executor(
+        mock_blackboard,
+        MockStepClassifier(outcome=StepStatus.COMPLETED),
+        mock_controller,
+        mock_capability_registry,
+        telemetry_client=telemetry,
+        device_id="dev-1",
+    )
+
+    step = make_plan_step(id="step-preempted")
+    await executor.execute_step(step)
+    await telemetry.stop()
+
+    assert len(transport.records) == 0
+
+
+@pytest.mark.asyncio
+async def test_telemetry_not_sent_without_client(
+    mock_blackboard: AsyncMock,
+    mock_controller: AsyncMock,
+    mock_capability_registry: MagicMock,
+) -> None:
+    executor = _make_executor(
+        mock_blackboard,
+        MockStepClassifier(outcome=StepStatus.COMPLETED),
+        mock_controller,
+        mock_capability_registry,
+        telemetry_client=None,
+    )
+
+    step = make_plan_step(id="step-no-telemetry")
+    await executor.execute_step(step)
+    assert step.status == StepStatus.COMPLETED

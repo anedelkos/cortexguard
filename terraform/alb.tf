@@ -23,7 +23,7 @@ resource "aws_lb_target_group" "cloud_api" {
   }
 }
 
-# HTTP listener — redirects to HTTPS when acm_certificate_arn is set, otherwise forwards directly.
+# HTTP listener: redirects to HTTPS when acm_certificate_arn is set, otherwise forwards directly.
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.cloud_api.arn
   port              = 80
@@ -44,7 +44,7 @@ resource "aws_lb_listener" "http" {
   }
 }
 
-# HTTPS listener — only created when acm_certificate_arn is provided.
+# HTTPS listener: only created when acm_certificate_arn is provided.
 resource "aws_lb_listener" "https" {
   count             = var.acm_certificate_arn != "" ? 1 : 0
   load_balancer_arn = aws_lb.cloud_api.arn

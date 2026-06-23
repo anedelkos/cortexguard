@@ -1,6 +1,6 @@
 # CortexGuard Observability
 
-CortexGuard is a real-time safety-critical system. When something goes wrong — a detection loop slows down, an LLM policy fails, a cloud escalation times out — we need to know immediately and understand why. This document describes what the observability layer tracks, why each signal matters, and how to read the system's health at a glance.
+CortexGuard is a real-time safety-critical system. When something goes wrong, a detection loop slows down, an LLM policy fails, a cloud escalation times out, we need to know immediately and understand why. This document describes what the observability layer tracks, why each signal matters, and how to read the system's health at a glance.
 
 ---
 
@@ -30,7 +30,7 @@ A single histogram with a `component` label covering every major subsystem:
 
 | Component | What it measures | Why it matters |
 |-----------|-----------------|----------------|
-| `fusion_process_record` | Sensor fusion pipeline per record | Upstream of everything — if this is slow, all downstream stages are starved |
+| `fusion_process_record` | Sensor fusion pipeline per record | Upstream of everything, if this is slow, all downstream stages are starved |
 | `estimator_update` | Online learner state estimation | Slow updates mean stale confidence and degraded anomaly detection quality |
 | `anomaly_detector_tick` | Full detector ensemble tick | Direct measure of detection loop health; budget is 50–200ms |
 | `policy_agent_tick` | Policy agent control loop | Measures overall policy responsiveness including LLM dispatch overhead |
@@ -40,7 +40,7 @@ A single histogram with a `component` label covering every major subsystem:
 | `mayday_attempt` | Single cloud escalation HTTP attempt | Direct measure of cloud availability from the edge's perspective |
 | `mayday` | Full escalation including retries | End-to-end escalation latency including backoff |
 
-Use `histogram_quantile(0.95, ...)` to get p95 latency — the mean hides tail behavior that matters in a safety system.
+Use `histogram_quantile(0.95, ...)` to get p95 latency, the mean hides tail behavior that matters in a safety system.
 
 ### HTTP Ingestion: Rate, Errors, Duration
 
@@ -71,7 +71,7 @@ Counters only go up. Use `rate(...)` in Prometheus to see events per second over
 | Metric | What it counts | Why it matters |
 |--------|---------------|----------------|
 | `cortexguard_anomalies_total` | Anomalies emitted by the detection ensemble | Baseline rate tells you what normal looks like; spikes indicate incidents |
-| `cortexguard_detector_failures_total` | Exceptions thrown by individual sub-detectors | Any non-zero rate means a detector is crashing — its signal is missing from the ensemble |
+| `cortexguard_detector_failures_total` | Exceptions thrown by individual sub-detectors | Any non-zero rate means a detector is crashing, its signal is missing from the ensemble |
 | `cortexguard_policy_escalations_total` | Anomalies that required Mayday cloud escalation | High rate means on-device policy is insufficient; zero for long periods might indicate escalation is broken |
 | `cortexguard_llm_requests_total` | LLM policy generation calls by outcome (success, failure, timeout, circuit_skipped) | Distinguishes LLM failures from circuit-breaker skips |
 | `cortexguard_mayday_escalations_total` | Cloud escalation attempts by outcome (success, timeout, error, exhausted) | Exposes MaydayAgent's internal retry counters as Prometheus metrics |
@@ -95,13 +95,13 @@ Each subsystem creates a named tracer and wraps its key operations:
 | `cortexguard.anomaly_detector` | `anomaly_detector_tick`, `detector_failure` | `detector.name`, `anomaly.key`, `anomaly.severity` |
 | `cortexguard.policy_agent` | `policy_agent_tick`, `policy_generation`, `escalation_triggered` | `policy.id`, `llm.duration_ms`, `model` |
 | `cortexguard.orchestrator` | `orchestrator_tick`, `plan_queued`, `plan_completed` | `active_anomalies.count` |
-| `cortexguard.mayday` | `mayday_attempt`, `cloud_call_failed` | — |
+| `cortexguard.mayday` | `mayday_attempt`, `cloud_call_failed` | - |
 
 ### When to use traces vs metrics
 
-Use metrics when you want to know *whether* a problem exists (dashboards, alerts, rate-of-change). Use traces when you want to understand *what happened during a specific event* — for example, tracing a particular anomaly through detection → policy generation → plan execution to see where time was spent or where an error occurred.
+Use metrics when you want to know *whether* a problem exists (dashboards, alerts, rate-of-change). Use traces when you want to understand *what happened during a specific event*, for example, tracing a particular anomaly through detection → policy generation → plan execution to see where time was spent or where an error occurred.
 
-Traces also carry the `ReasoningTraceEntry` log — a structured human-readable narrative of the agent's reasoning (e.g. "POLICY_LLM_ERROR: model timed out after 30s, falling back to safe policy"). This reasoning trace is the primary debugging tool for understanding why the system made a specific decision.
+Traces also carry the `ReasoningTraceEntry` log, a structured human-readable narrative of the agent's reasoning (e.g. "POLICY_LLM_ERROR: model timed out after 30s, falling back to safe policy"). This reasoning trace is the primary debugging tool for understanding why the system made a specific decision.
 
 ---
 
@@ -123,7 +123,7 @@ This surfaces every planning decision as a live log entry:
 cloud_plan decision=plan_ready confidence=0.87 steps=3 trace_id=abc123 | Retry grip with adjusted approach angle, reduce torque by 20%...
 ```
 
-The `trace_id` in each log line links directly to the corresponding Tempo trace via Grafana's derived fields configuration — clicking "View trace in Tempo" jumps to the full end-to-end span from the edge MaydayAgent through all five cloud planning nodes.
+The `trace_id` in each log line links directly to the corresponding Tempo trace via Grafana's derived fields configuration, clicking "View trace in Tempo" jumps to the full end-to-end span from the edge MaydayAgent through all five cloud planning nodes.
 
 Logs complement traces by providing a lower-level narrative. If a trace shows an anomaly was detected but no policy was generated, the logs will show whether the LLM circuit breaker was open, which fallback was used, and what the exact error message was.
 
@@ -133,23 +133,23 @@ Logs complement traces by providing a lower-level narrative. If a trace shows an
 
 The dashboard ("CortexGuard Edge Observability", UID `cortexguard-edge-observability`) is provisioned automatically from `docker/grafana_dashboard.json`. It refreshes every 5 seconds and defaults to a 15-minute time window.
 
-### Row 1 — System Health
+### Row 1: System Health
 
-Six stat and time series panels: the three original safety-state gauges (active anomalies, plan queue length, estimator confidence) plus three new panels — LLM circuit breaker state (green=closed, red=open), mayday consecutive failures, and ingestion rate. These are the first thing to check when something looks wrong.
+Six stat and time series panels: the three original safety-state gauges (active anomalies, plan queue length, estimator confidence) plus three new panels: LLM circuit breaker state (green=closed, red=open), mayday consecutive failures, and ingestion rate. These are the first thing to check when something looks wrong.
 
-### Row 2 — HTTP RED (collapsed)
+### Row 2: HTTP RED (collapsed)
 
 Four panels providing full RED method coverage for the HTTP ingestion endpoint: request rate by status code, error rate percentage (4xx+5xx), p95 latency stat, and p99 latency time series.
 
-### Row 3 — Subsystem Latency Percentiles
+### Row 3: Subsystem Latency Percentiles
 
 Six time series panels (replacing the previous heatmaps) showing p50/p95/p99 latency lines for each major subsystem: fusion, estimator, anomaly detector, policy agent, policy generation, and orchestrator. Reference lines indicate the latency budget thresholds (200ms for detection, 300ms for fusion and decision).
 
-### Row 4 — Flow Rates and Outcomes
+### Row 4: Flow Rates and Outcomes
 
-Eight panels: the three original counters (anomalies, detector failures, escalations) plus five new panels — plan completion rate by status, plan success ratio, LLM request rate by outcome, mayday escalation outcomes, and step outcome rate.
+Eight panels: the three original counters (anomalies, detector failures, escalations) plus five new panels: plan completion rate by status, plan success ratio, LLM request rate by outcome, mayday escalation outcomes, and step outcome rate.
 
-### Row 5 — SLO Error Budgets (collapsed)
+### Row 5: SLO Error Budgets (collapsed)
 
 Four stat panels tracking key SLOs: detection loop p95 latency vs 200ms budget, plan success rate vs 95% target, LLM circuit health, and HTTP error budget remaining. All panels use green/yellow/red thresholds at the 99%/95% boundaries.
 
@@ -161,7 +161,7 @@ Four stat panels tracking key SLOs: detection loop p95 latency vs 200ms budget, 
 
 **Low cardinality.** No metric label contains a per-event identifier (anomaly ID, plan ID, trace ID). Labels are bounded enumerations. This keeps Prometheus memory usage predictable regardless of event volume.
 
-**Traces for decisions, metrics for trends.** The LLM's reasoning, the specific anomaly that triggered escalation, the exact step that failed — these belong in traces where they carry full context. Aggregated counts and latencies belong in metrics where they can be charted over time.
+**Traces for decisions, metrics for trends.** The LLM's reasoning, the specific anomaly that triggered escalation, the exact step that failed, these belong in traces where they carry full context. Aggregated counts and latencies belong in metrics where they can be charted over time.
 
 **Defense in depth.** The system has multiple internal fault-tolerance mechanisms: an LLM circuit breaker (trips after 3 consecutive failures, 60s cooldown), MaydayAgent retry logic (2 attempts, exponential backoff), and step-level retries (3 attempts per step). Observability surfaces all of these so that degraded-but-operational states are visible, not silent.
 
@@ -179,11 +179,12 @@ The cloud API (`cloud-api:8001`) exposes a `/metrics` endpoint scraped by the sa
 
 | Metric | Labels | What it counts |
 |--------|--------|----------------|
-| `cloud_planning_requests_total` | — | Total mayday escalations received |
+| `cloud_planning_requests_total` | - | Total mayday escalations received |
 | `cloud_decisions_total` | `decision` (`plan_ready`, `needs_human`, `no_safe_plan`) | Planning outcomes by type |
-| `cloud_needs_human_total` | — | Escalations that required human intervention |
-| `cloud_validation_failures_total` | — | Candidate plans that failed the capability/confidence validator |
+| `cloud_needs_human_total` | - | Escalations that required human intervention |
+| `cloud_validation_failures_total` | - | Candidate plans that failed the capability/confidence validator |
 | `cloud_outcome_status_total` | `status` | Execution outcomes reported back by the edge |
+| `cloud_telemetry_records_total` | - | Step-telemetry records ingested from edge devices via `POST /api/v1/telemetry` |
 
 #### Histograms
 
@@ -208,17 +209,3 @@ The cloud API is instrumented with OpenTelemetry. When `OTEL_EXPORTER_OTLP_ENDPO
 | `route_decision` | `graph/nodes.py` |
 
 The service name is `cortexguard-cloud` (set in the OTEL resource).
-
----
-
-## See Also
-
-- `docs/metrics_spec.md` — full metric definitions, label constraints, and cardinality rules
-- `docs/architecture.md` — system architecture and latency budget context
-- `docs/cloud_architecture.md` — cloud tier LangGraph workflow and RAG pipeline
-- `src/cortexguard/edge/utils/metrics.py` — edge metric definitions
-- `src/cortexguard/edge/utils/tracing.py` — trace sink and span helpers
-- `src/cortexguard/cloud/runtime.py` — cloud metric definitions
-- `docker/grafana_dashboard.json` — dashboard panel definitions
-- `docker/prometheus.yml` — scrape configuration (edge + cloud)
-- `docker/cortexguard_alerts.yml` — Prometheus alerting rules

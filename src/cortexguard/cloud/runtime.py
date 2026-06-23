@@ -19,6 +19,7 @@ from cortexguard.cloud.api.health import get_health_router
 from cortexguard.cloud.api.mayday import get_mayday_router
 from cortexguard.cloud.api.outcomes import get_outcomes_router
 from cortexguard.cloud.auth import ApiKeyMiddleware
+from cortexguard.cloud.classify.api import get_classify_router
 from cortexguard.cloud.config import CloudConfig
 from cortexguard.cloud.orchestrator import CloudOrchestrator, SQSCloudOrchestrator
 from cortexguard.cloud.persistence.postgres_repository import PostgresIncidentRepository
@@ -37,6 +38,13 @@ from cortexguard.cloud.retrieval.vector_store import (
     InMemoryVectorStore,
     QdrantVectorStore,
     VectorStoreProtocol,
+)
+from cortexguard.cloud.telemetry.api import get_telemetry_router
+from cortexguard.cloud.telemetry.postgres_repository import PostgresTelemetryRepository
+from cortexguard.cloud.telemetry.repository import (
+    InMemoryTelemetryRepository,
+    SQLiteTelemetryRepository,
+    TelemetryRepositoryProtocol,
 )
 from cortexguard.cloud.validation.capability_adapter import CapabilityAdapter
 from cortexguard.cloud.validation.plan_validator import PlanValidator
@@ -145,6 +153,11 @@ cloud_retrieval_similarity_score = Histogram(
     ["anomaly_key"],
 )
 
+cloud_telemetry_records_total = Counter(
+    "cloud_telemetry_records_total",
+    "Total step-telemetry records ingested from edge devices",
+)
+
 
 def create_cloud_app(
     config: CloudConfig,
@@ -166,6 +179,21 @@ def create_cloud_app(
         repo = _sqlite_repo
     else:
         repo = InMemoryIncidentRepository()
+
+    # --- Step-telemetry store ---
+    _sqlite_telemetry_repo: SQLiteTelemetryRepository | None = None
+    _postgres_telemetry_repo: PostgresTelemetryRepository | None = None
+    telemetry_repo: TelemetryRepositoryProtocol
+    if config.incident_store == "postgres":
+        if not config.db_url:
+            raise ValueError("CLOUD_DB_URL must be set when CLOUD_INCIDENT_STORE=postgres")
+        _postgres_telemetry_repo = PostgresTelemetryRepository(config.db_url)
+        telemetry_repo = _postgres_telemetry_repo
+    elif config.incident_store == "sqlite":
+        _sqlite_telemetry_repo = SQLiteTelemetryRepository(config.db_path)
+        telemetry_repo = _sqlite_telemetry_repo
+    else:
+        telemetry_repo = InMemoryTelemetryRepository()
 
     # --- Embedder + vector store ---
     embedder = get_embedder(config.embedder_backend)
@@ -227,8 +255,12 @@ def create_cloud_app(
         _setup_cloud_tracing()
         if _postgres_repo is not None:
             await _postgres_repo.initialize()
+        if _postgres_telemetry_repo is not None:
+            await _postgres_telemetry_repo.initialize()
         if _sqlite_repo is not None:
             await _sqlite_repo.initialize()
+        if _sqlite_telemetry_repo is not None:
+            await _sqlite_telemetry_repo.initialize()
         if _qdrant_store is not None:
             await _qdrant_store.initialize()
         await SeedLoader().seed_if_empty(retrieval_store, repo)
@@ -236,6 +268,8 @@ def create_cloud_app(
         logger.info("CortexGuard cloud API shutting down")
         if _postgres_repo is not None:
             await _postgres_repo.close()
+        if _postgres_telemetry_repo is not None:
+            await _postgres_telemetry_repo.close()
 
     app = FastAPI(
         title="CortexGuard Cloud API",
@@ -293,6 +327,17 @@ def create_cloud_app(
             outcome_rate_limit=config.cloud_outcome_rate_limit,
             _limiter=limiter,
         ),
+        prefix="/api/v1",
+    )
+    app.include_router(
+        get_telemetry_router(
+            repo=telemetry_repo,
+            _limiter=limiter,
+        ),
+        prefix="/api/v1",
+    )
+    app.include_router(
+        get_classify_router(_limiter=limiter),
         prefix="/api/v1",
     )
 
