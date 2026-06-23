@@ -65,6 +65,8 @@ Set these on the **cloud-api** container (or process). All are optional; default
 | `CLOUD_MAYDAY_RATE_LIMIT` | `10/minute` | Rate limit for `POST /api/v1/mayday` per client IP (slowapi format) |
 | `CLOUD_RESULT_RATE_LIMIT` | `60/minute` | Rate limit for `GET /api/v1/mayday/{trace_id}/result` per client IP |
 | `CLOUD_OUTCOME_RATE_LIMIT` | `30/minute` | Rate limit for `POST /api/v1/outcomes` per client IP |
+| `CLOUD_TELEMETRY_RATE_LIMIT` | `60/minute` | Rate limit for `POST /api/v1/telemetry` per client IP |
+| `SAGEMAKER_ENDPOINT_NAME` | - | SageMaker endpoint name for step classification. Injected by Terraform in production. When unset, `POST /api/v1/classify` returns HTTP 503. |
 | `CLOUD_LLM_TIMEOUT_S` | `20.0` | Per-call timeout in seconds for outbound LLM requests; exceeded calls route to `needs_human` |
 | `CLOUD_LLM_MAX_CONCURRENCY` | `4` | Maximum number of concurrent in-flight LLM calls; additional calls queue behind the semaphore |
 | `CLOUD_LLM_MAX_RETRIES` | `2` | Maximum retry attempts for retryable LLM errors (HTTP 429, 5xx) before routing to `needs_human` |
@@ -91,6 +93,8 @@ CLOUD_LLM_TIMEOUT_S=20
 CLOUD_LLM_MAX_CONCURRENCY=4
 CLOUD_LLM_MAX_RETRIES=2
 CLOUD_LLM_BASE_BACKOFF_MS=500
+# SageMaker step classifier (set by Terraform in production)
+SAGEMAKER_ENDPOINT_NAME=cortexguard-step-classifier
 # SQS worker mode (multi-task Fargate deployments)
 CLOUD_SQS_QUEUE_URL=https://sqs.<region>.amazonaws.com/<account>/<queue>
 CLOUD_SQS_REGION=eu-west-1
@@ -341,17 +345,11 @@ curl -X POST $ALB_URL/api/v1/mayday \
 
 ### Tear down
 
-RDS has `deletion_protection = true`. Disable it first, then destroy:
+RDS has `deletion_protection = false` by default. If you changed it to `true`, set it back to `false` before destroying:
 
 ```bash
-# Step 1: disable deletion protection
 cd terraform
-terraform apply -var="deletion_protection=false"
-```
-
-Wait, `deletion_protection` isn't a top-level variable; edit `terraform/rds.tf` and set `deletion_protection = false`, then apply:
-
-```bash
+# Edit terraform/rds.tf and set deletion_protection = false
 terraform apply   # updates RDS only
 ```
 
@@ -397,3 +395,34 @@ Set the shared secret on the edge so requests to the cloud API are authenticated
 ```bash
 CLOUD_API_KEY=your-shared-secret
 ```
+
+---
+
+## SageMaker ML Infrastructure
+
+The Terraform deployment provisions SageMaker resources for step classification and model retraining. See `docs/ml_infrastructure.md` for full details.
+
+### Provisioned resources
+
+| Resource | Purpose |
+|----------|---------|
+| SageMaker endpoint (`ml.t2.medium`) | Real-time step classification proxied via `POST /api/v1/classify` |
+| Model Package Group | Registry for trained model versions |
+| Retraining pipeline | Weekly `scikit-learn` ProcessingJob reading telemetry from RDS |
+| Model Monitor | Data drift detection on the endpoint |
+| Champion/challenger Lambda | Promotes new model versions to the endpoint |
+| Rollback Lambda | Reverts the endpoint on drift or error alarms |
+| SNS topic | Drift and endpoint health alerts |
+
+### Smoke test
+
+After `terraform apply`, verify the classify endpoint:
+
+```bash
+curl -X POST $ALB_URL/api/v1/classify \
+  -H "Content-Type: application/json" \
+  -H "X-CortexGuard-Key: your-shared-secret" \
+  -d '{"device_id":"dev-1","step_key":"step_1","sensor_snapshot":{"sensors":{"force_N":10.0},"derived":{}}}'
+```
+
+Returns HTTP 503 if `SAGEMAKER_ENDPOINT_NAME` is not set (no endpoint deployed yet). Returns HTTP 502 if the endpoint is deployed but the model returns an error.

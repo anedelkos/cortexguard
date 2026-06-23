@@ -6,7 +6,7 @@ resource "aws_sqs_queue" "mayday_dlq" {
 
 resource "aws_sqs_queue" "mayday" {
   name                       = "${local.name_prefix}-mayday"
-  visibility_timeout_seconds = 300  # 5 min — must be >= worker processing time
+  visibility_timeout_seconds = 300  # 5 min: must be >= worker processing time
   message_retention_seconds  = 86400
   sqs_managed_sse_enabled    = true
 

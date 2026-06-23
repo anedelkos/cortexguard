@@ -22,7 +22,7 @@ data "aws_subnets" "selected" {
   }
 }
 
-# Security group for the ALB — accepts HTTP and HTTPS from anywhere.
+# Security group for the ALB: accepts HTTP and HTTPS from anywhere.
 resource "aws_security_group" "alb" {
   name        = "${local.name_prefix}-alb"
   description = "Allow HTTP and HTTPS inbound to ALB"
@@ -50,7 +50,7 @@ resource "aws_security_group" "alb" {
   }
 }
 
-# Security group for cloud-api ECS tasks — accepts traffic only from the ALB.
+# Security group for cloud-api ECS tasks: accepts traffic only from the ALB.
 resource "aws_security_group" "ecs_tasks" {
   name        = "${local.name_prefix}-ecs-tasks"
   description = "Allow inbound from ALB only"
@@ -71,10 +71,10 @@ resource "aws_security_group" "ecs_tasks" {
   }
 }
 
-# Security group for the SQS worker — no inbound needed (it only polls SQS outbound).
+# Security group for the SQS worker: no inbound needed (it only polls SQS outbound).
 resource "aws_security_group" "worker" {
   name        = "${local.name_prefix}-worker"
-  description = "SQS worker - egress only"
+  description = "SQS worker: egress only"
   vpc_id      = data.aws_vpc.selected.id
 
   egress {

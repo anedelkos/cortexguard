@@ -8,7 +8,7 @@ data "aws_iam_policy_document" "ecs_assume_role" {
   }
 }
 
-# Execution role — allows ECS to pull the image and write logs.
+# Execution role: allows ECS to pull the image and write logs.
 resource "aws_iam_role" "ecs_execution" {
   name               = "${local.name_prefix}-ecs-execution"
   assume_role_policy = data.aws_iam_policy_document.ecs_assume_role.json
@@ -42,7 +42,7 @@ resource "aws_iam_role_policy_attachment" "ecs_execution_secrets" {
   policy_arn = aws_iam_policy.read_secrets.arn
 }
 
-# Task role — permissions the running container has at runtime.
+# Task role: permissions the running container has at runtime.
 resource "aws_iam_role" "ecs_task" {
   name               = "${local.name_prefix}-ecs-task"
   assume_role_policy = data.aws_iam_policy_document.ecs_assume_role.json

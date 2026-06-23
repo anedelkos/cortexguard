@@ -21,7 +21,7 @@
 4. Cloud LLM Backend. Pluggable via Factory
     * Cloud deliberative planner uses a factory pattern (`get_llm_client(backend)`) to select between Groq, Anthropic, OpenRouter, and mock backends at startup via `CLOUD_LLM_BACKEND` env var.
     * Groq (Llama 3.3 70B) is the default: free tier available, OpenAI-compatible API, no local GPU required.
-    * AWS SageMaker is a future deployment target for model lifecycle management (fine-tuning, periodic retraining).
+    * AWS SageMaker is deployed for model lifecycle management: step classifier endpoint, model registry, weekly retraining pipeline, and data drift monitoring (see `docs/ml_infrastructure.md`).
 
 5. Explainability & Observability
     * XAI endpoint shows top modalities, anomaly timeline, LLM explanations

@@ -282,6 +282,41 @@ Outcomes can be reported back by the edge via `POST /api/v1/outcomes` and querie
 
 ---
 
+## Step Telemetry Store
+
+Step outcomes and sensor snapshots are sent by the edge `TelemetryClient` and ingested via `POST /api/v1/telemetry`. The store shares the same backend as incidents (SQLite by default, or Postgres when `CLOUD_INCIDENT_STORE=postgres`):
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER (PK) | Auto-increment |
+| `device_id` | TEXT | Edge device identifier |
+| `key` | TEXT | Step ID |
+| `outcome` | TEXT | `completed`, `retry_exhausted`, or `aborted` |
+| `recorded_at` | TEXT | ISO 8601 UTC timestamp from the edge |
+| `ingested_at` | TEXT | ISO 8601 UTC timestamp on ingestion |
+| `sensor_snapshot_json` | TEXT | Serialised `FusionSnapshot` at step outcome time |
+
+Indexed on `(device_id, recorded_at)` for efficient per-device queries. The weekly SageMaker retraining pipeline reads from this table to build training datasets.
+
+---
+
+## Step Classification
+
+The cloud proxies classification requests from the edge to a SageMaker endpoint running a trained model. The `StepClassifierClient` on the edge calls `POST /api/v1/classify` instead of the local `MockStepClassifier` when `CLOUD_API_URL` is configured.
+
+The classify endpoint (`src/cortexguard/cloud/classify/api.py`) runs the SageMaker call in a thread pool to avoid blocking the event loop:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `predicted_outcome` | string | `completed` or `failed` |
+| `confidence` | float | Model confidence [0.0-1.0] |
+| `model_id` | string | Model identifier from registry |
+| `model_version` | string/int | Version from the model registry |
+
+The SageMaker endpoint name is set via `SAGEMAKER_ENDPOINT_NAME` env var (injected by Terraform in production). If unset, the endpoint returns HTTP 503. Rate limited to 100 requests/minute.
+
+---
+
 ## API Endpoints
 
 | Method | Path | Description |
@@ -290,6 +325,9 @@ Outcomes can be reported back by the edge via `POST /api/v1/outcomes` and querie
 | `GET` | `/api/v1/mayday/{trace_id}/result` | Poll for planning result (`pending`, `plan_ready`, `needs_human`, `no_safe_plan`) |
 | `POST` | `/api/v1/outcomes` | Report execution outcome (edge → cloud feedback loop) |
 | `GET` | `/api/v1/outcomes/recent` | List recent outcomes |
+| `POST` | `/api/v1/telemetry` | Ingest step-telemetry records (sensor snapshot + outcome) from edge |
+| `GET` | `/api/v1/telemetry/recent` | List recent telemetry records for debugging |
+| `POST` | `/api/v1/classify` | Classify step outcome via SageMaker endpoint (proxied from edge) |
 | `GET` | `/healthz/live` | Liveness probe |
 | `GET` | `/healthz/ready` | Readiness probe (checks DB + Qdrant) |
 | `GET` | `/metrics` | Prometheus metrics |
@@ -357,3 +395,4 @@ CLOUD_GROQ_API_KEY=<key> docker compose -f docker-compose.demo.yaml up --build
 - `src/cortexguard/cloud/planner/factory.py`: LLM backend factory
 - `src/cortexguard/cloud/retrieval/store.py`: RAG retrieval with outcome boosting
 - `src/cortexguard/cloud/validation/plan_validator.py`: capability and confidence validation
+- `docs/ml_infrastructure.md`: SageMaker retraining pipeline, model registry, data drift, and step classifier endpoint

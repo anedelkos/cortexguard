@@ -14,6 +14,7 @@ from cortexguard.edge.models.blackboard import Blackboard
 from cortexguard.edge.models.capability_registry import CapabilityRegistry
 from cortexguard.edge.models.plan import PlanStep, StepStatus
 from cortexguard.edge.models.reasoning_trace_entry import TraceSeverity
+from cortexguard.edge.telemetry import TelemetryClient
 from cortexguard.edge.utils.metrics import steps_total
 from cortexguard.edge.utils.tracing import BaseTraceSink, TraceSink
 
@@ -40,6 +41,8 @@ class StepExecutor(BaseExecutor):
         default_poll_interval: float,
         default_idle_interval: float,
         trace_sink: BaseTraceSink | None = None,
+        telemetry_client: TelemetryClient | None = None,
+        device_id: str = "",
     ) -> None:
         self._blackboard = blackboard
         self._trace_sink: BaseTraceSink = (
@@ -55,6 +58,8 @@ class StepExecutor(BaseExecutor):
         self._loop_running = False
         self._paused = False
         self._task: asyncio.Task[None] | None = None
+        self._telemetry_client = telemetry_client
+        self._device_id = device_id
 
     async def start(self) -> None:
         if self._loop_running:
@@ -194,6 +199,18 @@ class StepExecutor(BaseExecutor):
                 logger.debug("Failed to post execution failure trace", exc_info=True)
             return False
 
+    async def _capture_step_telemetry(self, step: PlanStep, outcome: str | None = None) -> None:
+        if self._telemetry_client is None:
+            return
+        try:
+            snapshot = await self._blackboard.get_fusion_snapshot()
+            if snapshot is not None:
+                await self._telemetry_client.send(
+                    self._device_id, step.id, outcome or step.status.value, snapshot
+                )
+        except Exception:
+            logger.warning("Failed to capture step telemetry", exc_info=True)
+
     async def execute_step(self, step: PlanStep) -> None:
         # 0. Safety check: respect Arbiter flags
         if await self._blackboard.get_safety_flag("emergency_stop"):
@@ -207,6 +224,7 @@ class StepExecutor(BaseExecutor):
                 severity=TraceSeverity.CRITICAL,
             )
             steps_total.labels(outcome="aborted").inc()
+            await self._capture_step_telemetry(step, outcome="aborted")
             return
 
         if step.status != StepStatus.PENDING:
@@ -234,6 +252,7 @@ class StepExecutor(BaseExecutor):
                     severity=TraceSeverity.CRITICAL,
                 )
                 steps_total.labels(outcome="aborted").inc()
+                await self._capture_step_telemetry(step, outcome="aborted")
                 return
 
             step.status = StepStatus.RUNNING
@@ -264,6 +283,7 @@ class StepExecutor(BaseExecutor):
                     metadata={"step_id": step.id},
                 )
                 steps_total.labels(outcome="completed").inc()
+                await self._capture_step_telemetry(step)
                 return
 
             if attempt < max_attempts:
@@ -288,6 +308,7 @@ class StepExecutor(BaseExecutor):
                     metadata={"step_id": step.id},
                 )
                 steps_total.labels(outcome="retry_exhausted").inc()
+                await self._capture_step_telemetry(step, outcome="retry_exhausted")
                 return
 
     async def _executor_loop(self) -> None:

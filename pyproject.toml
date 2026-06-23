@@ -205,6 +205,7 @@ skips = ["B101"]  # Example: skip asserts for testing
 pillow = "PIL"
 
 [tool.deptry.per_rule_ignores]
+DEP001 = ["training_script"]
 DEP002 = ["uvicorn", "bitsandbytes", "accelerate", "langgraph-checkpoint-sqlite", "langgraph-checkpoint-postgres"]
 # asyncpg, boto3, starlette are in [project.optional-dependencies].cloud;
 # deptry treats optional extras as non-direct and flags them as DEP003.

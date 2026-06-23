@@ -20,6 +20,7 @@ locals {
     { name = "CLOUD_SQS_REGION",           value = var.aws_region },
     { name = "LOG_JSON",                   value = "true" },
     { name = "LOG_LEVEL",                  value = "INFO" },
+    { name = "SAGEMAKER_ENDPOINT_NAME",    value = aws_sagemaker_endpoint.step_classifier.name },
   ]
 
   common_secrets = [

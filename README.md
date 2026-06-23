@@ -317,7 +317,7 @@ task test-e2e      # end-to-end
 |LLM (edge):         |Qwen/Qwen2.5-7B-Instruct (on-device inference)|
 |LLM (cloud):        |Pluggable Groq (Llama 3.3 70B), Anthropic (Claude Haiku), mock|
 |Vector store:       |Qdrant + sentence-transformers MiniLM (384-dim)|
-|Infrastructure:     |Docker (local/demo), AWS ECS Fargate + Terraform (production)|
+|Infrastructure:     |Docker (local/demo), AWS ECS Fargate + SageMaker + Terraform (production)|
 |Observability:      |OpenTelemetry|
 |Data Fusion:        |NumPy, Pandas, torchvision|
 |Testing:            |pytest, pytest-asyncio, pytest-cov|
@@ -325,7 +325,7 @@ task test-e2e      # end-to-end
 
 # ☁️ Production Deployment (AWS)
 
-The cloud tier deploys to AWS ECS Fargate via Terraform (see `terraform/`). Resources provisioned: ECS cluster, ALB, RDS (Postgres 16), EFS (Qdrant storage), SQS queues, Secrets Manager, ECR, CloudWatch, and service discovery.
+The cloud tier deploys to AWS ECS Fargate via Terraform (see `terraform/`). Resources provisioned: ECS cluster, ALB, RDS (Postgres 16), EFS (Qdrant storage), SQS queues, Secrets Manager, ECR, CloudWatch, service discovery, SageMaker endpoint for step classification, and a weekly retraining pipeline with model registry and data drift monitoring.
 
 ```bash
 cd terraform
@@ -360,28 +360,48 @@ flowchart TD
         DLQ["SQS — mayday-dlq\n(after 3 failures,\n14d retention)"]
     end
 
+    subgraph ML["SageMaker ML"]
+        EP["Step Classifier\nEndpoint\n(ml.t2.medium)"]
+        MODEL_REG[("Model Registry")]
+        PP["Retraining Pipeline\n(weekly,\nscikit-learn)"]
+        MON["Model Monitor\n(data drift)"]
+        PROMOTE["promote champion\nLambda"]
+        ROLLBACK["rollback on drift\nLambda"]
+    end
+
     ECR["ECR\n(cloud-api image)"]
+    S3["S3\n(model artifacts)"]
     SM["Secrets Manager\n(Groq / Anthropic /\nAPI key / DB URL)"]
     CW["CloudWatch Logs\n(api / worker / qdrant)"]
 
     OP -->|HTTPS| ALB
-    EDGE -->|MaydayPacket| ALB
+    EDGE -->|MaydayPacket\nTelemetry + Classify| ALB
     ALB -->|:8001| API
     WORKER -->|polls| SQS
-    SQS -.->|3× failure| DLQ
+    SQS -.->|3x failure| DLQ
     API --> RDS
     API --> QDRANT
     WORKER --> RDS
     WORKER --> QDRANT
     QDRANT --> EFS
+    PP -.->|reads telemetry| RDS
+    PP -.->|writes artifacts| S3
+    PP -.->|registers model| MODEL_REG
+    S3 -.->|model_data_url| EP
+    PROMOTE -.->|deploys champion| EP
+    ROLLBACK -.->|reverts endpoint| EP
+    MON -.->|drift alerts| CW
+    SM -.->|DB creds| PP
 
     ECR -.->|image pull| API
     ECR -.->|image pull| WORKER
     SM -.->|secrets at startup| API
     SM -.->|secrets at startup| WORKER
+    SM -.->|secrets at startup| PP
     API -.->|logs| CW
     WORKER -.->|logs| CW
     QDRANT -.->|logs| CW
+    EP -.->|logs| CW
 ```
 
 All resources are Terraform-managed. Solid lines = data flow; dashed lines = infrastructure provisioning / configuration at deploy/startup time.

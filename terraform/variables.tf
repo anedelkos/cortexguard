@@ -5,7 +5,7 @@ variable "aws_region" {
 }
 
 variable "project" {
-  description = "Project name — used as a prefix on all resource names"
+  description = "Project name: used as a prefix on all resource names"
   type        = string
   default     = "cortexguard"
 }
@@ -19,13 +19,13 @@ variable "environment" {
 # --- Container image ---
 
 variable "image_tag" {
-  description = "Docker image tag to deploy. Must be a specific tag in non-demo environments — 'latest' is rejected."
+  description = "Docker image tag to deploy. Must be a specific tag in non-demo environments: 'latest' is rejected."
   type        = string
   default     = "latest"
 }
 
 variable "qdrant_image_tag" {
-  description = "Qdrant image tag to deploy. Must be pinned to a specific semver (e.g. v1.9.4) — floating tags risk silent schema breakage against persisted EFS data."
+  description = "Qdrant image tag to deploy. Must be pinned to a specific semver (e.g. v1.9.4): floating tags risk silent schema breakage against persisted EFS data."
   type        = string
 }
 
@@ -103,7 +103,7 @@ variable "groq_api_key" {
 }
 
 variable "anthropic_api_key" {
-  description = "Anthropic API key (optional — leave empty if using Groq)"
+  description = "Anthropic API key (optional: leave empty if using Groq)"
   type        = string
   sensitive   = true
   default     = ""
@@ -113,6 +113,26 @@ variable "cloud_api_key" {
   description = "Shared-secret API key the edge must send in X-CortexGuard-Key header"
   type        = string
   sensitive   = true
+}
+
+# --- SageMaker endpoint ---
+
+variable "sagemaker_endpoint_instance_type" {
+  description = "Instance type for the SageMaker step-classifier endpoint"
+  type        = string
+  default     = "ml.t2.medium"
+}
+
+variable "data_drift_violation_threshold" {
+  description = "Number of data-drift violations before the CloudWatch alarm fires"
+  type        = number
+  default     = 5
+}
+
+variable "drift_alarm_email" {
+  description = "Email to notify on drift or endpoint health violations. Leave empty to skip SNS subscription."
+  type        = string
+  default     = ""
 }
 
 # --- LLM backend ---
@@ -126,7 +146,7 @@ variable "llm_backend" {
 # Cross-variable validations (requires Terraform >= 1.6).
 # triggers_replace forces resource replacement (and precondition re-evaluation) whenever
 # these values change. Sensitive variables (groq_api_key, anthropic_api_key, cloud_api_key)
-# are intentionally excluded — Terraform stores triggers_replace values in state in plaintext,
+# are intentionally excluded: Terraform stores triggers_replace values in state in plaintext,
 # and preconditions referencing those variables already run on every apply without needing a trigger.
 resource "terraform_data" "input_validation" {
   triggers_replace = [
@@ -148,7 +168,7 @@ resource "terraform_data" "input_validation" {
     }
     precondition {
       condition     = !(var.acm_certificate_arn == "" && var.environment != "demo")
-      error_message = "acm_certificate_arn is required for non-demo environments — the API key is sent as a plain HTTP header otherwise."
+      error_message = "acm_certificate_arn is required for non-demo environments: the API key is sent as a plain HTTP header otherwise."
     }
     precondition {
       condition     = !(var.image_tag == "latest" && var.environment != "demo")
@@ -156,11 +176,11 @@ resource "terraform_data" "input_validation" {
     }
     precondition {
       condition     = var.qdrant_image_tag != "latest"
-      error_message = "qdrant_image_tag must be a pinned semver (e.g. v1.9.4) — 'latest' risks silent schema breakage against persisted EFS data."
+      error_message = "qdrant_image_tag must be a pinned semver (e.g. v1.9.4): 'latest' risks silent schema breakage against persisted EFS data."
     }
     precondition {
       condition     = length(var.cloud_api_key) >= 32
-      error_message = "cloud_api_key must be at least 32 characters — use a random secret, not the example placeholder."
+      error_message = "cloud_api_key must be at least 32 characters: use a random secret, not the example placeholder."
     }
   }
 }
