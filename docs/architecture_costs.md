@@ -78,7 +78,7 @@ Escalations are rare by design, the edge handles the majority of cases locally. 
 | Retraining pipeline | `ml.m5.large` (CPU) | ~$0.10/hr per run |
 | Model registry (artifacts) | S3 per GB/month | ~$0.023/GB |
 
-The retraining pipeline runs weekly on a schedule. The `StepClassifierClient` on the edge calls the SageMaker endpoint via the cloud API (`POST /api/v1/classify`). Data drift monitoring and champion/challenger Lambda functions automate model rollback and promotion.
+The retraining pipeline runs weekly on a schedule. The `StepClassifierClient` on the edge calls the SageMaker endpoint via the cloud API (`POST /api/v1/classify`). Data drift monitoring, a two-phase champion/challenger deployment, and a rollback Lambda automate model lifecycle management.
 
 ---
 

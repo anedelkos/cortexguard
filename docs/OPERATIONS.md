@@ -410,7 +410,7 @@ The Terraform deployment provisions SageMaker resources for step classification 
 | Model Package Group | Registry for trained model versions |
 | Retraining pipeline | Weekly `scikit-learn` ProcessingJob reading telemetry from RDS |
 | Model Monitor | Data drift detection on the endpoint |
-| Champion/challenger Lambda | Promotes new model versions to the endpoint |
+| deploy-candidate + promote-challenger Lambdas | Two-phase champion/challenger: deploy new model as challenger at 10%, promote after 30-min health check |
 | Rollback Lambda | Reverts the endpoint on drift or error alarms |
 | SNS topic | Drift and endpoint health alerts |
 

@@ -21,10 +21,16 @@ SageMaker Pipeline (weekly, Monday 06:00 UTC)
 SageMaker Model Registry (cortexguard-edge-models)
     │  EventBridge on PendingManualApproval
     ▼
-promote-champion Lambda
-    │  updates endpoint to new model version
+deploy-candidate Lambda
+    │  deploys new model as challenger variant at 10%
     ▼
 SageMaker Endpoint (ml.t2.medium, champion 90% / challenger 10%)
+    │  ┌─────────────────────────────────────┐
+    │  │ promote-challenger Lambda           │
+    │  │ (every 15 min): checks challenger   │
+    │  │ metrics → promotes to champion      │
+    │  │ if healthy after 30 min window      │
+    │  └─────────────────────────────────────┘
     ▲
     │  POST /api/v1/classify (proxied from edge StepClassifierClient)
 cloud-api
@@ -100,14 +106,30 @@ Real training logic is deferred. The plumbing (pipeline, registry, endpoint, mon
 
 ## Champion/Challenger Promotion
 
-When the retraining pipeline registers a new model package, EventBridge triggers the `promote-champion` Lambda:
+### Phase 1: Deploy as challenger (candidate)
 
-1. Approves the new model package (sets status to `Approved`)
-2. Builds a new SageMaker Model from the approved artifact
-3. Creates a new endpoint configuration
-4. Updates the endpoint to point at the new model
+When the retraining pipeline registers a new model package, EventBridge triggers the `deploy-candidate` Lambda:
 
-The previous champion is tracked in SSM Parameter Store for rollback.
+1. Saves the current champion to SSM Parameter Store (rollback target)
+2. Approves the new model package (sets status to `Approved`)
+3. Creates a SageMaker Model for the candidate
+4. Creates a new endpoint config: **champion** (current model, 90%) + **challenger** (candidate, 10%)
+5. Writes candidate state to SSM (`{version, model_name, deployed_at}`)
+
+### Phase 2: Promote challenger → champion
+
+A separate `promote-challenger` Lambda runs on a schedule (every 15 minutes) and:
+
+1. Reads SSM for a pending candidate
+2. Checks the monitoring window has elapsed (default: 30 minutes)
+3. Checks Challenger variant CloudWatch metrics:
+   - 4XX error sum < threshold (default: 5)
+   - 5XX errors = 0
+   - p99 latency < threshold (default: 2000ms)
+4. If healthy: creates champion model from the candidate's artifact, updates endpoint config (champion 90%, challenger 10%), clears SSM candidate state
+5. If unhealthy: logs the failure, leaves the challenger at 10% — no promotion. The next retraining cycle deploys a new candidate.
+
+The previous champion is tracked in SSM Parameter Store for rollback. If the challenger is never promoted (e.g. perpetual health failures), the champion remains unchanged and continues serving 90% of traffic.
 
 ---
 

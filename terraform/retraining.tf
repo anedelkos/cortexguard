@@ -153,13 +153,13 @@ resource "aws_sagemaker_pipeline" "retraining" {
   pipeline_definition = templatefile("${path.module}/pipeline_definition.json.tpl", {
     sagemaker_sklearn_image       = local.sagemaker_sklearn_image
     sagemaker_model_monitor_image = local.sagemaker_model_monitor_image
-    sagemaker_role_arn       = aws_iam_role.sagemaker_execution.arn
-    code_bucket              = aws_s3_bucket.models.bucket
-    output_bucket            = aws_s3_bucket.models.bucket
-    secret_arn               = aws_secretsmanager_secret.db_url.arn
-    model_package_group_name = aws_sagemaker_model_package_group.models.model_package_group_name
-    subnet_ids               = jsonencode(data.aws_subnets.selected.ids)
-    sagemaker_sg_ids         = jsonencode([aws_security_group.sagemaker.id])
+    sagemaker_role_arn            = aws_iam_role.sagemaker_execution.arn
+    code_bucket                   = aws_s3_bucket.models.bucket
+    output_bucket                 = aws_s3_bucket.models.bucket
+    secret_arn                    = aws_secretsmanager_secret.db_url.arn
+    model_package_group_name      = aws_sagemaker_model_package_group.models.model_package_group_name
+    subnet_ids                    = jsonencode(data.aws_subnets.selected.ids)
+    sagemaker_sg_ids              = jsonencode([aws_security_group.sagemaker.id])
   })
 
   depends_on = [
@@ -207,7 +207,7 @@ resource "aws_scheduler_schedule" "retraining" {
   flexible_time_window {
     mode = "OFF"
   }
-  schedule_expression = "cron(0 6 ? * 1 *)"  # Monday 06:00 UTC
+  schedule_expression = "cron(0 6 ? * 1 *)" # Monday 06:00 UTC
 
   target {
     arn      = aws_sagemaker_pipeline.retraining.arn

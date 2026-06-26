@@ -1,6 +1,6 @@
 resource "random_password" "db_password" {
   length  = 32
-  special = false  # avoid DSN-unsafe characters
+  special = false # avoid DSN-unsafe characters
 }
 
 resource "aws_db_subnet_group" "main" {
@@ -14,9 +14,9 @@ resource "aws_security_group" "rds" {
   vpc_id      = data.aws_vpc.selected.id
 
   ingress {
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
+    from_port = 5432
+    to_port   = 5432
+    protocol  = "tcp"
     security_groups = [
       aws_security_group.ecs_tasks.id,
       aws_security_group.worker.id,
@@ -36,7 +36,7 @@ resource "aws_db_instance" "main" {
   identifier        = "${local.name_prefix}-db"
   engine            = "postgres"
   engine_version    = "16"
-  instance_class    = "db.t3.micro"  # free tier eligible (750h/month for 12 months)
+  instance_class    = "db.t3.micro" # free tier eligible (750h/month for 12 months)
   allocated_storage = 20
 
   db_name  = "cortexguard"
