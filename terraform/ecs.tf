@@ -11,16 +11,16 @@ locals {
   sqs_queue_url = aws_sqs_queue.mayday.url
 
   common_environment = [
-    { name = "CLOUD_LLM_BACKEND",         value = var.llm_backend },
-    { name = "CLOUD_EMBEDDER_BACKEND",     value = "miniLM" },
+    { name = "CLOUD_LLM_BACKEND", value = var.llm_backend },
+    { name = "CLOUD_EMBEDDER_BACKEND", value = "miniLM" },
     { name = "CLOUD_VECTOR_STORE_BACKEND", value = "qdrant" },
-    { name = "CLOUD_QDRANT_URL",           value = local.qdrant_url },
-    { name = "CLOUD_INCIDENT_STORE",       value = "postgres" },
-    { name = "CLOUD_SQS_QUEUE_URL",        value = local.sqs_queue_url },
-    { name = "CLOUD_SQS_REGION",           value = var.aws_region },
-    { name = "LOG_JSON",                   value = "true" },
-    { name = "LOG_LEVEL",                  value = "INFO" },
-    { name = "SAGEMAKER_ENDPOINT_NAME",    value = aws_sagemaker_endpoint.step_classifier.name },
+    { name = "CLOUD_QDRANT_URL", value = local.qdrant_url },
+    { name = "CLOUD_INCIDENT_STORE", value = "postgres" },
+    { name = "CLOUD_SQS_QUEUE_URL", value = local.sqs_queue_url },
+    { name = "CLOUD_SQS_REGION", value = var.aws_region },
+    { name = "LOG_JSON", value = "true" },
+    { name = "LOG_LEVEL", value = "INFO" },
+    { name = "SAGEMAKER_ENDPOINT_NAME", value = aws_sagemaker_endpoint.step_classifier.name },
   ]
 
   common_secrets = [

@@ -16,9 +16,9 @@ data "aws_sagemaker_prebuilt_ecr_image" "model_monitor" {
 locals {
   sagemaker_sklearn_image       = data.aws_sagemaker_prebuilt_ecr_image.sklearn.registry_path
   sagemaker_model_monitor_image = data.aws_sagemaker_prebuilt_ecr_image.model_monitor.registry_path
-  champion_model_name     = "${local.name_prefix}-step-classifier-champion"
-  challenger_model_name   = "${local.name_prefix}-step-classifier-challenger"
-  endpoint_name           = "${local.name_prefix}-step-classifier"
+  champion_model_name           = "${local.name_prefix}-step-classifier-champion"
+  challenger_model_name         = "${local.name_prefix}-step-classifier-challenger"
+  endpoint_name                 = "${local.name_prefix}-step-classifier"
 }
 
 # ── IAM role for SageMaker endpoint + monitoring + Lambda ──────────────
@@ -47,7 +47,7 @@ resource "aws_iam_role" "sagemaker_endpoint_execution" {
 
 data "aws_iam_policy_document" "sagemaker_endpoint_execution" {
   statement {
-    actions   = ["s3:GetObject", "s3:PutObject", "s3:ListBucket"]
+    actions = ["s3:GetObject", "s3:PutObject", "s3:ListBucket"]
     resources = [
       aws_s3_bucket.models.arn,
       "${aws_s3_bucket.models.arn}/*",
@@ -76,7 +76,7 @@ data "aws_iam_policy_document" "sagemaker_endpoint_execution" {
     resources = ["*"]
   }
   statement {
-    actions   = ["cloudwatch:PutMetricData"]
+    actions   = ["cloudwatch:PutMetricData", "cloudwatch:GetMetricStatistics"]
     resources = ["*"]
   }
   statement {
@@ -169,20 +169,20 @@ resource "aws_sagemaker_endpoint_configuration" "step_classifier" {
   name_prefix = "${local.name_prefix}-step-clf-config-"
 
   production_variants {
-    variant_name           = "champion"
-    model_name             = aws_sagemaker_model.champion.name
-    initial_instance_count = 1
-    instance_type          = var.sagemaker_endpoint_instance_type
-    initial_variant_weight = 90
+    variant_name                                      = "champion"
+    model_name                                        = aws_sagemaker_model.champion.name
+    initial_instance_count                            = 1
+    instance_type                                     = var.sagemaker_endpoint_instance_type
+    initial_variant_weight                            = 90
     container_startup_health_check_timeout_in_seconds = 60
   }
 
   production_variants {
-    variant_name           = "challenger"
-    model_name             = aws_sagemaker_model.challenger.name
-    initial_instance_count = 1
-    instance_type          = var.sagemaker_endpoint_instance_type
-    initial_variant_weight = 10
+    variant_name                                      = "challenger"
+    model_name                                        = aws_sagemaker_model.challenger.name
+    initial_instance_count                            = 1
+    instance_type                                     = var.sagemaker_endpoint_instance_type
+    initial_variant_weight                            = 10
     container_startup_health_check_timeout_in_seconds = 60
   }
 
@@ -247,7 +247,7 @@ resource "aws_sagemaker_data_quality_job_definition" "data_drift" {
 
   data_quality_baseline_config {
     constraints_resource { s3_uri = "${local.monitor_baseline_uri}/constraints.json" }
-    statistics_resource  { s3_uri = "${local.monitor_baseline_uri}/statistics.json" }
+    statistics_resource { s3_uri = "${local.monitor_baseline_uri}/statistics.json" }
   }
 
   data_quality_job_input {
@@ -261,9 +261,9 @@ resource "aws_sagemaker_data_quality_job_definition" "data_drift" {
   data_quality_job_output_config {
     monitoring_outputs {
       s3_output {
-        s3_uri          = "s3://${aws_s3_bucket.models.bucket}/monitor-results"
-        local_path      = "/opt/ml/processing/output"
-        s3_upload_mode  = "EndOfJob"
+        s3_uri         = "s3://${aws_s3_bucket.models.bucket}/monitor-results"
+        local_path     = "/opt/ml/processing/output"
+        s3_upload_mode = "EndOfJob"
       }
     }
   }
@@ -284,40 +284,78 @@ resource "aws_sagemaker_data_quality_job_definition" "data_drift" {
 # ── Champion/challenger promotion Lambda ────────────────────────────────
 # Triggered by EventBridge when a new model package is created.
 
-resource "aws_lambda_function" "promote_champion" {
-  filename         = "${path.module}/promote_lambda_payload.zip"
-  source_code_hash = filebase64sha256("${path.module}/promote_champion.py")
-  function_name    = "${local.name_prefix}-promote-champion"
+resource "aws_lambda_function" "deploy_candidate" {
+  filename         = "${path.module}/deploy_candidate_payload.zip"
+  source_code_hash = filebase64sha256("${path.module}/deploy_candidate.py")
+  function_name    = "${local.name_prefix}-deploy-candidate"
   role             = aws_iam_role.sagemaker_endpoint_execution.arn
-  handler          = "promote_champion.lambda_handler"
+  handler          = "deploy_candidate.lambda_handler"
   runtime          = "python3.12"
   timeout          = 120
   memory_size      = 256
-  depends_on       = [null_resource.promote_lambda_source]
+  depends_on       = [null_resource.deploy_candidate_source]
 
   environment {
     variables = {
-      MODEL_PACKAGE_GROUP    = aws_sagemaker_model_package_group.models.model_package_group_name
-      ENDPOINT_NAME          = aws_sagemaker_endpoint.step_classifier.name
-      PREFIX                 = local.name_prefix
-      MODEL_BUCKET           = aws_s3_bucket.models.bucket
+      MODEL_PACKAGE_GROUP     = aws_sagemaker_model_package_group.models.model_package_group_name
+      ENDPOINT_NAME           = aws_sagemaker_endpoint.step_classifier.name
+      PREFIX                  = local.name_prefix
+      MODEL_BUCKET            = aws_s3_bucket.models.bucket
       SAGEMAKER_SKLEARN_IMAGE = local.sagemaker_sklearn_image
-      EXECUTION_ROLE_ARN     = aws_iam_role.sagemaker_endpoint_execution.arn
+      EXECUTION_ROLE_ARN      = aws_iam_role.sagemaker_endpoint_execution.arn
     }
   }
 }
 
-resource "aws_lambda_permission" "promote_champion" {
-  statement_id  = "AllowEventBridgeInvoke"
+resource "aws_lambda_permission" "deploy_candidate" {
+  statement_id  = "AllowEventBridgeInvokeDeployCandidate"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.promote_champion.function_name
+  function_name = aws_lambda_function.deploy_candidate.function_name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.model_registered.arn
 }
 
+# ── Scheduled promotion check: promote challenger → champion ────────────
+
+resource "aws_lambda_function" "promote_challenger" {
+  filename         = "${path.module}/promote_challenger_payload.zip"
+  source_code_hash = filebase64sha256("${path.module}/promote_challenger.py")
+  function_name    = "${local.name_prefix}-promote-challenger"
+  role             = aws_iam_role.sagemaker_endpoint_execution.arn
+  handler          = "promote_challenger.lambda_handler"
+  runtime          = "python3.12"
+  timeout          = 120
+  memory_size      = 256
+  depends_on       = [null_resource.promote_challenger_source]
+
+  environment {
+    variables = {
+      ENDPOINT_NAME                       = aws_sagemaker_endpoint.step_classifier.name
+      PREFIX                              = local.name_prefix
+      MODEL_BUCKET                        = aws_s3_bucket.models.bucket
+      SAGEMAKER_SKLEARN_IMAGE             = local.sagemaker_sklearn_image
+      EXECUTION_ROLE_ARN                  = aws_iam_role.sagemaker_endpoint_execution.arn
+      CANDIDATE_MONITORING_WINDOW_MINUTES = "30"
+      CANDIDATE_ERROR_RATE_THRESHOLD      = "5"
+      CANDIDATE_LATENCY_MS_THRESHOLD      = "2000"
+      CANDIDATE_MIN_INVOCATIONS           = "1"
+    }
+  }
+}
+
+resource "aws_lambda_permission" "promote_challenger" {
+  statement_id  = "AllowEventBridgeInvokePromoteChallenger"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.promote_challenger.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.promote_challenger_check.arn
+}
+
+# ── Model package event (triggers candidate deployment) ─────────────────
+
 resource "aws_cloudwatch_event_rule" "model_registered" {
   name        = "${local.name_prefix}-model-registered"
-  description = "Fires when a new model package is created. Lambda auto-approves and promotes"
+  description = "Fires when a new model package is created. Lambda deploys as challenger at 10%"
 
   event_pattern = jsonencode({
     source      = ["aws.sagemaker"]
@@ -329,10 +367,24 @@ resource "aws_cloudwatch_event_rule" "model_registered" {
   })
 }
 
-resource "aws_cloudwatch_event_target" "promote_champion" {
+resource "aws_cloudwatch_event_target" "deploy_candidate" {
   rule      = aws_cloudwatch_event_rule.model_registered.name
-  arn       = aws_lambda_function.promote_champion.arn
-  target_id = "PromoteChampion"
+  arn       = aws_lambda_function.deploy_candidate.arn
+  target_id = "DeployCandidate"
+}
+
+# ── Scheduled promotion check (every 15 minutes) ────────────────────────
+
+resource "aws_cloudwatch_event_rule" "promote_challenger_check" {
+  name                = "${local.name_prefix}-promote-challenger-check"
+  description         = "Every 15 min: check challenger metrics and promote if healthy"
+  schedule_expression = "rate(15 minutes)"
+}
+
+resource "aws_cloudwatch_event_target" "promote_challenger" {
+  rule      = aws_cloudwatch_event_rule.promote_challenger_check.name
+  arn       = aws_lambda_function.promote_challenger.arn
+  target_id = "PromoteChallenger"
 }
 
 # ── Rollback Lambda (triggered by drift/error alarms) ───────────────────
@@ -351,12 +403,12 @@ resource "aws_lambda_function" "rollback" {
 
   environment {
     variables = {
-      ENDPOINT_NAME          = aws_sagemaker_endpoint.step_classifier.name
-      PREFIX                 = local.name_prefix
-      MODEL_PACKAGE_GROUP    = aws_sagemaker_model_package_group.models.model_package_group_name
+      ENDPOINT_NAME           = aws_sagemaker_endpoint.step_classifier.name
+      PREFIX                  = local.name_prefix
+      MODEL_PACKAGE_GROUP     = aws_sagemaker_model_package_group.models.model_package_group_name
       SAGEMAKER_SKLEARN_IMAGE = local.sagemaker_sklearn_image
-      EXECUTION_ROLE_ARN     = aws_iam_role.sagemaker_endpoint_execution.arn
-      MODEL_BUCKET           = aws_s3_bucket.models.bucket
+      EXECUTION_ROLE_ARN      = aws_iam_role.sagemaker_endpoint_execution.arn
+      MODEL_BUCKET            = aws_s3_bucket.models.bucket
     }
   }
 }
@@ -378,10 +430,10 @@ resource "aws_sns_topic_subscription" "rollback_subscription" {
 # ── CloudWatch alarms for drift and endpoint health ─────────────────────
 
 resource "aws_cloudwatch_metric_alarm" "data_drift_high" {
-  alarm_name          = "${local.name_prefix}-data-drift-high"
-  alarm_description   = "Data drift detected on the step classifier endpoint, rollback triggered."
-  namespace           = "AWS/SageMaker"
-  metric_name         = "DriftViolationCount"
+  alarm_name        = "${local.name_prefix}-data-drift-high"
+  alarm_description = "Data drift detected on the step classifier endpoint, rollback triggered."
+  namespace         = "AWS/SageMaker"
+  metric_name       = "DriftViolationCount"
   dimensions = {
     MonitoringSchedule = aws_sagemaker_monitoring_schedule.data_drift.name
   }
@@ -396,10 +448,10 @@ resource "aws_cloudwatch_metric_alarm" "data_drift_high" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "endpoint_error_rate" {
-  alarm_name          = "${local.name_prefix}-endpoint-4xx-rate"
-  alarm_description   = "High 4XX error rate on the step classifier endpoint."
-  namespace           = "AWS/SageMaker"
-  metric_name         = "ModelInvocation4XXErrors"
+  alarm_name        = "${local.name_prefix}-endpoint-4xx-rate"
+  alarm_description = "High 4XX error rate on the step classifier endpoint."
+  namespace         = "AWS/SageMaker"
+  metric_name       = "ModelInvocation4XXErrors"
   dimensions = {
     EndpointName = aws_sagemaker_endpoint.step_classifier.name
     VariantName  = "champion"
@@ -415,10 +467,10 @@ resource "aws_cloudwatch_metric_alarm" "endpoint_error_rate" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "endpoint_latency" {
-  alarm_name          = "${local.name_prefix}-endpoint-latency"
-  alarm_description   = "High p99 latency on the step classifier endpoint."
-  namespace           = "AWS/SageMaker"
-  metric_name         = "ModelLatency"
+  alarm_name        = "${local.name_prefix}-endpoint-latency"
+  alarm_description = "High p99 latency on the step classifier endpoint."
+  namespace         = "AWS/SageMaker"
+  metric_name       = "ModelLatency"
   dimensions = {
     EndpointName = aws_sagemaker_endpoint.step_classifier.name
     VariantName  = "champion"
@@ -450,7 +502,7 @@ resource "aws_sns_topic_subscription" "drift_alarm_email" {
 
 resource "null_resource" "bootstrap_artifact" {
   triggers = {
-    bucket_name    = aws_s3_bucket.models.bucket
+    bucket_name = aws_s3_bucket.models.bucket
     # Bump this string whenever the inline inference script changes
     # so Terraform re-uploads both artifacts with the new content.
     script_version = "v3-submit-directory"
@@ -506,12 +558,21 @@ PYEOF
 
 # ── Lambda source zips ──────────────────────────────────────────────────
 
-resource "null_resource" "promote_lambda_source" {
+resource "null_resource" "deploy_candidate_source" {
   triggers = {
-    script_hash = filemd5("${path.module}/promote_champion.py")
+    script_hash = filemd5("${path.module}/deploy_candidate.py")
   }
   provisioner "local-exec" {
-    command = "zip -j ${path.module}/promote_lambda_payload.zip ${path.module}/promote_champion.py"
+    command = "zip -j ${path.module}/deploy_candidate_payload.zip ${path.module}/deploy_candidate.py"
+  }
+}
+
+resource "null_resource" "promote_challenger_source" {
+  triggers = {
+    script_hash = filemd5("${path.module}/promote_challenger.py")
+  }
+  provisioner "local-exec" {
+    command = "zip -j ${path.module}/promote_challenger_payload.zip ${path.module}/promote_challenger.py"
   }
 }
 

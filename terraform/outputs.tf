@@ -87,9 +87,14 @@ output "drift_alarm_topic_arn" {
   value       = aws_sns_topic.drift_alarm.arn
 }
 
-output "promote_lambda_name" {
-  description = "Lambda function name for champion/challenger promotion"
-  value       = aws_lambda_function.promote_champion.function_name
+output "deploy_candidate_lambda_name" {
+  description = "Lambda function name for deploying a new model as challenger at 10%"
+  value       = aws_lambda_function.deploy_candidate.function_name
+}
+
+output "promote_challenger_lambda_name" {
+  description = "Lambda function name for scheduled challenger-to-champion promotion"
+  value       = aws_lambda_function.promote_challenger.function_name
 }
 
 output "rollback_lambda_name" {
