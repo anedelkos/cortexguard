@@ -39,7 +39,7 @@ cloud = [
     "openai>=1.82.0",
 ]
 ml = [
-    "torch>=2.9.1",
+    "torch>=2.13.0",
     "torchvision>=0.24.1",
     "transformers>=4.57.3",
     "accelerate>=1.12.0",
