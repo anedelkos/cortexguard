@@ -60,6 +60,25 @@ async def test_generate_node_populates_candidate_plan_and_confidence() -> None:
 
 
 @pytest.mark.asyncio
+async def test_generate_node_with_all_packet_fields() -> None:
+    client = MockLLMClient()
+    node = make_generate_candidate_plan_node(client)
+    packet = _make_packet()
+    packet.reasoning_trace = [{"step": 1}]
+    packet.last_actions = [{"action": "stop"}]
+    packet.current_plan_id = "plan-abc"
+    packet.current_step = "step-1"
+    packet.scene_graph_compact = {"nodes": []}
+    packet.remediation_policy = {"policy": "test"}
+    packet.current_plan_compact = {"steps": []}
+
+    state = _make_state(packet)
+    result = await node(state)
+    assert result["candidate_plan"] is not None
+    assert isinstance(result["confidence"], float)
+
+
+@pytest.mark.asyncio
 async def test_generate_node_none_client_returns_stub() -> None:
     node = make_generate_candidate_plan_node(None)
     state = _make_state(_make_packet())
