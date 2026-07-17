@@ -232,12 +232,43 @@ def make_generate_candidate_plan_node(
                     r.summary for r in state.get("retrieved_incident_records", [])  # type: ignore[attr-defined]
                 ]
                 request = PlannerRequest(
+                    anomaly_key=anomaly_key,
+                    severity=severity,
                     escalation_summary=f"device={packet.device_id} anomaly={anomaly_key}",
                     state_summary=json.dumps(packet.state_estimate or {}),
                     retrieved_summaries=retrieved_summaries,
                     capability_catalog_json=capability_catalog_json,
-                    anomaly_key=anomaly_key,
-                    severity=severity,
+                    reasoning_trace=(
+                        json.dumps(packet.reasoning_trace, indent=2)
+                        if packet.reasoning_trace
+                        else ""
+                    ),
+                    last_actions=(
+                        json.dumps(packet.last_actions, indent=2) if packet.last_actions else ""
+                    ),
+                    current_plan_id=packet.current_plan_id,
+                    current_step=packet.current_step,
+                    scene_graph=(
+                        json.dumps(packet.scene_graph_compact, indent=2)
+                        if packet.scene_graph_compact
+                        else ""
+                    ),
+                    system_health=packet.health.model_dump_json(indent=2),
+                    anomaly_details=(
+                        json.dumps([a.model_dump(mode="json") for a in packet.anomalies], indent=2)
+                        if packet.anomalies
+                        else ""
+                    ),
+                    remediation_policy=(
+                        json.dumps(packet.remediation_policy, indent=2)
+                        if packet.remediation_policy
+                        else ""
+                    ),
+                    current_plan_compact=(
+                        json.dumps(packet.current_plan_compact, indent=2)
+                        if packet.current_plan_compact
+                        else ""
+                    ),
                 )
                 t0 = time.monotonic()
                 try:

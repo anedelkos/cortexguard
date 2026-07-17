@@ -64,5 +64,44 @@ class TestBuildPlannerPrompt:
         prompt = build_planner_prompt(request)
         assert "Do not invent capabilities" in prompt
         assert "reversible" in prompt
-        assert "structured JSON only" in prompt
-        assert "outside the provided capability catalog" in prompt
+        assert "Generate a remediation plan as structured JSON" in prompt
+        assert "Only use actions listed in the capability catalog" in prompt
+
+    def test_xml_structure_present(self) -> None:
+        request = _make_request(
+            anomaly_key="OVERHEAT",
+            anomaly_details='[{"key": "OVERHEAT", "severity": "high"}]',
+            reasoning_trace='[{"step": "check temp", "result": "over limit"}]',
+            last_actions='[{"action": "SET_POWER", "result": "completed"}]',
+            current_plan_id="plan-123",
+            current_step="step-2",
+            scene_graph='{"objects": [{"id": "1", "label": "person"}]}',
+            system_health='{"cpu_load_pct": 45.0}',
+            remediation_policy='{"action": "e-stop"}',
+            current_plan_compact='{"id": "plan-123"}',
+        )
+        prompt = build_planner_prompt(request)
+        assert "<context>" in prompt
+        assert "<anomaly>" in prompt
+        assert "<key>OVERHEAT</key>" in prompt
+        assert "<state>" in prompt
+        assert "<edge_reasoning>" in prompt
+        assert "<actions_tried>" in prompt
+        assert "<active_plan>" in prompt
+        assert "<id>plan-123</id>" in prompt
+        assert "<current_step>step-2</current_step>" in prompt
+        assert "<vision>" in prompt
+        assert "<system_health>" in prompt
+        assert "<remediation_policy>" in prompt
+        assert "<capability_catalog>" in prompt
+        assert "<instruction>" in prompt
+
+    def test_empty_fields_suppressed(self) -> None:
+        request = _make_request()
+        prompt = build_planner_prompt(request)
+        assert "<edge_reasoning>" not in prompt
+        assert "<actions_tried>" not in prompt
+        assert "<vision>" not in prompt
+        assert "<remediation_policy>" not in prompt
+        assert "<active_plan>" not in prompt
+        assert "<details>" not in prompt
