@@ -50,7 +50,7 @@ ml = [
 [dependency-groups]
 dev = [
     "bandit>=1.8.6",
-    "black>=25.9.0",
+    "black>=26.3.1",
     "blacken-docs>=1.20.0",
     "commitizen>=4.9.1",
     "deptry>=0.23.1",
